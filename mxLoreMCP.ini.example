@@ -1,0 +1,85 @@
+; =============================================================================
+; mxLore MCP Server — Configuration
+;
+; Copy to mxLoreMCP.ini and set your database password. That's it.
+; The server auto-creates the database and schema on first start.
+;
+; Full docs: https://www.mxlore.dev
+; =============================================================================
+
+[Database]
+Host=localhost
+Port=3306
+
+; Database name (auto-created if it does not exist)
+Database=mxai_knowledge
+
+Username=root
+
+; Set your MariaDB password here
+Password=
+
+; Optional: XOR-obfuscated password (run: mxLoreMCP.exe --encrypt "pw")
+;PasswordEnc=
+
+; Path to MariaDB installation (auto-detected from registry/common paths)
+; Only set this if auto-detection fails
+;VendorHome=
+
+[Server]
+; 127.0.0.1 = localhost only (safe default)
+; 0.0.0.0   = all interfaces (for LAN access)
+BindAddress=127.0.0.1
+Port=8080
+MaxConnections=10
+
+; This server's own project name in the DB (auto-created on boot)
+SelfSlug=mxLore
+
+[Limits]
+DefaultTokenBudget=2000
+MaxResultRows=50
+
+; Session expiry in minutes (default: 8 hours)
+SessionTimeoutMinutes=480
+
+[Backup]
+; Default: backups\ next to the exe
+;BackupPath=
+WarnAfterHours=24
+
+[Security]
+; off     = no ACL (single developer)
+; audit   = log unauthorized access attempts
+; enforce = block unauthorized access (recommended for teams)
+developer_acl_mode=enforce
+
+[Admin]
+; Admin UI web interface
+; Open http://localhost:<port> to manage developers, keys, projects
+; First start with 0 developers: no login required
+; Set to 0 to disable
+admin_port=8081
+
+[Logging]
+LogFile=logs\mxLoreMCP.log
+
+; DEBUG, INFO, WARNING, ERROR
+LogLevel=INFO
+
+[AI]
+; Automatic summaries, tagging, stale detection at boot
+; Requires Claude CLI (claude) in PATH
+Enabled=0
+
+; Claude API key (plain text)
+;ApiKey=
+
+; Or XOR-obfuscated (run: mxLoreMCP.exe --encrypt "key")
+;ApiKeyEnc=
+DefaultModel=claude-haiku-4-5-20251001
+MaxCallsPerBoot=100
+MaxTokensPerBoot=50000
+
+[SkillEvolution]
+MinFindingsForTuning=10

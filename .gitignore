@@ -1,0 +1,56 @@
+# Binaries
+*.exe
+*.dll
+*.dcu
+*.res
+*.map
+*.drc
+*.rsm
+
+# Delphi IDE
+*.identcache
+*.dproj.local
+*.dsv
+*.stat
+*.local
+__history/
+__recovery/
+Win32/
+Win64/
+
+# Config with secrets
+mxLoreMCP.ini
+*.ini
+!mxLoreMCP.ini.example
+!claude-setup/proxy/mxMCPProxy.ini
+
+# Runtime
+logs/
+backups/
+release/
+lib/
+docs/
+
+# Claude Code local state
+.claude/
+.mcp.json
+CLAUDE.md
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Delphi project group
+*.dsk
+*.~dsk
+*.groupproj
+
+# Legacy / internal
+bash.exe.stackdump
+env.php
+mxHannesMCP-Overview.md
+mxHannesMCP_AnsatzC_Claude_Instruction.json
+iis-rewrite-rules.xml
+iis-url-rewrite-rule.xml
+config/
