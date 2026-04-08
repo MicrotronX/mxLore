@@ -18,7 +18,8 @@ implementation
 
 uses
   mx.Logic.AccessControl,
-  mx.Data.Graph;
+  mx.Data.Graph,
+  mx.Intelligence.HybridSearch;
 
 type
   TRecallItem = record
@@ -462,6 +463,68 @@ begin
     except
       on E: Exception do
         AContext.Logger.Log(mlDebug, 'Graph scoring skipped: ' + E.Message);
+    end;
+  end;
+
+  // --- Semantic vector boost (finds thematically relevant lessons) ---
+  if Assigned(GHybridSearch) and (Query <> '') and (ItemCount > 0) then
+  begin
+    try
+      var QueryEmbedding := GHybridSearch.EmbeddingClient.GetEmbedding(Query);
+      if Length(QueryEmbedding) > 0 then
+      begin
+        // Build vector literal
+        var FmtSettings: TFormatSettings;
+        FmtSettings := TFormatSettings.Create;
+        FmtSettings.DecimalSeparator := '.';
+        var VecLiteral: string := '[';
+        for I := 0 to High(QueryEmbedding) do
+        begin
+          if I > 0 then VecLiteral := VecLiteral + ',';
+          VecLiteral := VecLiteral + FloatToStr(QueryEmbedding[I], FmtSettings);
+        end;
+        VecLiteral := VecLiteral + ']';
+
+        Qry := AContext.CreateQuery(
+          'SELECT id, VEC_DISTANCE_COSINE(embedding, VEC_FromText(' +
+          QuotedStr(VecLiteral) + ')) AS distance ' +
+          'FROM documents WHERE doc_type = ''lesson'' ' +
+          'AND embedding IS NOT NULL AND status <> ''deleted'' ' +
+          'ORDER BY distance ASC LIMIT 10');
+        try
+          Qry.Open;
+          while not Qry.Eof do
+          begin
+            var VecDocId := Qry.FieldByName('id').AsInteger;
+            var VecScore := Max(0, 1.0 - Qry.FieldByName('distance').AsFloat);
+            // Boost existing items that are semantically close
+            for I := 0 to ItemCount - 1 do
+            begin
+              if Items[I].DocId = VecDocId then
+              begin
+                Items[I].Score := Items[I].Score + (VecScore * 20); // max +20 boost
+                Break;
+              end;
+            end;
+            Qry.Next;
+          end;
+        finally
+          Qry.Free;
+        end;
+
+        // Re-sort after vector boost
+        for I := 0 to ItemCount - 2 do
+          for J := I + 1 to ItemCount - 1 do
+            if Items[J].Score > Items[I].Score then
+            begin
+              Temp := Items[I];
+              Items[I] := Items[J];
+              Items[J] := Temp;
+            end;
+      end;
+    except
+      on E: Exception do
+        AContext.Logger.Log(mlDebug, 'Vector recall boost skipped: ' + E.ClassName);
     end;
   end;
 

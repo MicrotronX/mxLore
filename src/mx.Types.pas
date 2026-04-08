@@ -105,8 +105,8 @@ procedure MxSetThreadAuth(const AResult: TMxAuthResult);
 function MxGetThreadAuth: TMxAuthResult;
 
 const
-  MXAI_VERSION = '2.2.0';
-  MXAI_BUILD   = 76;  // Admin-UI: Skills→Intelligence, Recall+Graph+Lessons cards, graph-stats+lesson-stats endpoints
+  MXAI_VERSION = '2.3.0';
+  MXAI_BUILD   = 78;  // Semantic Search, Auto-Encrypt Keys, Admin-UI Embedding Card, Auto-Migrate sql/043
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';

@@ -48,6 +48,19 @@ type
     FAIStaleDetectionEnabled: Boolean;
     FAIStubWarningEnabled: Boolean;
     FAIClaudeExePath: string;
+    // Embedding / Semantic Search
+    FEmbeddingApiKey: string;
+    FEmbeddingEnabled: Boolean;
+    FEmbeddingUrl: string;
+    FEmbeddingModel: string;
+    FEmbeddingDimensions: Integer;
+    FEmbeddingMaxInputChars: Integer;
+    FEmbeddingTimeoutMs: Integer;
+    FEmbeddingDocTypes: string;
+    FSemanticWeight: Double;
+    FKeywordWeight: Double;
+    FBatchIntervalMinutes: Integer;
+    FEmbeddingBatchSize: Integer;
     // Identity
     FSelfSlug: string;
   public
@@ -92,6 +105,19 @@ type
     property AIStaleDetectionEnabled: Boolean read FAIStaleDetectionEnabled;
     property AIStubWarningEnabled: Boolean read FAIStubWarningEnabled;
     property AIClaudeExePath: string read FAIClaudeExePath;
+    // Embedding / Semantic Search
+    property EmbeddingApiKey: string read FEmbeddingApiKey;
+    property EmbeddingEnabled: Boolean read FEmbeddingEnabled;
+    property EmbeddingUrl: string read FEmbeddingUrl;
+    property EmbeddingModel: string read FEmbeddingModel;
+    property EmbeddingDimensions: Integer read FEmbeddingDimensions;
+    property EmbeddingMaxInputChars: Integer read FEmbeddingMaxInputChars;
+    property EmbeddingTimeoutMs: Integer read FEmbeddingTimeoutMs;
+    property EmbeddingDocTypes: string read FEmbeddingDocTypes;
+    property SemanticWeight: Double read FSemanticWeight;
+    property KeywordWeight: Double read FKeywordWeight;
+    property BatchIntervalMinutes: Integer read FBatchIntervalMinutes;
+    property EmbeddingBatchSize: Integer read FEmbeddingBatchSize;
     // Identity
     property SelfSlug: string read FSelfSlug;
   end;
@@ -224,6 +250,28 @@ begin
   Result := '';
 end;
 
+procedure AutoEncryptKey(AIni: TIniFile; const ASection, AKeyName, AEncKeyName: string);
+var
+  PlainVal, EncVal: string;
+begin
+  PlainVal := AIni.ReadString(ASection, AKeyName, '');
+  EncVal := AIni.ReadString(ASection, AEncKeyName, '');
+  if (PlainVal <> '') and (EncVal = '') then
+  begin
+    try
+      AIni.WriteString(ASection, AEncKeyName, mxEncryptStaticString(PlainVal));
+      AIni.WriteString(ASection, AKeyName, '');
+      WriteLn('[Config] Auto-encrypted [', ASection, '] ', AKeyName, ' -> ', AEncKeyName);
+    except
+      on E: Exception do
+        WriteLn('[Config] WARNING: Auto-encrypt failed for ', AKeyName, ': ', E.Message);
+    end;
+  end
+  else if (PlainVal <> '') and (EncVal <> '') then
+    WriteLn('[Config] WARNING: Both ', AKeyName, ' and ', AEncKeyName,
+      ' set in [', ASection, '], using ', AEncKeyName);
+end;
+
 constructor TMxConfig.Create(const AIniPath: string);
 var
   Ini: TIniFile;
@@ -302,6 +350,35 @@ begin
     FAIStaleDetectionEnabled := Ini.ReadBool('AI', 'StaleDetectionEnabled', True);
     FAIStubWarningEnabled := Ini.ReadBool('AI', 'StubWarningEnabled', True);
     FAIClaudeExePath := Ini.ReadString('AI', 'ClaudeExePath', 'claude');
+
+    // Embedding / Semantic Search
+    FEmbeddingApiKey := mxDecryptStaticString(
+      Ini.ReadString('AI', 'EmbeddingApiKeyEnc', ''));
+    if FEmbeddingApiKey = '' then
+      FEmbeddingApiKey := Ini.ReadString('AI', 'EmbeddingApiKey', '');
+    if FEmbeddingApiKey = '' then
+      FEmbeddingApiKey := FAIApiKey;  // Fallback: use general AI key
+    FEmbeddingEnabled := Ini.ReadBool('AI', 'EmbeddingEnabled', False);
+    FEmbeddingUrl := Ini.ReadString('AI', 'EmbeddingUrl',
+      'https://api.openai.com/v1/embeddings');
+    FEmbeddingModel := Ini.ReadString('AI', 'EmbeddingModel',
+      'text-embedding-3-small');
+    FEmbeddingDimensions := Ini.ReadInteger('AI', 'EmbeddingDimensions', 1536);
+    FEmbeddingMaxInputChars := Ini.ReadInteger('AI', 'EmbeddingMaxInputChars', 30000);
+    FEmbeddingTimeoutMs := Ini.ReadInteger('AI', 'EmbeddingTimeoutMs', 30000);
+    FEmbeddingDocTypes := Ini.ReadString('AI', 'EmbeddingDocTypes',
+      'spec,plan,decision,lesson,note,reference,snippet,bugreport,feature_request,todo,assumption');
+    FSemanticWeight := StrToFloatDef(
+      Ini.ReadString('AI', 'SemanticWeight', '0.4'), 0.4);
+    FKeywordWeight := StrToFloatDef(
+      Ini.ReadString('AI', 'KeywordWeight', '0.6'), 0.6);
+    FBatchIntervalMinutes := Ini.ReadInteger('AI', 'BatchIntervalMinutes', 15);
+    FEmbeddingBatchSize := Ini.ReadInteger('AI', 'EmbeddingBatchSize', 50);
+
+    // Auto-encrypt: plaintext keys → encrypted, clear plaintext from INI
+    AutoEncryptKey(Ini, 'Database', 'Password', 'PasswordEnc');
+    AutoEncryptKey(Ini, 'AI', 'ApiKey', 'ApiKeyEnc');
+    AutoEncryptKey(Ini, 'AI', 'EmbeddingApiKey', 'EmbeddingApiKeyEnc');
   finally
     Ini.Free;
   end;

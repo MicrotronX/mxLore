@@ -4,15 +4,17 @@ interface
 
 uses
   System.SysUtils, System.JSON, System.Classes, System.DateUtils, System.StrUtils,
+  System.SyncObjs,
   {$IFDEF MSWINDOWS} Winapi.Windows, {$ENDIF}
   Data.DB, FireDAC.Comp.Client,
-  mx.Types, mx.Config, mx.Data.Pool;
+  mx.Types, mx.Config, mx.Data.Pool, mx.Intelligence.Embedding;
 
 type
   TMxAIJobType = (jtSummary, jtTagging, jtStaleDetection, jtStubWarning,
     jtRecallTimeout, jtViolationCounter, jtLessonDedupe,
     jtContradictionDetection, jtStaleCandidatePromotion,
-    jtRecallEffectiveness, jtSkillPrecision, jtHealthAutoNotes);
+    jtRecallEffectiveness, jtSkillPrecision, jtHealthAutoNotes,
+    jtEmbeddingRefresh);
 
   TMxAIBatchStats = record
     StaleDetected: Integer;
@@ -31,6 +33,12 @@ type
     FLogger: IMxLogger;
     FStats: TMxAIBatchStats;
     FAIThread: TThread;
+    FBatchThread: TThread;
+    FShutdownEvent: TEvent;
+    FEmbeddingClient: TMxEmbeddingClient;
+
+    // Embedding refresh
+    procedure RunEmbeddingRefreshJob;
 
     // Audit logging (for SQL-only jobs)
     procedure LogBatchResult(ACtx: IMxDbContext; AJobType: TMxAIJobType;
@@ -60,9 +68,10 @@ type
     class function JobTypeToStr(AJobType: TMxAIJobType): string; static;
   public
     constructor Create(APool: TMxConnectionPool; AConfig: TMxConfig;
-      ALogger: IMxLogger);
+      ALogger: IMxLogger; AShutdownEvent: TEvent = nil);
     destructor Destroy; override;
     procedure RunAll;
+    procedure StartBatchTimer;
 
     // MCP Tool: returns pending work items for claude.exe
     class function GetPendingWorkItems(ACtx: IMxDbContext): TJSONObject; static;
@@ -91,18 +100,35 @@ const
 { TMxAIBatchRunner }
 
 constructor TMxAIBatchRunner.Create(APool: TMxConnectionPool;
-  AConfig: TMxConfig; ALogger: IMxLogger);
+  AConfig: TMxConfig; ALogger: IMxLogger; AShutdownEvent: TEvent);
 begin
   inherited Create;
   FPool := APool;
   FConfig := AConfig;
   FLogger := ALogger;
+  FShutdownEvent := AShutdownEvent;
   FAIThread := nil;
+  FBatchThread := nil;
+  FEmbeddingClient := nil;
   FStats := Default(TMxAIBatchStats);
+
+  if FConfig.EmbeddingEnabled and (FConfig.EmbeddingApiKey <> '') then
+    FEmbeddingClient := TMxEmbeddingClient.Create(FConfig, FLogger);
 end;
 
 destructor TMxAIBatchRunner.Destroy;
 begin
+  // Signal batch timer thread to stop
+  if Assigned(FBatchThread) and not FBatchThread.Finished then
+  begin
+    FLogger.Log(mlInfo, 'AI Batch: stopping batch timer thread...');
+    if Assigned(FShutdownEvent) then
+      FShutdownEvent.SetEvent;
+    FBatchThread.WaitFor;
+  end;
+  FBatchThread.Free;
+  FEmbeddingClient.Free;
+
   // Wait for claude.exe thread if still running (max 30s)
   if Assigned(FAIThread) and not FAIThread.Finished then
   begin
@@ -119,7 +145,8 @@ const
     'summary', 'tagging', 'stale_detection', 'stub_warning',
     'recall_timeout', 'violation_counter', 'lesson_dedupe',
     'contradiction_detection', 'stale_candidate_promotion',
-    'recall_effectiveness', 'skill_precision', 'health_auto_notes');
+    'recall_effectiveness', 'skill_precision', 'health_auto_notes',
+    'embedding_refresh');
 begin
   Result := Names[AJobType];
 end;
@@ -1800,6 +1827,9 @@ begin
   begin FLogger.Log(mlError, 'AI Batch finding auto-dismiss failed: ' + E.Message);
     Inc(FStats.Errors); end end;
 
+  // Embedding refresh: NOT at boot (blocks startup for 30-60s).
+  // Runs via StartBatchTimer thread instead (first run after BatchIntervalMinutes).
+
   // Check if there's AI work to do before spawning claude.exe
   try
     Ctx := FPool.AcquireContext;
@@ -1841,6 +1871,162 @@ begin
      FStats.LessonDupes, FStats.Contradictions, FStats.StalePromoted,
      IfThen(FStats.ClaudeExeStarted, 'started', 'skipped'),
      FStats.Errors]));
+end;
+
+procedure TMxAIBatchRunner.RunEmbeddingRefreshJob;
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  DocId: Integer;
+  Title, Tags, Content, InputText: string;
+  Embedding: TArray<Single>;
+  Processed, Errors: Integer;
+  BlobStream: TMemoryStream;
+  UpdQry: TFDQuery;
+begin
+  if not Assigned(FEmbeddingClient) then
+    Exit;
+
+  Ctx := FPool.AcquireContext;
+  Qry := Ctx.CreateQuery(
+    'SELECT d.id, d.title, ' +
+    '(SELECT GROUP_CONCAT(t.tag) FROM doc_tags t WHERE t.doc_id = d.id) AS tags, ' +
+    'd.content FROM documents d ' +
+    'WHERE d.embedding_stale = 1 ' +
+    'AND d.doc_type IN (''' +
+      StringReplace(FConfig.EmbeddingDocTypes, ',', ''',''', [rfReplaceAll]) +
+    ''') LIMIT ' + IntToStr(FConfig.EmbeddingBatchSize));
+  try
+    Qry.Open;
+
+    Processed := 0;
+    Errors := 0;
+    while not Qry.Eof do
+    begin
+      DocId := Qry.FieldByName('id').AsInteger;
+      Title := Qry.FieldByName('title').AsString;
+      Tags := Qry.FieldByName('tags').AsString;
+      Content := Qry.FieldByName('content').AsString;
+
+      InputText := TMxEmbeddingClient.BuildEmbeddingInput(
+        Title, Tags, Content, FConfig.EmbeddingMaxInputChars);
+
+      Embedding := FEmbeddingClient.GetEmbedding(InputText);
+      // Retry with halved input on failure (likely token limit exceeded)
+      if (Length(Embedding) = 0) and (Length(InputText) > 5000) then
+      begin
+        InputText := TMxEmbeddingClient.BuildEmbeddingInput(
+          Title, Tags, Content, FConfig.EmbeddingMaxInputChars div 2);
+        Embedding := FEmbeddingClient.GetEmbedding(InputText);
+      end;
+      if Length(Embedding) > 0 then
+      begin
+        // Store embedding as binary VECTOR
+        UpdQry := Ctx.CreateQuery(
+          'UPDATE documents SET embedding = :emb, embedding_stale = 0 WHERE id = :did');
+        try
+          UpdQry.ParamByName('emb').DataType := ftBlob;
+          BlobStream := TMemoryStream.Create;
+          try
+            BlobStream.WriteBuffer(Embedding[0], Length(Embedding) * SizeOf(Single));
+            BlobStream.Position := 0;
+            UpdQry.ParamByName('emb').LoadFromStream(BlobStream, ftBlob);
+          finally
+            BlobStream.Free;
+          end;
+          UpdQry.ParamByName('did').AsInteger := DocId;
+          UpdQry.ExecSQL;
+        finally
+          UpdQry.Free;
+        end;
+        Inc(Processed);
+      end
+      else
+      begin
+        Inc(Errors);
+        FLogger.Log(mlWarning, Format(
+          'Embedding failed for doc_id=%d (title: %s)', [DocId, Copy(Title, 1, 50)]));
+      end;
+
+      Qry.Next;
+    end;
+
+    if Processed > 0 then
+    begin
+      LogBatchRun(jtEmbeddingRefresh, Processed,
+        Format('%d embedded, %d errors', [Processed, Errors]));
+      FLogger.Log(mlInfo, Format(
+        'AI Batch embedding: %d docs embedded, %d errors', [Processed, Errors]));
+    end;
+  finally
+    Qry.Free;
+  end;
+end;
+
+procedure TMxAIBatchRunner.StartBatchTimer;
+var
+  IntervalMs: Integer;
+  Pool: TMxConnectionPool;
+  Logger: IMxLogger;
+begin
+  if not FConfig.EmbeddingEnabled then
+    Exit;
+  if not Assigned(FShutdownEvent) then
+  begin
+    FLogger.Log(mlWarning, 'AI Batch timer: no shutdown event, timer disabled');
+    Exit;
+  end;
+
+  IntervalMs := FConfig.BatchIntervalMinutes * 60000;
+  Pool := FPool;
+  Logger := FLogger;
+
+  FBatchThread := TThread.CreateAnonymousThread(
+    procedure
+    var
+      Ctx: IMxDbContext;
+      Qry: TFDQuery;
+      StaleCount: Integer;
+    begin
+      Logger.Log(mlInfo, Format(
+        'AI Batch timer started (interval: %d min)', [IntervalMs div 60000]));
+      // First run immediately (non-blocking, runs in this thread)
+      try
+        RunEmbeddingRefreshJob;
+      except
+        on E: Exception do
+          Logger.Log(mlError, 'AI Batch initial embedding failed: ' + E.ClassName);
+      end;
+      while FShutdownEvent.WaitFor(IntervalMs) = wrTimeout do
+      begin
+        // Timeout = interval elapsed, check for stale docs
+        try
+          Ctx := Pool.AcquireContext;
+          Qry := Ctx.CreateQuery(
+            'SELECT COUNT(*) AS cnt FROM documents WHERE embedding_stale = 1');
+          try
+            Qry.Open;
+            StaleCount := Qry.FieldByName('cnt').AsInteger;
+          finally
+            Qry.Free;
+          end;
+
+          if StaleCount > 0 then
+          begin
+            Logger.Log(mlInfo, Format(
+              'AI Batch timer: %d stale docs, running embedding refresh', [StaleCount]));
+            RunEmbeddingRefreshJob;
+          end;
+        except
+          on E: Exception do
+            Logger.Log(mlError, 'AI Batch timer error: ' + E.ClassName);
+        end;
+      end;
+      // wrSignaled = shutdown requested
+      Logger.Log(mlInfo, 'AI Batch timer stopped (shutdown signal)');
+    end);
+  FBatchThread.FreeOnTerminate := False;
+  FBatchThread.Start;
 end;
 
 end.

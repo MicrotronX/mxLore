@@ -42,6 +42,9 @@ procedure HandleGetGraphStats(const C: THttpServerContext;
 procedure HandleGetLessonStats(const C: THttpServerContext;
   APool: TMxConnectionPool; ALogger: IMxLogger);
 
+procedure HandleGetEmbeddingStats(const C: THttpServerContext;
+  APool: TMxConnectionPool; ALogger: IMxLogger);
+
 // Shared backup logic (used by HandlePostBackup and auto-backup at boot)
 function MxRunBackup(AConfig: TMxConfig; ALogger: IMxLogger): string;
 
@@ -1064,6 +1067,48 @@ begin
       ALogger.Log(mlError, 'Lesson stats error: ' + E.Message);
       MxSendError(C, 500, 'internal_error');
     end;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// GET /global/embedding-stats — Semantic Search embedding statistics
+// ---------------------------------------------------------------------------
+procedure HandleGetEmbeddingStats(const C: THttpServerContext;
+  APool: TMxConnectionPool; ALogger: IMxLogger);
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  Json: TJSONObject;
+begin
+  Ctx := APool.AcquireContext;
+  Json := TJSONObject.Create;
+  try
+    Qry := Ctx.CreateQuery(
+      'SELECT ' +
+      '  COUNT(*) AS total_docs, ' +
+      '  SUM(CASE WHEN embedding IS NOT NULL THEN 1 ELSE 0 END) AS embedded, ' +
+      '  SUM(CASE WHEN embedding_stale = 1 AND embedding IS NULL THEN 1 ELSE 0 END) AS stale ' +
+      'FROM documents WHERE status <> ''deleted'' ' +
+      'AND doc_type IN (''spec'',''plan'',''decision'',''lesson'',''note'',' +
+      '''reference'',''snippet'',''bugreport'',''feature_request'',''todo'',''assumption'')');
+    try
+      Qry.Open;
+      var Total := Qry.FieldByName('total_docs').AsInteger;
+      var Embedded := Qry.FieldByName('embedded').AsInteger;
+      var Stale := Qry.FieldByName('stale').AsInteger;
+      Json.AddPair('total_docs', TJSONNumber.Create(Total));
+      Json.AddPair('embedded', TJSONNumber.Create(Embedded));
+      Json.AddPair('stale', TJSONNumber.Create(Stale));
+      if Total > 0 then
+        Json.AddPair('coverage_pct', TJSONNumber.Create(Round(Embedded * 100 / Total)))
+      else
+        Json.AddPair('coverage_pct', TJSONNumber.Create(0));
+    finally
+      Qry.Free;
+    end;
+    MxSendJson(C, 200, Json);
+  finally
+    Json.Free;
   end;
 end;
 

@@ -81,5 +81,28 @@ DefaultModel=claude-haiku-4-5-20251001
 MaxCallsPerBoot=100
 MaxTokensPerBoot=50000
 
+; --- Semantic Search (Embedding) ---
+; Provider-agnostic: any OpenAI-compatible endpoint
+; Separate API key (falls back to general ApiKey if empty)
+;EmbeddingApiKey=sk-...
+;EmbeddingApiKeyEnc=
+;EmbeddingEnabled=0
+;EmbeddingUrl=https://api.openai.com/v1/embeddings
+;EmbeddingModel=text-embedding-3-small
+;EmbeddingDimensions=1536
+;EmbeddingMaxInputChars=30000
+;EmbeddingTimeoutMs=30000
+;EmbeddingDocTypes=spec,plan,decision,lesson,note,reference,snippet,bugreport,feature_request,todo,assumption
+
+; Hybrid search weights (keyword + semantic, must sum to 1.0)
+;SemanticWeight=0.4
+;KeywordWeight=0.6
+
+; Batch timer interval (embedding refresh + other periodic jobs)
+;BatchIntervalMinutes=15
+
+; Max docs per embedding batch run (higher = faster initial population)
+;EmbeddingBatchSize=50
+
 [SkillEvolution]
 MinFindingsForTuning=10

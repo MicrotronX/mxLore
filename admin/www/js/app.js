@@ -1520,6 +1520,17 @@ var App = (function () {
       var el = $('#intel-lessons-total');
       if (el) el.textContent = '-';
     }
+    try {
+      var data = await Api.getEmbeddingStats();
+      animateStat('intel-embedding-count', data.embedded || 0);
+      var el = $('#intel-embedding-coverage');
+      if (el) el.textContent = (data.coverage_pct || 0) + '%';
+      var staleEl = $('#intel-embedding-stale');
+      if (staleEl) staleEl.textContent = data.stale || 0;
+    } catch (e) {
+      var el = $('#intel-embedding-count');
+      if (el) el.textContent = '-';
+    }
   }
 
   async function loadSkillsPage() {

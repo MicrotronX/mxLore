@@ -7,7 +7,8 @@ uses
   System.Generics.Collections,
   Data.DB,
   FireDAC.Comp.Client,
-  mx.Types, mx.Errors, mx.Data.Pool, mx.Logic.AccessControl;
+  mx.Types, mx.Errors, mx.Data.Pool, mx.Logic.AccessControl,
+  mx.Intelligence.HybridSearch;
 
 function HandlePing(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
@@ -610,6 +611,64 @@ begin
             TJSONNumber.Create(Qry.FieldByName('token_estimate').AsInteger));
           Data.Add(Row);
           Qry.Next;
+        end;
+
+        // Hybrid Search: enrich with vector-only results if available
+        if Assigned(GHybridSearch) and (Query <> '') and (Data.Count > 0) then
+        begin
+          var KwIds: TArray<Integer>;
+          var KwScores: TArray<Double>;
+          SetLength(KwIds, Data.Count);
+          SetLength(KwScores, Data.Count);
+          for I := 0 to Data.Count - 1 do
+          begin
+            KwIds[I] := (Data.Items[I] as TJSONObject).GetValue<Integer>('id');
+            KwScores[I] := (Data.Items[I] as TJSONObject).GetValue<Double>('relevance_score');
+          end;
+          var HybridResults := GHybridSearch.MergeResults(
+            Qry.Connection, KwIds, KwScores, Query, MaxLimit, ProjectSlug);
+          // Add vector-only docs (not in keyword results)
+          var ExistingIds := TDictionary<Integer, Boolean>.Create;
+          try
+            for I := 0 to High(KwIds) do
+              ExistingIds.AddOrSetValue(KwIds[I], True);
+            var Added := 0;
+            for I := 0 to High(HybridResults) do
+            begin
+              if Data.Count >= MaxLimit then Break;
+              if not ExistingIds.ContainsKey(HybridResults[I].DocId) then
+              begin
+                SubQry := AContext.CreateQuery(
+                  'SELECT d.id, p.slug AS project, d.doc_type, d.title, ' +
+                  'd.summary_l1, d.summary_l2, d.token_estimate ' +
+                  'FROM documents d JOIN projects p ON d.project_id = p.id ' +
+                  'WHERE d.id = :did');
+                try
+                  SubQry.ParamByName('did').AsInteger := HybridResults[I].DocId;
+                  SubQry.Open;
+                  if not SubQry.IsEmpty then
+                  begin
+                    Row := TJSONObject.Create;
+                    Row.AddPair('id', TJSONNumber.Create(SubQry.FieldByName('id').AsInteger));
+                    Row.AddPair('project', SubQry.FieldByName('project').AsString);
+                    Row.AddPair('doc_type', SubQry.FieldByName('doc_type').AsString);
+                    Row.AddPair('title', SubQry.FieldByName('title').AsString);
+                    Row.AddPair('summary_l1', SubQry.FieldByName('summary_l1').AsString);
+                    Row.AddPair('summary_l2', SubQry.FieldByName('summary_l2').AsString);
+                    Row.AddPair('relevance_score',
+                      TJSONNumber.Create(HybridResults[I].FinalScore));
+                    Row.AddPair('token_estimate',
+                      TJSONNumber.Create(SubQry.FieldByName('token_estimate').AsInteger));
+                    Data.Add(Row);
+                  end;
+                finally
+                  SubQry.Free;
+                end;
+              end;
+            end;
+          finally
+            ExistingIds.Free;
+          end;
         end;
 
         // include_content: load content for <=3 results

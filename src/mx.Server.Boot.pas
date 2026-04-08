@@ -7,7 +7,8 @@ uses
   {$IFDEF MSWINDOWS} Winapi.Windows, {$ENDIF}
   mx.Types, mx.Config, mx.Log, mx.Data.Pool, mx.Auth,
   mx.MCP.Schema, mx.MCP.Server, mx.Tool.Registry, mx.Admin.Server,
-  mx.Server.Host, mx.Intelligence.Prefetch, mx.Intelligence.AIBatch;
+  mx.Server.Host, mx.Intelligence.Prefetch, mx.Intelligence.AIBatch,
+  mx.Intelligence.Embedding, mx.Intelligence.HybridSearch;
 
 type
   TMxServerBoot = class
@@ -202,6 +203,54 @@ begin
   // 5b. Auto-schema: detect empty DB and run setup.sql
   RunAutoSchema;
 
+  // 5b2. Auto-migrate: apply pending migrations (column detection)
+  try
+    var MigCtx := FPool.AcquireContext;
+    try
+      // sql/043: embedding VECTOR column
+      var MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''documents'' ' +
+        'AND column_name = ''embedding''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: applying sql/043 (embedding VECTOR column)');
+          var MigPath := ExtractFilePath(ParamStr(0)) + 'sql' + PathDelim +
+            '043-embedding-vector.sql';
+          if FileExists(MigPath) then
+          begin
+            // Direct DDL — no mysql CLI needed for simple ALTER/CREATE
+            var DdlQry := MigCtx.CreateQuery(
+              'ALTER TABLE documents ADD COLUMN embedding VECTOR(1536) DEFAULT NULL');
+            try DdlQry.ExecSQL; finally DdlQry.Free; end;
+            DdlQry := MigCtx.CreateQuery(
+              'ALTER TABLE documents ADD COLUMN embedding_stale TINYINT(1) NOT NULL DEFAULT 1');
+            try DdlQry.ExecSQL; finally DdlQry.Free; end;
+            DdlQry := MigCtx.CreateQuery(
+              'CREATE INDEX idx_embedding_stale ON documents (embedding_stale, doc_type)');
+            try DdlQry.ExecSQL; finally DdlQry.Free; end;
+            FLogger.Log(mlInfo, 'Auto-migrate: sql/043 columns + index applied');
+            // Triggers via mysql CLI (DELIMITER not supported in FireDAC)
+            FLogger.Log(mlInfo, 'Auto-migrate: triggers must be applied manually: ' +
+              'mysql < sql/043-embedding-vector.sql');
+          end
+          else
+            FLogger.Log(mlWarning, 'Auto-migrate: sql/043 file not found at ' + MigPath);
+        end;
+      finally
+        MigQry.Free;
+      end;
+    finally
+      MigCtx := nil;
+    end;
+  except
+    on E: Exception do
+      FLogger.Log(mlWarning, 'Auto-migrate check skipped: ' + E.Message);
+  end;
+
   // 5c. Ensure SelfSlug project exists in DB
   try
     var EnsureCtx := FPool.AcquireContext;
@@ -260,11 +309,24 @@ begin
   if FConfig.AdminPort > 0 then
     FAdminServer := TMxAdminServer.Create(FPool, FConfig, FLogger);
 
-  // 9. AI Batch: Boot-time autonomous data maintenance (AFTER MCP server is ready)
+  // 9. Shutdown event (needed by AI Batch timer thread)
+  FShutdownEvent := TEvent.Create(nil, True, False, '');
+
+  // 10. AI Batch: Boot-time autonomous data maintenance (AFTER MCP server is ready)
   //    FAIBatch lives until Destroy — claude.exe thread runs in background
   try
-    FAIBatch := TMxAIBatchRunner.Create(FPool, FConfig, FLogger);
+    FAIBatch := TMxAIBatchRunner.Create(FPool, FConfig, FLogger, FShutdownEvent);
     FAIBatch.RunAll;  // Starts claude.exe thread, returns immediately
+    FAIBatch.StartBatchTimer;  // Periodic embedding refresh
+
+    // Initialize HybridSearch global (used by HandleSearch)
+    if FConfig.EmbeddingEnabled and (FConfig.EmbeddingApiKey <> '') then
+    begin
+      GHybridSearch := TMxHybridSearch.Create(
+        TMxEmbeddingClient.Create(FConfig, FLogger), FConfig, FLogger);
+      FLogger.Log(mlInfo, 'Semantic Search: enabled (provider: ' +
+        FConfig.EmbeddingUrl + ')');
+    end;
   except
     on E: Exception do
     begin
@@ -272,9 +334,6 @@ begin
       FreeAndNil(FAIBatch);
     end;
   end;
-
-  // 10. Shutdown event (handler registered in Run, not here)
-  FShutdownEvent := TEvent.Create(nil, True, False, '');
 end;
 
 destructor TMxServerBoot.Destroy;
@@ -289,10 +348,13 @@ begin
   if Assigned(FLogger) then
     FLogger.Log(mlInfo, 'Shutting down...');
 
-  // AI Batch: Wait for claude.exe thread before freeing MCP/Pool
-  FreeAndNil(FAIBatch);
-  FreeAndNil(FAdminServer);
+  // Stop MCP server first (no new requests), then cleanup
   FreeAndNil(FMcpServer);
+  FreeAndNil(FAdminServer);
+  // Now safe to free HybridSearch (no more worker threads accessing it)
+  FreeAndNil(GHybridSearch);
+  // AI Batch: Wait for claude.exe thread before freeing Pool
+  FreeAndNil(FAIBatch);
   FreeAndNil(FRegistry);
   FreeAndNil(FAuth);
   FreeAndNil(FPool);
@@ -629,23 +691,8 @@ begin
       FLogger.Log(mlWarning, 'Backup check skipped: ' + E.Message);
   end;
 
-  // Project path validation (skip _global, test-*, regtest-*)
-  Qry := Ctx.CreateQuery(
-    'SELECT slug, path FROM projects WHERE is_active = TRUE AND path <> '''' ' +
-    'AND slug NOT LIKE ''test%'' AND slug NOT LIKE ''regtest%'' AND slug <> ''_global''');
-  try
-    Qry.Open;
-    while not Qry.Eof do
-    begin
-      if not DirectoryExists(Qry.FieldByName('path').AsString) then
-        FLogger.Log(mlWarning, 'Project path missing: ' +
-          Qry.FieldByName('slug').AsString + ' -> ' +
-          Qry.FieldByName('path').AsString);
-      Qry.Next;
-    end;
-  finally
-    Qry.Free;
-  end;
+  // Project path validation removed: paths are client-side (developer machines),
+  // not server-side. Checking them on the server produces false warnings.
 
   // Ensure _global sentinel project exists
   try

@@ -162,14 +162,37 @@ CREATE TABLE IF NOT EXISTS `documents` (
   `lesson_data` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'Structured lesson metadata (JSON). Only for doc_type=lesson.' CHECK (json_valid(`lesson_data`)),
   `violation_count` int(11) NOT NULL DEFAULT 0 COMMENT 'Times this lesson was violated',
   `success_count` int(11) NOT NULL DEFAULT 0 COMMENT 'Times this lesson was applied successfully',
+  `embedding` VECTOR(1536) DEFAULT NULL,
+  `embedding_stale` TINYINT(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_doc` (`project_id`,`doc_type`,`slug`),
   KEY `idx_project_type` (`project_id`,`doc_type`,`status`),
   KEY `idx_relevance` (`relevance_score`),
   KEY `idx_documents_lesson_scope` (`doc_type`,`status`) COMMENT 'Optimizes lesson queries in mx_recall',
+  KEY `idx_embedding_stale` (`embedding_stale`, `doc_type`),
   FULLTEXT KEY `ft_documents` (`title`,`summary_l2`,`content`),
   CONSTRAINT `fk_doc_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Embedding stale triggers (auto-set on content/title changes)
+DELIMITER //
+CREATE TRIGGER IF NOT EXISTS `trg_documents_embedding_stale_insert`
+BEFORE INSERT ON `documents`
+FOR EACH ROW
+BEGIN
+  SET NEW.embedding_stale = 1;
+END//
+
+CREATE TRIGGER IF NOT EXISTS `trg_documents_embedding_stale_update`
+BEFORE UPDATE ON `documents`
+FOR EACH ROW
+BEGIN
+  IF NEW.content != OLD.content OR NEW.title != OLD.title THEN
+    SET NEW.embedding_stale = 1;
+    SET NEW.embedding = NULL;
+  END IF;
+END//
+DELIMITER ;
 
 CREATE TABLE IF NOT EXISTS `doc_tags` (
   `doc_id` int(11) NOT NULL,

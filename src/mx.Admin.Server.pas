@@ -525,6 +525,13 @@ begin
       Exit;
     end;
 
+    if (Len = 2) and SameText(ASegments[1], 'embedding-stats') and
+       (C.Request.MethodType = THttpMethod.Get) then
+    begin
+      mx.Admin.Api.Global.HandleGetEmbeddingStats(C, FPool, FLogger);
+      Exit;
+    end;
+
     MxSendError(C, 404, 'not_found');
     Exit;
   end;
