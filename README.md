@@ -148,11 +148,16 @@ Install all via: `/mxSetup` in Claude Code.
 
 ## License
 
-**Business Source License 1.1** — see [LICENSE.txt](LICENSE.txt)
+**Server:** BSL 1.1 (Business Source License) — see [LICENSE.txt](LICENSE.txt)
+- Source available: read, review, modify
+- Pre-built binaries: no Delphi or TMS license needed
+- Non-commercial use in production: free
+- Commercial use in production: requires a license from MicrotronX — contact info@microtronx.com
+- After the change date (4 years), converts to Apache 2.0
 
-- **Non-commercial use** in production: free
-- **Commercial use** in production: requires a license from MicrotronX — contact info@microtronx.com
-- After the change date (4 years), the code converts to Apache-2.0
+**Skills:** MIT — fully open source, no restrictions. See [mxLore-skills](https://github.com/MicrotronX/mxLore-skills).
+
+**Important:** To compile the server from source, you need RAD Studio (Delphi) and TMS Sparkle — both are commercial products. Most users should use the pre-built binaries from [GitHub Releases](https://github.com/MicrotronX/mxLore/releases), which have no such requirement.
 
 ### Third-Party
 
