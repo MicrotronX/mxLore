@@ -106,7 +106,7 @@ function MxGetThreadAuth: TMxAuthResult;
 
 const
   MXAI_VERSION = '2.3.0';
-  MXAI_BUILD   = 78;  // Semantic Search, Auto-Encrypt Keys, Admin-UI Embedding Card, Auto-Migrate sql/043
+  MXAI_BUILD   = 79;  // Tool-Call-Log, proxy_download_path Fix, Checker-Findings
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';

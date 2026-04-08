@@ -63,8 +63,7 @@ begin
     if MXAI_ADMIN_PORT > 0 then
     begin
       Data.AddPair('admin_port', TJSONNumber.Create(MXAI_ADMIN_PORT));
-      Data.AddPair('proxy_download_url',
-        'http://127.0.0.1:' + IntToStr(MXAI_ADMIN_PORT) + '/api/download/proxy');
+      Data.AddPair('proxy_download_path', '/api/download/proxy');
     end;
     Data.AddPair('timestamp', FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', Now));
 

@@ -243,6 +243,40 @@ begin
       finally
         MigQry.Free;
       end;
+
+      // sql/044: tool_call_log table
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.tables ' +
+        'WHERE table_schema = :db AND table_name = ''tool_call_log''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: creating tool_call_log table (sql/044)');
+          var DdlQry := MigCtx.CreateQuery(
+            'CREATE TABLE IF NOT EXISTS tool_call_log (' +
+            '  id BIGINT NOT NULL AUTO_INCREMENT, ' +
+            '  tool_name VARCHAR(50) NOT NULL, ' +
+            '  session_id INT DEFAULT NULL, ' +
+            '  developer_id INT DEFAULT NULL, ' +
+            '  response_bytes INT NOT NULL DEFAULT 0, ' +
+            '  latency_ms INT NOT NULL DEFAULT 0, ' +
+            '  is_error TINYINT(1) NOT NULL DEFAULT 0, ' +
+            '  error_code VARCHAR(30) DEFAULT NULL, ' +
+            '  created_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3), ' +
+            '  PRIMARY KEY (id), ' +
+            '  KEY idx_tcl_tool (tool_name), ' +
+            '  KEY idx_tcl_session (session_id), ' +
+            '  KEY idx_tcl_created (created_at), ' +
+            '  KEY idx_tcl_tool_created (tool_name, created_at)' +
+            ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: tool_call_log created');
+        end;
+      finally
+        MigQry.Free;
+      end;
     finally
       MigCtx := nil;
     end;
@@ -427,8 +461,7 @@ procedure TMxServerBoot.RunAutoSchema;
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
-  SetupPath, MysqlExe, CmdLine, CredFile, BatFile: string;
-  Statements: TStringList;
+  SetupPath, MysqlExe, CmdLine, BatFile: string;
   NeedSetup: Boolean;
   {$IFDEF MSWINDOWS}
   SI: TStartupInfo;
@@ -481,7 +514,6 @@ begin
     end;
     FLogger.Log(mlDebug, 'MySQL client: ' + MysqlExe);
 
-    CredFile := '';
     try
       // Write a batch file to avoid cmd /c quoting issues
       BatFile := TPath.Combine(ExtractFilePath(ParamStr(0)), '.setup_import.bat');
@@ -576,6 +608,15 @@ begin
     // Retention cleanup: purge access_log entries older than 90 days
     Qry := Ctx.CreateQuery(
       'DELETE FROM access_log WHERE created_at < DATE_SUB(NOW(), INTERVAL 90 DAY)');
+    try
+      Qry.ExecSQL;
+    finally
+      Qry.Free;
+    end;
+
+    // Retention cleanup: purge tool_call_log entries older than 90 days
+    Qry := Ctx.CreateQuery(
+      'DELETE FROM tool_call_log WHERE created_at < DATE_SUB(NOW(), INTERVAL 90 DAY)');
     try
       Qry.ExecSQL;
     finally

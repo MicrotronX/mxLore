@@ -29,6 +29,7 @@ cp "${SRCDIR}/mxLoreMCP.ini.example" "${OUTDIR}/"
 cp "${SRCDIR}/sql/setup.sql" "${OUTDIR}/sql/"
 cp "${SRCDIR}/sql/042-graph-tables.sql" "${OUTDIR}/sql/"
 cp "${SRCDIR}/sql/043-embedding-vector.sql" "${OUTDIR}/sql/"
+cp "${SRCDIR}/sql/044-tool-call-log.sql" "${OUTDIR}/sql/"
 
 # Admin UI
 cp "${SRCDIR}/admin/www/index.html"    "${OUTDIR}/admin/www/"

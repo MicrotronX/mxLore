@@ -1160,9 +1160,9 @@ begin
       Qry.Free;
     end;
 
-    // MCP tool call count (last 30 days, from access_log)
+    // MCP tool call count (last 30 days, from tool_call_log)
     Qry := Ctx.CreateQuery(
-      'SELECT COUNT(*) AS call_count FROM access_log ' +
+      'SELECT COUNT(*) AS call_count FROM tool_call_log ' +
       'WHERE created_at > NOW() - INTERVAL 30 DAY');
     try
       Qry.Open;

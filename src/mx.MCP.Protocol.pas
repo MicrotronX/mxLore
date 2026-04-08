@@ -55,6 +55,7 @@ type
 implementation
 
 uses
+  System.Diagnostics, Data.DB, FireDAC.Comp.Client,
   mx.Tool.Registry, mx.Logic.AccessControl;
 
 { TMxMcpProtocol }
@@ -198,6 +199,10 @@ var
   Content: TJSONArray;
   ContentItem, ResultObj: TJSONObject;
   Compact: Boolean;
+  SW: TStopwatch;
+  LatencyMs, ResponseBytes: Integer;
+  IsError: Boolean;
+  ErrorCode: string;
 begin
   if AParams = nil then
     raise EMxValidation.Create('Missing params for tools/call');
@@ -211,11 +216,15 @@ begin
     raise EMxValidation.CreateFmt('Unknown tool: %s', [ToolName]);
 
   // Extract arguments (default empty object)
+  var OwnsArguments := False;
   if (AParams.GetValue('arguments') <> nil) and
      (AParams.GetValue('arguments') is TJSONObject) then
     Arguments := AParams.GetValue('arguments') as TJSONObject
   else
+  begin
     Arguments := TJSONObject.Create;
+    OwnsArguments := True;
+  end;
 
   // Extract compact flag from arguments
   Compact := False;
@@ -223,12 +232,63 @@ begin
     Compact := Arguments.GetValue<Boolean>('compact', False);
 
   // Execute via SafeExecute (handles auth, context, errors)
+  SW := TStopwatch.StartNew;
   ToolResult := SafeExecute(Handler, Arguments, FPool, FLogger);
   try
+    SW.Stop;
+    LatencyMs := SW.ElapsedMilliseconds;
+
     if Compact then
       ResultText := StripCompactWrapper(ToolResult)
     else
       ResultText := ToolResult.ToJSON;
+
+    ResponseBytes := TEncoding.UTF8.GetByteCount(ResultText);
+
+    // Detect error in response
+    IsError := ToolResult.GetValue('error') <> nil;
+    if IsError then
+      ErrorCode := Copy(ToolResult.GetValue<string>('error', ''), 1, 30)
+    else
+      ErrorCode := '';
+
+    // Central tool call logging (non-critical, reuses pooled connection from SafeExecute)
+    try
+      var Auth := MxGetThreadAuth;
+      var SessionId := Arguments.GetValue<Integer>('session_id', 0);
+      var LogCtx := FPool.AcquireContext;
+      var LogQry := LogCtx.CreateQuery(
+        'INSERT INTO tool_call_log (tool_name, session_id, developer_id, ' +
+        '  response_bytes, latency_ms, is_error, error_code) ' +
+        'VALUES (:tool, :sid, :dev, :bytes, :ms, :err, :ecode)');
+      try
+        LogQry.ParamByName('tool').AsString := ToolName;
+        if SessionId > 0 then
+          LogQry.ParamByName('sid').AsInteger := SessionId
+        else
+        begin
+          LogQry.ParamByName('sid').DataType := ftInteger;
+          LogQry.ParamByName('sid').Clear;
+        end;
+        LogQry.ParamByName('dev').AsInteger := Auth.DeveloperId;
+        LogQry.ParamByName('bytes').AsInteger := ResponseBytes;
+        LogQry.ParamByName('ms').AsInteger := LatencyMs;
+        LogQry.ParamByName('err').AsInteger := Ord(IsError);
+        if IsError then
+          LogQry.ParamByName('ecode').AsString := ErrorCode
+        else
+        begin
+          LogQry.ParamByName('ecode').DataType := ftString;
+          LogQry.ParamByName('ecode').Clear;
+        end;
+        LogQry.ExecSQL;
+      finally
+        LogQry.Free;
+      end;
+    except
+      on E: Exception do
+        FLogger.Log(mlDebug, 'Tool call log: ' + E.Message);
+    end;
   finally
     ToolResult.Free;
   end;
@@ -243,10 +303,14 @@ begin
   Content.Add(ContentItem);
 
   ResultObj := TJSONObject.Create;
-  ResultObj.AddPair('content', Content);
-
-  Result := ResultObj.ToJSON;
-  ResultObj.Free;
+  try
+    ResultObj.AddPair('content', Content);
+    Result := ResultObj.ToJSON;
+  finally
+    ResultObj.Free;
+  end;
+  if OwnsArguments then
+    Arguments.Free;
 end;
 
 function TMxMcpProtocol.ProcessRequest(
