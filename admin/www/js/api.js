@@ -194,6 +194,10 @@ const Api = (function () {
     return request('GET', '/global/embedding-stats');
   }
 
+  function getTokenStats() {
+    return request('GET', '/global/token-stats');
+  }
+
   function getSkillsDashboard() {
     return request('GET', '/skills/dashboard');
   }
@@ -257,6 +261,7 @@ const Api = (function () {
     getGraphStats: getGraphStats,
     getLessonStats: getLessonStats,
     getEmbeddingStats: getEmbeddingStats,
+    getTokenStats: getTokenStats,
     getSkillsDashboard: getSkillsDashboard,
     postSkillFeedback: postSkillFeedback,
     postCleanup: postCleanup,

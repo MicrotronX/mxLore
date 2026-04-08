@@ -1533,6 +1533,36 @@ var App = (function () {
     }
   }
 
+  async function loadTokenStatsCard() {
+    try {
+      var data = await Api.getTokenStats();
+      var el = document.getElementById('token-stats-card');
+      if (!el) return;
+      var savings = data.savings_pct || 0;
+      var avgProjK = Math.round((data.avg_available_tokens || 0) / 1000);
+      var avgAvail = data.avg_available_tokens || 0;
+      var avgSessK = savings > 0 ? Math.round((avgAvail * (1 - savings / 100)) / 1000) : Math.round((data.avg_tokens_per_session || 0) / 1000);
+      el.innerHTML =
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;text-align:center">' +
+          '<div><div style="font-size:1.8rem;font-weight:700;color:var(--accent)">' + savings + '%</div>' +
+          '<div class="text-secondary" style="font-size:0.78rem">Token Savings</div></div>' +
+          '<div><div style="font-size:1.8rem;font-weight:700">' + avgProjK + 'K</div>' +
+          '<div class="text-secondary" style="font-size:0.78rem">Available/Session</div></div>' +
+          '<div><div style="font-size:1.8rem;font-weight:700">' + avgSessK + 'K</div>' +
+          '<div class="text-secondary" style="font-size:0.78rem">Avg Delivered/Session</div></div>' +
+          '<div><div style="font-size:1.8rem;font-weight:700">' + (data.mcp_calls_30d || 0) + '</div>' +
+          '<div class="text-secondary" style="font-size:0.78rem">MCP Calls (30d)</div></div>' +
+          '<div><div style="font-size:1.8rem;font-weight:700">' + (data.total_sessions_30d || 0) + '</div>' +
+          '<div class="text-secondary" style="font-size:0.78rem">Sessions (30d)</div></div>' +
+          '<div><div style="font-size:1.8rem;font-weight:700">' + (data.total_docs || 0) + '</div>' +
+          '<div class="text-secondary" style="font-size:0.78rem">Documents</div></div>' +
+        '</div>';
+    } catch (e) {
+      var el = document.getElementById('token-stats-card');
+      if (el) el.innerHTML = '<div class="text-secondary">Token stats unavailable</div>';
+    }
+  }
+
   async function loadSkillsPage() {
     showPage('intelligence');
 
@@ -1551,8 +1581,11 @@ var App = (function () {
       var crEl = $('#sstat-confrate');
       if (crEl) crEl.textContent = (summary.overall_conf_rate || 0) + '%';
 
-      // Intelligence overview cards (Recall + Graph + Lessons)
+      // Intelligence overview cards (Recall + Graph + Lessons + Embedding)
       loadIntelOverviewCards();
+
+      // Token efficiency card
+      loadTokenStatsCard();
 
       // Installed skills
       renderInstalledSkills(data.installed_skills || []);

@@ -45,6 +45,9 @@ procedure HandleGetLessonStats(const C: THttpServerContext;
 procedure HandleGetEmbeddingStats(const C: THttpServerContext;
   APool: TMxConnectionPool; ALogger: IMxLogger);
 
+procedure HandleGetTokenStats(const C: THttpServerContext;
+  APool: TMxConnectionPool; ALogger: IMxLogger);
+
 // Shared backup logic (used by HandlePostBackup and auto-backup at boot)
 function MxRunBackup(AConfig: TMxConfig; ALogger: IMxLogger): string;
 
@@ -1110,6 +1113,115 @@ begin
   finally
     Json.Free;
   end;
+end;
+
+// ---------------------------------------------------------------------------
+// GET /global/token-stats — Token efficiency metrics (for marketing)
+// ---------------------------------------------------------------------------
+procedure HandleGetTokenStats(const C: THttpServerContext;
+  APool: TMxConnectionPool; ALogger: IMxLogger);
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  Json: TJSONObject;
+begin
+  Ctx := APool.AcquireContext;
+  Json := TJSONObject.Create;
+  try
+    // Total token weight of all active docs (= what you'd load without MCP)
+    Qry := Ctx.CreateQuery(
+      'SELECT COUNT(*) AS doc_count, COALESCE(SUM(token_estimate), 0) AS total_tokens ' +
+      'FROM documents WHERE status <> ''deleted''');
+    try
+      Qry.Open;
+      Json.AddPair('total_docs', TJSONNumber.Create(Qry.FieldByName('doc_count').AsInteger));
+      Json.AddPair('total_tokens', TJSONNumber.Create(Qry.FieldByName('total_tokens').AsInteger));
+    finally
+      Qry.Free;
+    end;
+
+    // Average UNIQUE tokens delivered per session (distinct docs, no double-counting)
+    Qry := Ctx.CreateQuery(
+      'SELECT COUNT(DISTINCT sub.session_id) AS session_count, ' +
+      '  COALESCE(AVG(sub.sess_tokens), 0) AS avg_delivered ' +
+      'FROM (' +
+      '  SELECT a.session_id, SUM(d.token_estimate) AS sess_tokens ' +
+      '  FROM (SELECT DISTINCT session_id, doc_id FROM access_log ' +
+      '        WHERE created_at > NOW() - INTERVAL 30 DAY) a ' +
+      '  JOIN documents d ON d.id = a.doc_id ' +
+      '  GROUP BY a.session_id) sub');
+    try
+      Qry.Open;
+      var SessionCount := Qry.FieldByName('session_count').AsInteger;
+      var AvgDelivered := Round(Qry.FieldByName('avg_delivered').AsFloat);
+      Json.AddPair('sessions_30d', TJSONNumber.Create(SessionCount));
+      Json.AddPair('avg_tokens_per_session', TJSONNumber.Create(AvgDelivered));
+    finally
+      Qry.Free;
+    end;
+
+    // MCP tool call count (last 30 days, from access_log)
+    Qry := Ctx.CreateQuery(
+      'SELECT COUNT(*) AS call_count FROM access_log ' +
+      'WHERE created_at > NOW() - INTERVAL 30 DAY');
+    try
+      Qry.Open;
+      Json.AddPair('mcp_calls_30d', TJSONNumber.Create(Qry.FieldByName('call_count').AsInteger));
+    finally
+      Qry.Free;
+    end;
+
+    // Total sessions (from sessions table, more accurate than access_log)
+    Qry := Ctx.CreateQuery(
+      'SELECT COUNT(*) AS total_sessions FROM sessions ' +
+      'WHERE started_at > NOW() - INTERVAL 30 DAY');
+    try
+      Qry.Open;
+      Json.AddPair('total_sessions_30d', TJSONNumber.Create(Qry.FieldByName('total_sessions').AsInteger));
+    finally
+      Qry.Free;
+    end;
+
+    // Savings: what you'd need without MCP vs what MCP delivered (unique docs, no double-count)
+    Qry := Ctx.CreateQuery(
+      'SELECT COALESCE(AVG(sess_available), 0) AS avg_available, ' +
+      '  COALESCE(AVG(sess_delivered), 0) AS avg_delivered ' +
+      'FROM (' +
+      '  SELECT s.session_id, ' +
+      '    (SELECT SUM(d2.token_estimate) FROM documents d2 ' +
+      '     WHERE d2.project_id IN (SELECT DISTINCT d3.project_id FROM access_log a2 ' +
+      '       JOIN documents d3 ON d3.id = a2.doc_id WHERE a2.session_id = s.session_id) ' +
+      '     AND d2.status <> ''deleted'') AS sess_available, ' +
+      '    SUM(d.token_estimate) AS sess_delivered ' +
+      '  FROM (SELECT DISTINCT session_id, doc_id FROM access_log ' +
+      '        WHERE created_at > NOW() - INTERVAL 30 DAY) s ' +
+      '  JOIN documents d ON d.id = s.doc_id ' +
+      '  GROUP BY s.session_id ' +
+      '  HAVING sess_available > 0' +
+      ') sub');
+    try
+      Qry.Open;
+      var AvgAvailable := Qry.FieldByName('avg_available').AsFloat;
+      var AvgDelivered := Qry.FieldByName('avg_delivered').AsFloat;
+      if AvgAvailable > 0 then
+        Json.AddPair('savings_pct', TJSONNumber.Create(
+          Max(0, Round((1 - (AvgDelivered / AvgAvailable)) * 100))))
+      else
+        Json.AddPair('savings_pct', TJSONNumber.Create(0));
+      Json.AddPair('avg_available_tokens', TJSONNumber.Create(Round(AvgAvailable)));
+    finally
+      Qry.Free;
+    end;
+
+    MxSendJson(C, 200, Json);
+  except
+    on E: Exception do
+    begin
+      ALogger.Log(mlError, 'Token stats error: ' + E.Message);
+      MxSendError(C, 500, 'internal_error');
+    end;
+  end;
+  Json.Free;
 end;
 
 end.

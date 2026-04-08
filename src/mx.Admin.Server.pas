@@ -532,6 +532,13 @@ begin
       Exit;
     end;
 
+    if (Len = 2) and SameText(ASegments[1], 'token-stats') and
+       (C.Request.MethodType = THttpMethod.Get) then
+    begin
+      mx.Admin.Api.Global.HandleGetTokenStats(C, FPool, FLogger);
+      Exit;
+    end;
+
     MxSendError(C, 404, 'not_found');
     Exit;
   end;
