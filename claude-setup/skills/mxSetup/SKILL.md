@@ -78,18 +78,48 @@ claude mcp add -s user mxai-knowledge -- "<HOME>/.claude/mxMCPProxy.exe"
 
 ### Phase 5: Config
 
-1. **settings.json** — MCP-Permissions + Hooks:
-   - `permissions.allow` → `"mcp__mxai-knowledge__*"` ergaenzen (Edit-Tool)
-   - Hooks ergaenzen (Edit-Tool, fehlende hinzufuegen):
-     - `UserPromptSubmit`: `bash ~/.claude/hooks/agent_inbox_check.sh` + `node ~/.claude/hooks/orchestrate-status.js`
-     - `SessionStart`: `node ~/.claude/hooks/orchestrate-reconcile.js` + `node ~/.claude/hooks/orchestrate-status.js`
-     - `Stop`: `node ~/.claude/hooks/orchestrate-step-check.js`
-2. **CLAUDE.md** — Verwende `/tmp/mxLore-skills-CLAUDE.md` (in Phase 2 gesichert):
+⚡ `~/.claude/settings.json` mit Read-Tool lesen, dann per Edit-Tool ergaenzen. !Bestehende Eintraege loeschen/ueberschreiben. Nur fehlende hinzufuegen.
+
+**5a. Permissions** — Folgende in `permissions.allow` ergaenzen (falls nicht vorhanden):
+```json
+"mcp__mxai-knowledge__*",
+"Skill(mxSave)",
+"Skill(mxDecision)",
+"Skill(mxPlan)",
+"Skill(mxSpec)",
+"Skill(mxDesignChecker)",
+"Skill(mxBugChecker)"
+```
+
+**5b. Hooks** — Jeden Hook-Block pruefen. Falls Eintrag fehlt, hinzufuegen. Falls vorhanden, nicht duplizieren.
+
+| Event | Hooks (in Reihenfolge) |
+|-------|----------------------|
+| `SessionStart` | `node ~/.claude/hooks/orchestrate-reconcile.js` (2000ms) + `node ~/.claude/hooks/orchestrate-status.js` (2000ms) |
+| `UserPromptSubmit` | `bash ~/.claude/hooks/agent_inbox_check.sh` (2000ms) + `node ~/.claude/hooks/orchestrate-status.js` (2000ms) |
+| `Stop` | `node ~/.claude/hooks/orchestrate-step-check.js` (3000ms) |
+| `PreToolUse` (matcher: `Edit\|Write`) | `node ~/.claude/hooks/recall-gate.js` (2000ms) |
+| `PostToolUse` (matcher: `Edit\|Write`) | `node ~/.claude/hooks/recall-outcome-hook.js` (2000ms) |
+| `PreCompact` | prompt: (Auto-ADR + /mxSave, siehe unten) |
+
+**PreCompact prompt** (exakt uebernehmen):
+```
+CONTEXT-COMPACTING STEHT BEVOR! Fuehre diese 2 Schritte SOFORT aus:
+
+1. AUTO-ADR EXTRACT (VOR mxSave!): Analysiere den Chat-Verlauf nach signifikanten Entscheidungen (Signal-Woerterbuch: ~/.claude/reference/auto-adr.md). Pro erkannter Entscheidung (Stufe 1+2): mx_create_doc(project, doc_type='note', title='ADR-Kandidat: <Zusammenfassung>', content=<Template aus auto-adr.md>, tags='adr-candidate'). Vorher Deduplizierung via mx_search(tag='adr-candidate') + mx_search(doc_type='decision'). Keine User-Rueckfrage. Output: 'Auto-ADR: N Kandidaten extrahiert'.
+
+2. /mxSave ausfuehren um den aktuellen Projektzustand zu persistieren.
+
+Keine Rueckfragen, keine Erklaerungen — einfach ausfuehren und dann das Compacting zulassen.
+```
+
+**5c. CLAUDE.md** — Verwende `/tmp/mxLore-skills-CLAUDE.md` (in Phase 2 gesichert):
    - Falls `~/.claude/CLAUDE.md` nicht existiert: kopieren
    - Falls existiert und mx-rules Marker hat: Block zwischen `<!-- mx-rules-start -->` und `<!-- mx-rules-end -->` durch neuen ersetzen
    - Falls existiert ohne Marker: mx-rules Block am Ende anhaengen
    - Danach: `rm /tmp/mxLore-skills-CLAUDE.md`
-3. **Agent Inbox:** `mkdir -p ~/.claude/agent_inbox`
+
+**5d. Agent Inbox:** `mkdir -p ~/.claude/agent_inbox`
 
 ### Phase 6: Fertig
 
