@@ -1,6 +1,6 @@
 # mxLore
 
-Self-hosted MCP server for AI-assisted software development. Stores architectural decisions, specs, plans, findings, and lessons learned — accessed via [Model Context Protocol](https://modelcontextprotocol.io/) tools from AI coding assistants.
+Self-hosted MCP server for AI-assisted software development. Stores architectural decisions, specs, plans, findings, and lessons learned — accessed via [Model Context Protocol](https://modelcontextprotocol.io/) tools from AI coding assistants. Works with claude.ai, Claude Code, Cursor, Windsurf, and any MCP client.
 
 > **New here?** Check out the **[product overview at mxlore.dev](https://www.mxlore.dev)** first — see what mxLore does, how it compares, and why your AI assistant needs a memory.
 
@@ -13,6 +13,7 @@ Self-hosted MCP server for AI-assisted software development. Stores architectura
 - **Multi-Agent** — agents communicate across projects via message bus
 - **Admin UI** — web dashboard for developers, keys, projects, intelligence metrics
 - **AI Batch** — automatic summaries, tagging, stale detection at boot time
+- **Works in claude.ai** — CTOs and PMs use mxLore from a chat window, developers from Claude Code — same server, same knowledge
 
 ## Quick Start (5 minutes)
 
@@ -20,7 +21,7 @@ Self-hosted MCP server for AI-assisted software development. Stores architectura
 
 - Windows x64
 - MariaDB 10.6+ (recommended: 11.x)
-- Claude Code CLI (for AI features)
+- Claude Code CLI, claude.ai, or any MCP client
 
 ### 1. Install MariaDB
 
@@ -146,13 +147,24 @@ backups/               — Auto-created, mysqldump backups
 
 Install all via: `/mxSetup` in Claude Code.
 
+### Using claude.ai (web/desktop)
+
+mxLore also works with claude.ai — no terminal needed:
+
+1. Open claude.ai → Settings → Integrations → Add MCP Server
+2. Name: `mxLore`
+3. URL: `http://your-server:8080/mcp`
+4. Auth Header: `Authorization: Bearer mxk_your_api_key`
+
+All 39 MCP tools are available in claude.ai conversations. Available on Claude Pro, Team, and Enterprise plans. Note: Skills (`/mxOrchestrate` etc.) are Claude Code only.
+
 ## License
 
 **Server:** BSL 1.1 (Business Source License) — see [LICENSE.txt](LICENSE.txt)
 - Source available: read, review, modify
 - Pre-built binaries: no Delphi or TMS license needed
-- Non-commercial use in production: free
-- Commercial use in production: requires a license from MicrotronX — contact info@microtronx.com
+- Non-commercial use (personal projects, open source, students, evaluation): free
+- Commercial use: €149 one-time — any size team, unlimited everything. Contact info@microtronx.com
 - After the change date (4 years), converts to Apache 2.0
 
 **Skills:** MIT — fully open source, no restrictions. See [mxLore-skills](https://github.com/MicrotronX/mxLore-skills).
