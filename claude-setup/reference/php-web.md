@@ -1,120 +1,120 @@
-# PHP / Web – Senior-Mindset Details
+# PHP / Web – Senior Mindset Details
 
-> Wird von `CLAUDE.md` referenziert. NUR bei Bedarf laden.
+> Referenced by `CLAUDE.md`. Load ONLY when needed.
 
 ---
 
-## PHP-Sicherheit
+## PHP Security
 
-### Input-Validierung & Output-Encoding
-- **Ausgabe ins HTML:** immer `htmlspecialchars($val, ENT_QUOTES, 'UTF-8')`
-- **Ausgabe in JS:** `json_encode($val, JSON_HEX_TAG | JSON_HEX_APOS)`
-- **URL-Parameter:** `urlencode()` / `rawurlencode()` je nach Kontext
-- **Niemals:** `echo $_GET['x']` direkt, `$$variable`, `extract($_POST)`
+### Input Validation & Output Encoding
+- **Output to HTML:** always `htmlspecialchars($val, ENT_QUOTES, 'UTF-8')`
+- **Output to JS:** `json_encode($val, JSON_HEX_TAG | JSON_HEX_APOS)`
+- **URL parameters:** `urlencode()` / `rawurlencode()` depending on context
+- **Never:** `echo $_GET['x']` directly, `$$variable`, `extract($_POST)`
 
-### Datenbankzugriff
-- Ausschliesslich PDO oder MySQLi mit Prepared Statements
-- Keine String-Konkatenation fuer SQL-Werte
-- Fehlermode: `PDO::ERRMODE_EXCEPTION` — nie stille Fehler
-- Verbindungs-Credentials: nur aus `.env` / Umgebungsvariablen, nie im Code
+### Database Access
+- Exclusively PDO or MySQLi with Prepared Statements
+- No string concatenation for SQL values
+- Error mode: `PDO::ERRMODE_EXCEPTION` — never silent errors
+- Connection credentials: only from `.env` / environment variables, never in code
 
 ### CSRF / Session
-- Jedes zustandsaenderndes Formular braucht CSRF-Token (synchronizer token pattern)
-- Sessions: `session_regenerate_id(true)` nach Login
-- Cookies: `HttpOnly`, `Secure`, `SameSite=Lax` setzen
+- Every state-changing form needs a CSRF token (synchronizer token pattern)
+- Sessions: `session_regenerate_id(true)` after login
+- Cookies: set `HttpOnly`, `Secure`, `SameSite=Lax`
 
-### Datei-Uploads
-- Whitelist erlaubter MIME-Types (nie Userinput vertrauen)
-- Upload-Verzeichnis ausserhalb des Webroots oder per `.htaccess` gesichert
-- Dateinamen sanitisieren (kein `../`, keine Sonderzeichen)
+### File Uploads
+- Whitelist allowed MIME types (never trust user input)
+- Upload directory outside the webroot or secured via `.htaccess`
+- Sanitize filenames (no `../`, no special characters)
 
-### Code-Ausfuehrung verbieten
-- Kein `eval()`, `exec()`, `shell_exec()`, `system()`, `passthru()`
-- Kein `include($userInput)`, `require($userInput)`
-- `disable_functions` in `php.ini` fuer Produktivumgebungen pruefen
+### Forbid Code Execution
+- No `eval()`, `exec()`, `shell_exec()`, `system()`, `passthru()`
+- No `include($userInput)`, `require($userInput)`
+- Check `disable_functions` in `php.ini` for production environments
 
 ---
 
-## PHP-Standards & Struktur
+## PHP Standards & Structure
 
-### PSR-Compliance
-- **PSR-1 / PSR-12 (PER-CS 2.0):** Coding Style (4 Spaces, StudlyCaps fuer Klassen, camelCase fuer Methoden)
-- **PSR-4:** Autoloading — Namespace-Struktur spiegelt Verzeichnisstruktur
-- **PSR-7/15:** HTTP Message Interface / Middleware wenn Framework das unterstuetzt
-- **PSR-3:** Logger-Interface (`$logger->error(...)` statt `error_log(...)`)
+### PSR Compliance
+- **PSR-1 / PSR-12 (PER-CS 2.0):** Coding style (4 spaces, StudlyCaps for classes, camelCase for methods)
+- **PSR-4:** Autoloading — namespace structure mirrors directory structure
+- **PSR-7/15:** HTTP Message Interface / Middleware when the framework supports it
+- **PSR-3:** Logger interface (`$logger->error(...)` instead of `error_log(...)`)
 
 ### Composer
-- Abhaengigkeiten immer via `composer require vendor/package`
-- `composer.lock` committen, `vendor/` in `.gitignore`
-- Niemals Pakete manuell in `vendor/` kopieren
+- Dependencies always via `composer require vendor/package`
+- Commit `composer.lock`, put `vendor/` in `.gitignore`
+- Never copy packages manually into `vendor/`
 
-### Fehlerbehandlung
-- Custom Exception-Klassen fuer Domain-Fehler
-- Produktiv: alle Errors loggen, nie anzeigen (`display_errors = Off`)
-- Entwicklung: `error_reporting(E_ALL)`, `display_errors = On`
+### Error Handling
+- Custom exception classes for domain errors
+- Production: log all errors, never display them (`display_errors = Off`)
+- Development: `error_reporting(E_ALL)`, `display_errors = On`
 
 ---
 
 ## Frontend (HTML / CSS / JS)
 
 ### HTML
-- Semantisches HTML5: `<main>`, `<article>`, `<section>`, `<nav>`, `<header>`, `<footer>`
-- Accessibility: `alt`-Attribute, ARIA-Labels wo noetig, Keyboard-Navigation
-- `<form>`: immer `method="post"` fuer Daten-Aenderungen, CSRF-Token als Hidden-Field
+- Semantic HTML5: `<main>`, `<article>`, `<section>`, `<nav>`, `<header>`, `<footer>`
+- Accessibility: `alt` attributes, ARIA labels where needed, keyboard navigation
+- `<form>`: always `method="post"` for data changes, CSRF token as a hidden field
 
 ### CSS
-- BEM-Naming oder konsistente Konvention im Projekt
-- Kein `!important`-Missbrauch (maximal fuer Utility-Classes)
-- CSS-Variablen fuer Farben/Abstände (`--color-primary`, `--spacing-base`)
-- Mobile-first Breakpoints
+- BEM naming or a consistent convention within the project
+- No `!important` abuse (at most for utility classes)
+- CSS variables for colors/spacing (`--color-primary`, `--spacing-base`)
+- Mobile-first breakpoints
 
 ### JavaScript
-- Kein globaler Namespace-Pollution: Module-Pattern oder ES6-Module
-- `const` bevorzugen, `let` wenn noetig, kein `var`
-- DOM-Manipulation: Elemente cachen, keine wiederholten `document.querySelector` in Loops
-- Fetch/Axios: immer Error-Handling (`.catch()` / `try/catch`)
-- Keine sensiblen Daten in `localStorage` (kein Auth-Token ohne Encryption)
+- No global namespace pollution: module pattern or ES6 modules
+- Prefer `const`, use `let` when needed, no `var`
+- DOM manipulation: cache elements, no repeated `document.querySelector` in loops
+- Fetch/Axios: always handle errors (`.catch()` / `try/catch`)
+- No sensitive data in `localStorage` (no auth token without encryption)
 
 ---
 
-## Datenbank (SQL-Allgemein)
+## Database (SQL General)
 
-- Indizes auf alle JOIN-/WHERE-/ORDER-BY-Spalten pruefen
-- `EXPLAIN` / `EXPLAIN ANALYZE` vor Deployment von komplexen Queries
-- Transaktionen fuer mehrstufige Schreiboperationen
-- Keine SELECT * in Produktion — nur benoetigte Spalten
+- Check indexes on all JOIN/WHERE/ORDER BY columns
+- `EXPLAIN` / `EXPLAIN ANALYZE` before deploying complex queries
+- Transactions for multi-step write operations
+- No SELECT * in production — only the columns you need
 
 ---
 
-## Web-Performance (Core Web Vitals)
+## Web Performance (Core Web Vitals)
 
-### Zielwerte
+### Targets
 - **LCP** (Largest Contentful Paint): < 2.5s
 - **INP** (Interaction to Next Paint): < 200ms
 - **CLS** (Cumulative Layout Shift): < 0.1
 
-### Bundle & Ladezeiten
-- Landing-Pages: < 150kb JS (komprimiert)
-- App-Seiten: < 300kb JS (komprimiert)
-- Bilder: AVIF > WebP > optimiertes JPEG/PNG (Fallback-Chain)
-- Fonts: max 2 Familien, `font-display: swap`, WOFF2-Format
+### Bundles & Load Times
+- Landing pages: < 150kb JS (compressed)
+- App pages: < 300kb JS (compressed)
+- Images: AVIF > WebP > optimized JPEG/PNG (fallback chain)
+- Fonts: max 2 families, `font-display: swap`, WOFF2 format
 
-### CSS-Performance
-- Animationen nur auf Compositor-Properties: `transform`, `opacity`, `filter`
-- Kein Layout-Thrashing (keine width/height/top/left Animationen)
-- `will-change` sparsam einsetzen (nur bei gemessenen Problemen)
-- `contain: layout` fuer isolierte Sektionen
+### CSS Performance
+- Animations only on compositor properties: `transform`, `opacity`, `filter`
+- No layout thrashing (no width/height/top/left animations)
+- Use `will-change` sparingly (only for measured problems)
+- `contain: layout` for isolated sections
 
 ### Lazy Loading
-- Bilder below-the-fold: `loading="lazy"` + explizite `width`/`height` (CLS)
-- Heavy JS-Module: dynamisches `import()` statt statisches Laden
-- Intersection Observer fuer scroll-basierte Inhalte
+- Below-the-fold images: `loading="lazy"` + explicit `width`/`height` (CLS)
+- Heavy JS modules: dynamic `import()` instead of static loading
+- Intersection Observer for scroll-based content
 
 ---
 
-## Security-Headers & CSP
+## Security Headers & CSP
 
-### HTTP-Security-Headers (in .htaccess oder Server-Config)
+### HTTP Security Headers (in .htaccess or server config)
 ```
 Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-{random}'; style-src 'self' 'nonce-{random}'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'
 Strict-Transport-Security: max-age=31536000; includeSubDomains
@@ -127,22 +127,22 @@ Cross-Origin-Embedder-Policy: require-corp
 ```
 
 ### CSP Best Practices
-- Nonce-basiert (`'nonce-xyz'`) statt `'unsafe-inline'` fuer Scripts UND Styles
-- `'unsafe-inline'` fuer Styles nur als letzter Ausweg wenn Nonce nicht moeglich (Legacy-Code)
-- `object-src 'none'` — verhindert Plugin-Content (Flash, Java Applets)
-- `base-uri 'self'` — verhindert base-tag-Injection (URL-Hijacking)
-- `frame-ancestors 'none'` — moderner Ersatz fuer X-Frame-Options
-- Externe Scripts: SRI-Hashes (`integrity="sha384-..."`)
-- `report-to` fuer CSP-Violations konfigurieren (`Report-URI` ist deprecated seit CSP Level 3)
+- Nonce-based (`'nonce-xyz'`) instead of `'unsafe-inline'` for scripts AND styles
+- `'unsafe-inline'` for styles only as a last resort when nonce is not possible (legacy code)
+- `object-src 'none'` — prevents plugin content (Flash, Java applets)
+- `base-uri 'self'` — prevents base-tag injection (URL hijacking)
+- `frame-ancestors 'none'` — modern replacement for X-Frame-Options
+- External scripts: SRI hashes (`integrity="sha384-..."`)
+- Configure `report-to` for CSP violations (`Report-URI` is deprecated since CSP Level 3)
 
-### Formular-Security
-- Rate-Limiting auf Login/Registrierung (z.B. 5 Versuche/Minute)
-- Honeypot-Felder gegen einfache Bots (unsichtbares Feld, wenn befuellt → Bot)
-- Zeitbasierter Check: Formular in < 2s abgesendet → verdaechtig
+### Form Security
+- Rate limiting on login/registration (e.g. 5 attempts/minute)
+- Honeypot fields against simple bots (invisible field; if filled → bot)
+- Time-based check: form submitted in < 2s → suspicious
 
 ---
 
-## JavaScript — Erweiterte Patterns
+## JavaScript — Advanced Patterns
 
 ### Async/Await Best Practices
 ```javascript
@@ -164,19 +164,19 @@ try {
 }
 ```
 
-### Type-Safety ohne TypeScript
-- JSDoc-Annotationen fuer IDE-Support: `/** @param {string} name */`
-- `===` statt `==` (strikte Vergleiche)
-- Optional Chaining: `obj?.prop?.nested` statt verschachtelte Checks
-- Nullish Coalescing: `val ?? default` statt `val || default` (0 und '' sind gueltig)
+### Type Safety without TypeScript
+- JSDoc annotations for IDE support: `/** @param {string} name */`
+- `===` instead of `==` (strict comparisons)
+- Optional chaining: `obj?.prop?.nested` instead of nested checks
+- Nullish coalescing: `val ?? default` instead of `val || default` (0 and '' are valid)
 
-### DOM-Performance
-- Event-Delegation statt individuelle Listener auf viele Elemente
-- `requestAnimationFrame` fuer visuelle Updates
-- `DocumentFragment` fuer Batch-DOM-Inserts
-- `IntersectionObserver` statt scroll-Event-Listener
+### DOM Performance
+- Event delegation instead of individual listeners on many elements
+- `requestAnimationFrame` for visual updates
+- `DocumentFragment` for batch DOM inserts
+- `IntersectionObserver` instead of scroll event listeners
 
-### Module-Pattern (ohne Bundler)
+### Module Pattern (without bundler)
 ```javascript
 // ES6-Module im Browser (type="module")
 <script type="module" src="app.js"></script>
@@ -194,31 +194,31 @@ MyApp.utils = (function() {
 
 ---
 
-## HTML — Erweiterte Semantik & Accessibility
+## HTML — Advanced Semantics & Accessibility
 
-### Pflicht-Attribute
-- Bilder: `alt` (beschreibend), `width`, `height` (CLS-Vermeidung)
-- Links: `rel="noopener"` bei `target="_blank"`
-- Formulare: `<label for="id">` fuer jedes Input-Element
-- Tabellen: `<thead>`, `<tbody>`, `scope="col/row"` fuer Screenreader
+### Required Attributes
+- Images: `alt` (descriptive), `width`, `height` (CLS avoidance)
+- Links: `rel="noopener"` with `target="_blank"`
+- Forms: `<label for="id">` for every input element
+- Tables: `<thead>`, `<tbody>`, `scope="col/row"` for screen readers
 
-### ARIA — Nur wenn HTML nicht reicht
-- Semantisches HTML zuerst: `<button>` statt `<div role="button">`
-- `aria-label` fuer Icon-Only-Buttons
-- `aria-live="polite"` fuer dynamisch aktualisierte Bereiche
-- `aria-expanded`, `aria-controls` fuer Akkordeons/Dropdowns
+### ARIA — Only When HTML Is Not Enough
+- Semantic HTML first: `<button>` instead of `<div role="button">`
+- `aria-label` for icon-only buttons
+- `aria-live="polite"` for dynamically updated regions
+- `aria-expanded`, `aria-controls` for accordions/dropdowns
 
-### Keyboard-Navigation
-- Alle interaktiven Elemente muessen per Tab erreichbar sein
-- Custom-Widgets: `tabindex="0"` + Keydown-Handler (Enter, Space, Escape)
-- Focus-Trap in Modals (Tab bleibt im Dialog)
-- Sichtbarer Focus-Ring (`:focus-visible`, nie `outline: none` global)
+### Keyboard Navigation
+- All interactive elements must be reachable via Tab
+- Custom widgets: `tabindex="0"` + keydown handler (Enter, Space, Escape)
+- Focus trap in modals (Tab stays inside the dialog)
+- Visible focus ring (`:focus-visible`, never `outline: none` globally)
 
 ---
 
-## CSS — Erweiterte Patterns
+## CSS — Advanced Patterns
 
-### Design-Tokens via Custom Properties
+### Design Tokens via Custom Properties
 ```css
 :root {
   --color-primary: #2563eb;
@@ -236,23 +236,23 @@ MyApp.utils = (function() {
 ```
 
 ### Responsive Design
-- Mobile-first: Basis-Styles fuer Mobile, `min-width` Media Queries fuer groessere Screens
+- Mobile-first: base styles for mobile, `min-width` media queries for larger screens
 - Breakpoints: 640px (sm), 768px (md), 1024px (lg), 1280px (xl)
-- `clamp()` fuer fluide Typografie: `font-size: clamp(1rem, 2.5vw, 2rem)`
-- Container Queries (`@container`) fuer komponentenbasiertes Layout
+- `clamp()` for fluid typography: `font-size: clamp(1rem, 2.5vw, 2rem)`
+- Container Queries (`@container`) for component-based layout
 
 ### Anti-Patterns
-- ❌ `!important` — nur fuer Utility-Classes (z.B. `.hidden { display: none !important }`)
-- ❌ Pixel fuer Schriftgroessen — `rem` verwenden
-- ❌ `z-index: 9999` — strukturiertes z-index System (10, 20, 30...)
-- ❌ Deeply nested selectors (>.3 Ebenen) — flache Selektoren oder BEM
+- ❌ `!important` — only for utility classes (e.g. `.hidden { display: none !important }`)
+- ❌ Pixels for font sizes — use `rem`
+- ❌ `z-index: 9999` — structured z-index system (10, 20, 30...)
+- ❌ Deeply nested selectors (>3 levels) — flat selectors or BEM
 
 ---
 
-## Encoding (PHP/Web spezifisch)
+## Encoding (PHP/Web Specific)
 
-- PHP-Dateien: UTF-8 ohne BOM
-- `mb_*`-Funktionen statt `str_*` bei Multibyte-Strings: `mb_strlen()`, `mb_strtolower()`, etc.
-- HTTP-Header: `header('Content-Type: text/html; charset=utf-8')` muss mit Datei-Encoding uebereinstimmen
-- Datenbank-Connection: `SET NAMES utf8mb4` oder PDO `charset=utf8mb4` in DSN
-- `utf8mb4` statt `utf8` in MySQL fuer vollstaendigen Unicode-Support (Emoji, seltene Zeichen)
+- PHP files: UTF-8 without BOM
+- `mb_*` functions instead of `str_*` for multibyte strings: `mb_strlen()`, `mb_strtolower()`, etc.
+- HTTP header: `header('Content-Type: text/html; charset=utf-8')` must match the file encoding
+- Database connection: `SET NAMES utf8mb4` or PDO `charset=utf8mb4` in DSN
+- `utf8mb4` instead of `utf8` in MySQL for full Unicode support (emoji, rare characters)

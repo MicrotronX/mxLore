@@ -27,9 +27,9 @@ content=$(sed '1s/^\xEF\xBB\xBF//' "$f" 2>/dev/null) || exit 0
 [ -z "$content" ] && exit 0
 
 # Output the raw JSON for Claude to parse (Claude is better at JSON than bash)
-echo "[Agent-Inbox] Nachrichten fuer ${MY_PROJECT}:"
+echo "[Agent-Inbox] Messages for ${MY_PROJECT}:"
 echo "$content"
-echo "Verarbeite diese _agent_messages und antworte/reagiere entsprechend. Danach: mx_agent_ack"
+echo "Process these _agent_messages and respond/react accordingly. Then: mx_agent_ack"
 
 # Delete file after reading
 rm -f "$f"

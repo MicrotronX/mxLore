@@ -20,7 +20,7 @@ try {
     state = JSON.parse(raw);
   } catch (e) {
     // Corrupt JSON — warn and exit (mxSave will regenerate from MCP)
-    console.log('[Orchestrate] WARNING: orchestrate-state.json ist korrupt. /mxSave ausfuehren fuer Reconciliation aus MCP.');
+    console.log('[Orchestrate] WARNING: orchestrate-state.json is corrupt. Run /mxSave for reconciliation from MCP.');
     process.exit(0);
   }
 
@@ -70,14 +70,14 @@ try {
   if (changed) {
     state.last_reconciliation = new Date().toISOString();
     fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2) + '\n', 'utf8');
-    console.log('[Orchestrate] State-Datei auf Schema v2 migriert/repariert.');
+    console.log('[Orchestrate] State file migrated/repaired to schema v2.');
   }
 
   // --- Check for unsynced entries and warn ---
   const unsyncedWFs = (state.workflow_stack || []).filter(wf => wf.unsynced);
   const unsyncedEvents = (state.events_log || []).filter(ev => !ev.synced);
   if (unsyncedWFs.length > 0 || unsyncedEvents.length > 0) {
-    console.log(`[Orchestrate] WARNING: ${unsyncedWFs.length} unsynced WFs, ${unsyncedEvents.length} unsynced Events. /mxSave empfohlen fuer MCP-Sync.`);
+    console.log(`[Orchestrate] WARNING: ${unsyncedWFs.length} unsynced WFs, ${unsyncedEvents.length} unsynced events. /mxSave recommended for MCP sync.`);
   }
 
 } catch (e) {

@@ -53,11 +53,11 @@ try {
   const docId = active.doc_id;
 
   // Output prompt for Claude to evaluate step completion
-  console.log(`[Orchestrate Step-Check] Aktiver Workflow: "${wfName}" (${active.id}), Step ${stepNum}/${totalSteps}, doc_id=${docId}.`);
-  console.log(`Hast du in deiner letzten Antwort einen Schritt dieses Workflows abgeschlossen?`);
-  console.log(`- Falls JA: mx_update_doc(doc_id=${docId}) mit Step=${stepNum} als done + Timestamp + Ergebnis-Einzeiler. Dann orchestrate-state.json updaten: current_step=${stepNum}, Event in events_log, state_deltas++.`);
-  console.log(`- Falls NEIN: Keine Aktion noetig.`);
-  console.log(`- Bei MCP-Fehler: orchestrate-state.json mit unsynced=true schreiben.`);
+  console.log(`[Orchestrate Step-Check] Active workflow: "${wfName}" (${active.id}), Step ${stepNum}/${totalSteps}, doc_id=${docId}.`);
+  console.log(`Did you complete a step of this workflow in your last response?`);
+  console.log(`- If YES: mx_update_doc(doc_id=${docId}) with Step=${stepNum} as done + timestamp + one-line result. Then update orchestrate-state.json: current_step=${stepNum}, event in events_log, state_deltas++.`);
+  console.log(`- If NO: No action needed.`);
+  console.log(`- On MCP error: write orchestrate-state.json with unsynced=true.`);
 } catch (e) {
   // Silent fail
   process.exit(0);

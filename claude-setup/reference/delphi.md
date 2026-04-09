@@ -1,25 +1,25 @@
-# Delphi – Senior-Mindset Rules
+# Delphi – Senior Mindset Rules
 
-> Wird von `CLAUDE.md` referenziert. NUR bei Bedarf laden.
-> Gilt fuer alle Delphi-Projekte (VCL, FMX, DataSnap, REST).
+> Referenced by `CLAUDE.md`. Load ONLY when needed.
+> Applies to all Delphi projects (VCL, FMX, DataSnap, REST).
 
 ---
 
-## Ownership & Lifecycle (KRITISCHSTE REGEL)
+## Ownership & Lifecycle (MOST CRITICAL RULE)
 
-### TComponent-Ownership
-- Wer `Owner` uebergibt, delegiert Lifetime-Management an den Owner
-- Wer `nil` als Owner uebergibt, ist selbst fuer `Free` verantwortlich
-- `Free` auf Komponente mit Owner ist KEIN Doppel-Free — `TComponent.Destroy` ruft `Owner.RemoveComponent(Self)` auf und entfernt sich aus der Owner-Liste
-- Fruehes `Free` bei Owner-Komponenten ist erlaubt, aber meist unnoetig
+### TComponent Ownership
+- Whoever passes `Owner` delegates lifetime management to the Owner
+- Whoever passes `nil` as Owner is responsible for `Free` themselves
+- `Free` on a component with an Owner is NOT a double-free — `TComponent.Destroy` calls `Owner.RemoveComponent(Self)` and removes itself from the Owner list
+- Early `Free` of owned components is allowed but usually unnecessary
 
 ```pascal
-// OK — Owner gibt frei, kein manuelles Free noetig
+// OK — Owner releases, no manual Free needed
 btn := TButton.Create(Self);
 btn.Parent := Panel1;
-// btn wird automatisch freigegeben wenn Self zerstoert wird
+// btn is automatically freed when Self is destroyed
 
-// AUCH OK — fruehes Free entfernt sich aus Owner-Liste (kein Doppel-Free)
+// ALSO OK — early Free removes itself from Owner list (no double-free)
 btn := TButton.Create(Self);
 try
   // kurzlebige Nutzung
@@ -36,27 +36,27 @@ finally
 end;
 ```
 
-**Wann Owner, wann nil?**
-- `Create(Self)` / `Create(Form)`: Komponente lebt solange wie Owner (UI-Elemente, lang-lebige Objekte)
-- `Create(nil)`: kurzlebige Hilfs-Objekte, Objekte mit unklarer Lifetime, Performance-kritisch (kein Notification-Overhead)
+**When Owner, when nil?**
+- `Create(Self)` / `Create(Form)`: component lives as long as the Owner (UI elements, long-lived objects)
+- `Create(nil)`: short-lived helper objects, objects with unclear lifetime, performance-critical (no notification overhead)
 
-### Destruktor-Reihenfolge
-- Abhaengigkeiten in umgekehrter Erstellungsreihenfolge freigeben
-- `FreeAndNil()` statt `.Free` — verhindert Dangling-Pointer-Zugriffe
-- Im Destruktor: niemals Exceptions aufsteigen lassen (alles in try/except einwickeln)
+### Destructor Order
+- Release dependencies in the reverse order of creation
+- `FreeAndNil()` instead of `.Free` — prevents dangling pointer access
+- In the destructor: never let exceptions propagate (wrap everything in try/except)
 
-### Interface-Referenzen
-- Interfaces werden per Referenzzaehlung verwaltet — kein manuelles Free
-- **NIE** Interface-Referenz und Objekt-Referenz auf dasselbe Objekt mischen (Referenzzaehler-Konflikt)
-- `TInterfacedObject` als Basis wenn Interface-Ownership erwuenscht
+### Interface References
+- Interfaces are managed via reference counting — no manual Free
+- **NEVER** mix interface references and object references to the same object (reference counter conflict)
+- `TInterfacedObject` as a base when interface ownership is desired
 
 ---
 
 ## Memory Management
 
-### Allgemeine Regeln
-- Jedes `Create` braucht ein korrespondierendes `Free`/`FreeAndNil`
-- try/finally ist PFLICHT bei manuellem Memory-Management:
+### General Rules
+- Every `Create` requires a corresponding `Free`/`FreeAndNil`
+- try/finally is MANDATORY for manual memory management:
 
 ```pascal
 obj := TMyClass.Create;
@@ -67,27 +67,27 @@ finally
 end;
 ```
 
-### Collections & Listen
-- `TObjectList<T>` mit `OwnsObjects := True` fuer automatische Freigabe
-- Bei `OwnsObjects := False`: Elemente selbst freigeben vor List-Free
-- Niemals Items aus `TObjectList` (OwnsObjects=True) extern freigeben
-- `TStringList.OwnsObjects`: Default=False — Objects[] werden bei Clear/Delete NICHT freigegeben. Explizit `OwnsObjects := True` setzen wenn Objects[] Ownership gewuenscht
+### Collections & Lists
+- `TObjectList<T>` with `OwnsObjects := True` for automatic release
+- With `OwnsObjects := False`: free elements yourself before freeing the list
+- Never free items from a `TObjectList` (OwnsObjects=True) externally
+- `TStringList.OwnsObjects`: Default=False — Objects[] are NOT freed on Clear/Delete. Explicitly set `OwnsObjects := True` if Objects[] ownership is desired
 
-### Strings & Speicher
-- `string` in Delphi ist reference-counted — kein manuelles Verwalten noetig
-- `ShortString` nur noch in Legacy-Kontexten oder Interop
-- Fuer grosse Binaerdaten: `TBytes` oder `TMemoryStream` statt string
+### Strings & Memory
+- `string` in Delphi is reference-counted — no manual management needed
+- `ShortString` only in legacy contexts or interop
+- For large binary data: `TBytes` or `TMemoryStream` instead of string
 
 ---
 
-## Klassendeklaration — Reihenfolge (WICHTIG)
+## Class Declaration — Order (IMPORTANT)
 
-Innerhalb jeder Sichtbarkeitssektion (`private`, `protected`, `public`, `published`)
-gilt eine **strikte Reihenfolge**:
+Within each visibility section (`private`, `protected`, `public`, `published`)
+a **strict order** applies:
 
-1. **Felder** (Variablen) — zuerst
-2. **Methoden** (procedure/function) — danach
-3. **Properties** — zuletzt
+1. **Fields** (variables) — first
+2. **Methods** (procedure/function) — next
+3. **Properties** — last
 
 ```pascal
 // RICHTIG:
@@ -107,19 +107,19 @@ private
     FName: string;              // ← FEHLER: Feld nach Methode
 ```
 
-Beim Einfuegen neuer Members in bestehende Klassen:
-- Neue Felder → nach dem letzten bestehenden Feld einfuegen
-- Neue Methoden → nach dem letzten bestehenden Feld / vor Properties
-- Neue Properties → am Ende der Sektion
+When inserting new members into existing classes:
+- New fields → insert after the last existing field
+- New methods → after the last existing field / before properties
+- New properties → at the end of the section
 
 ---
 
-## Compiler-Bewusstsein
+## Compiler Awareness
 
 ### Anonymous Methods / Closures
-- Anonymous Methods erzeugen **Heap-allozierte Frames** — nicht kostenlos
-- Captured Variablen leben solange die Closure lebt — kann Memory-Leaks verursachen
-- `var`-Parameter koennen NICHT in Anonymous Methods captured werden
+- Anonymous methods create **heap-allocated frames** — not free of cost
+- Captured variables live as long as the closure lives — can cause memory leaks
+- `var` parameters CANNOT be captured in anonymous methods
 
 ```pascal
 // PROBLEM: i wird captured, aber als Referenz!
@@ -145,21 +145,21 @@ for i := 0 to 9 do
 ```
 
 ### Generics
-- Generics erhoehen Compile-Zeit und Code-Groesse — gezielt einsetzen
-- Generic Constraints explizit angeben: `TMyClass<T: class>`, `TMyClass<T: IInterface>`
-- Generische Collections bevorzugen: `TList<T>`, `TDictionary<K,V>`, `TObjectList<T>`
-- Keine tiefen Generics-Verschachtelungen (>2 Ebenen) — Lesbarkeit leidet
+- Generics increase compile time and code size — use deliberately
+- Specify generic constraints explicitly: `TMyClass<T: class>`, `TMyClass<T: IInterface>`
+- Prefer generic collections: `TList<T>`, `TDictionary<K,V>`, `TObjectList<T>`
+- No deep generics nesting (>2 levels) — readability suffers
 
 ### RTTI
-- `{$RTTI}` Direktiven gezielt setzen — Standard-RTTI erhoeht Binary-Groesse
-- `TValue` fuer typsichere RTTI-Werte statt Casts ueber `Pointer`
-- `TRttiContext.Create` ist kostenguenstig, aber `TRttiType`-Zugriffe cachen
+- Set `{$RTTI}` directives deliberately — default RTTI increases binary size
+- `TValue` for type-safe RTTI values instead of casts via `Pointer`
+- `TRttiContext.Create` is cheap, but cache `TRttiType` accesses
 
 ---
 
-## Delphi-Idiome (nicht Java/C# aufzwingen)
+## Delphi Idioms (Don't Force Java/C# Style)
 
-### Properties statt Getter/Setter-Methoden
+### Properties Instead of Getter/Setter Methods
 ```pascal
 // FALSCH — Java-Stil
 function GetName: string;
@@ -169,14 +169,14 @@ procedure SetName(const Value: string);
 property Name: string read FName write SetName;
 ```
 
-### Message-Handling
-- VCL-Messages ueber `procedure WMSize(var Msg: TWMSize); message WM_SIZE;`
-- Niemals Windows-Messages direkt mit `SendMessage`/`PostMessage` posten wenn VCL-Wrapper existiert
-- Custom-Messages: Konstanten im `WM_APP`-Bereich (`WM_APP + 1` bis `WM_APP + $3FFF`)
+### Message Handling
+- VCL messages via `procedure WMSize(var Msg: TWMSize); message WM_SIZE;`
+- Never post Windows messages directly with `SendMessage`/`PostMessage` if a VCL wrapper exists
+- Custom messages: constants in the `WM_APP` range (`WM_APP + 1` to `WM_APP + $3FFF`)
 
 ### Notification / TComponent.Notification
-- Bei Komponentenreferenzen auf andere Komponenten: `Notification` ueberschreiben
-- Verhindert Dangling-Pointer wenn referenzierte Komponente geloescht wird:
+- For component references to other components: override `Notification`
+- Prevents dangling pointers when the referenced component is deleted:
 
 ```pascal
 procedure TMyComponent.Notification(AComponent: TComponent; Operation: TOperation);
@@ -187,23 +187,23 @@ begin
 end;
 ```
 
-### Event-Handler
-- Events als `TNotifyEvent` oder typisierte Procedure-of-Object definieren
-- Vor Aufruf immer auf `Assigned()` pruefen: `if Assigned(FOnChange) then FOnChange(Self);`
+### Event Handlers
+- Define events as `TNotifyEvent` or typed procedure-of-object
+- Always check `Assigned()` before calling: `if Assigned(FOnChange) then FOnChange(Self);`
 
 ---
 
-## Fehlerbehandlung
+## Error Handling
 
-### Exception-Hierarchie
-- Eigene Exceptions von `Exception` oder spezifischen Subklassen ableiten
-- Klassen-Naming: `E`-Prefix (EMyAppError, EValidationError)
-- Exceptions fuer aussergewoehnliche Zustande — nicht fuer normalen Kontrollfluss
+### Exception Hierarchy
+- Derive your own exceptions from `Exception` or specific subclasses
+- Class naming: `E` prefix (EMyAppError, EValidationError)
+- Exceptions for exceptional states — not for normal control flow
 
-### try/except Regeln
-- Niemals leere `except`-Bloecke (Fehler verschlucken)
-- `on E: ESpecificException do` statt allgemeines `except`
-- Re-raise mit `raise` (nicht `raise E`) um Stacktrace zu erhalten
+### try/except Rules
+- Never empty `except` blocks (swallowing errors)
+- `on E: ESpecificException do` instead of generic `except`
+- Re-raise with `raise` (not `raise E`) to preserve the stack trace
 
 ```pascal
 // FALSCH
@@ -228,62 +228,62 @@ end;
 
 ## DataSnap / REST
 
-### DataSnap-Proxies
-- Proxy-Klassen werden per `UnMarshal` als **neue Instanzen** erzeugt — immer freigeben
-- Niemals Proxy-Instanz cachen ohne Thread-Safety-Betrachtung
-- Connection-Handling: `TSQLConnection` nicht in Threads teilen
+### DataSnap Proxies
+- Proxy classes are created as **new instances** via `UnMarshal` — always free them
+- Never cache a proxy instance without thread-safety considerations
+- Connection handling: do not share `TSQLConnection` across threads
 
 ### REST / TRESTClient
-- `TRESTClient`, `TRESTRequest`, `TRESTResponse` koennen im Designer platziert werden
-- `TRESTResponse.JSONValue` gibt keine Ownership ab — nicht freigeben
-- Authentifizierung: `TCustomAuthenticator`-Subklasse, nie Token im URL-Parameter
+- `TRESTClient`, `TRESTRequest`, `TRESTResponse` can be placed in the designer
+- `TRESTResponse.JSONValue` does not transfer ownership — do not free
+- Authentication: use a `TCustomAuthenticator` subclass, never put a token in a URL parameter
 
 ### JSON
-- `TJSONObject.ParseJSONValue` liefert Ownership — immer freigeben
-- `TJSONObject` / `TJSONArray`: bei manueller Erstellung in try/finally
-- `System.JSON.Builders` fuer komplexe JSON-Konstruktion bevorzugen
+- `TJSONObject.ParseJSONValue` returns ownership — always free
+- `TJSONObject` / `TJSONArray`: when manually created, use try/finally
+- Prefer `System.JSON.Builders` for complex JSON construction
 
 ---
 
-## Datenbank (FireDAC / BDE-Nachfolger)
+## Database (FireDAC / BDE Successor)
 
-- `TFDConnection` nie in Threads teilen — pro Thread eigene Connection
-- `TFDQuery.Params` immer typisiert setzen: `ParamByName('x').AsInteger := 5`
-- Niemals SQL via String-Konkatenation bauen — immer Parameter
-- `TFDTransaction` explizit fuer Multi-Statement-Operationen
-- `FetchOptions.Mode := fmAll` nur wenn Datenmenge bekannt klein ist
+- Never share `TFDConnection` across threads — one connection per thread
+- Always set `TFDQuery.Params` typed: `ParamByName('x').AsInteger := 5`
+- Never build SQL via string concatenation — always use parameters
+- `TFDTransaction` explicitly for multi-statement operations
+- `FetchOptions.Mode := fmAll` only if the dataset is known to be small
 
 ---
 
 ## Threading
 
-### VCL-Thread-Safety
-- VCL ist **nicht thread-safe** — alle UI-Zugriffe im Main-Thread
-- `TThread.Synchronize` fuer blockierende UI-Updates
-- `TThread.Queue` fuer nicht-blockierende UI-Updates (bevorzugt)
+### VCL Thread Safety
+- VCL is **not thread-safe** — all UI access from the main thread
+- `TThread.Synchronize` for blocking UI updates
+- `TThread.Queue` for non-blocking UI updates (preferred)
 
 ### TThread
-- `FreeOnTerminate := True`: Objekt nie mehr nach `Execute` anfassen
-- `Terminate` setzt nur Flag — kooperatives Abbrechen ueber `Terminated`-Check im Execute-Loop
-- `TMonitor` oder `TCriticalSection` fuer shared state
+- `FreeOnTerminate := True`: never touch the object after `Execute`
+- `Terminate` only sets a flag — cooperative cancellation via `Terminated` check in the Execute loop
+- `TMonitor` or `TCriticalSection` for shared state
 
 ### Parallel Programming Library (PPL)
-- `TTask.Run` fuer einfache Hintergrundaufgaben
-- `TParallel.For` nur wenn Iterationen wirklich unabhaengig
-- Exceptions in Tasks: via `TTask.Wait` oder `ITask.Wait` abfangen
+- `TTask.Run` for simple background tasks
+- `TParallel.For` only when iterations are truly independent
+- Exceptions in tasks: catch via `TTask.Wait` or `ITask.Wait`
 
 ---
 
-## Code-Qualitaet & Patterns
+## Code Quality & Patterns
 
 ### Naming Conventions
-- Klassen: `T`-Prefix (TMyClass)
-- Interfaces: `I`-Prefix (IMyInterface)
-- Felder: `F`-Prefix (FMyField)
-- Konstanten: keine Prefix-Pflicht, aber ALL_CAPS oder CamelCase konsistent
-- Parameter: keine Prefix-Pflicht, aber `A`-Prefix verbreitet (AValue, AIndex)
+- Classes: `T` prefix (TMyClass)
+- Interfaces: `I` prefix (IMyInterface)
+- Fields: `F` prefix (FMyField)
+- Constants: no prefix required, but ALL_CAPS or CamelCase consistently
+- Parameters: no prefix required, but `A` prefix is common (AValue, AIndex)
 
-### Unit-Struktur
+### Unit Structure
 ```
 unit MyUnit;
 
@@ -306,37 +306,37 @@ uses
 ```
 
 ### Anti-Patterns
-- ❌ Globale Variablen fuer State — stattdessen Klassen-Felder oder Singleton-Pattern
-- ❌ `Application.ProcessMessages` in Schleifen — stattdessen Threading
-- ❌ `Halt()` / `ExitProcess()` — kein sauberes Shutdown
-- ❌ `Form.Free` statt `Form.Close` + `caFree` in OnClose
-- ❌ Tiefe `with`-Verschachtelungen — Lesbarkeit und Debugging leiden
-- ❌ `inherited` vergessen in ueberschriebenen Methoden (besonders Create/Destroy)
+- ❌ Global variables for state — use class fields or the singleton pattern instead
+- ❌ `Application.ProcessMessages` in loops — use threading instead
+- ❌ `Halt()` / `ExitProcess()` — no clean shutdown
+- ❌ `Form.Free` instead of `Form.Close` + `caFree` in OnClose
+- ❌ Deep `with` nesting — readability and debugging suffer
+- ❌ Forgetting `inherited` in overridden methods (especially Create/Destroy)
 
 ---
 
 ## VCL vs. FMX
 
-### VCL-spezifisch
-- `TWinControl` fuer Komponenten mit Handle, `TGraphicControl` ohne
-- Handle-Zugriff: erst nach `HandleAllocated` oder in `CreateWnd`
-- `Canvas` nur zwischen `BeginPaint`/`EndPaint` oder in `OnPaint`
+### VCL-Specific
+- `TWinControl` for components with a handle, `TGraphicControl` without
+- Handle access: only after `HandleAllocated` or in `CreateWnd`
+- `Canvas` only between `BeginPaint`/`EndPaint` or in `OnPaint`
 
-### FMX-spezifisch
-- Kein Handle-Konzept — plattformunabhaengig
-- `TCanvas.BeginScene`/`EndScene` fuer direktes Zeichnen
-- Styles ueber `StyleLookup` — nie direkt auf Sub-Controls zugreifen
-- Plattform-spezifischer Code: `IFMXApplicationService` und Platform-Interfaces
+### FMX-Specific
+- No handle concept — platform-independent
+- `TCanvas.BeginScene`/`EndScene` for direct drawing
+- Styles via `StyleLookup` — never access sub-controls directly
+- Platform-specific code: `IFMXApplicationService` and platform interfaces
 
 ---
 
 ## Performance
 
-- `TStringBuilder` statt String-Konkatenation in Loops
-- `SetLength` mit Pre-Allokation fuer Arrays die wachsen
-- `TDictionary` fuer haeufige Key-Lookups statt linearer Suche
-- Grosse Dateien: `TFileStream` statt `TStringList.LoadFromFile`
-- `const`-Parameter fuer Strings und Records in Methoden-Signaturen (vermeidet Kopie)
+- `TStringBuilder` instead of string concatenation in loops
+- `SetLength` with pre-allocation for arrays that grow
+- `TDictionary` for frequent key lookups instead of linear search
+- Large files: `TFileStream` instead of `TStringList.LoadFromFile`
+- `const` parameters for strings and records in method signatures (avoids copies)
 
 ```pascal
 // BESSER — kein String-Copy

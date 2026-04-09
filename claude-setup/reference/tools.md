@@ -1,47 +1,47 @@
-# mx_* Custom Tools – Referenz
+# mx_* Custom Tools – Reference
 
-> NUR bei Bedarf laden. Parameter/Typen liefert das MCP-Schema automatisch.
-> Hier steht nur was das Schema NICHT sagt: Wann, Warum, Zusammenhaenge.
+> Load ONLY when needed. Parameters/types are provided automatically by the MCP schema.
+> This file contains only what the schema does NOT say: When, Why, Relationships.
 
 ---
 
-## Pfad-Fund-Regel (WICHTIG)
+## Path-Lookup Rule (IMPORTANT)
 
-1. **Vor** Pfad-Suche: `mx_get_env(key='<name>_path')` pruefen
-2. Neu entdeckte Pfade: sofort `mx_set_env(key='<name>_path', env_value='...', project='_global')`
+1. **Before** path search: check `mx_get_env(key='<name>_path')`
+2. Newly discovered paths: immediately `mx_set_env(key='<name>_path', env_value='...', project='_global')`
 
-| Key-Pattern | Beispiel |
+| Key Pattern | Example |
 |---|---|
 | `<tool>_path` | `delphi_path`, `php_path` |
 | `<lib>_path` | `tms_path` |
 
 ---
 
-## Analyse-Skills (IMMER als Subagent)
+## Analysis Skills (ALWAYS as Subagent)
 
-| Skill | Modus | Wann |
+| Skill | Mode | When |
 |---|---|---|
-| `/mxDesignChecker` | `design` / `code` | Nach Spec-Genehmigung / nach Code-Aenderungen |
-| `/mxBugChecker` | — | Bei Fehler-Analyse, VCS-Diff-Review |
-| `/mxHealth` | — | Periodisch, vor Releases. Phase 4: Auto-Bugreport |
+| `/mxDesignChecker` | `design` / `code` | After spec approval / after code changes |
+| `/mxBugChecker` | — | For error analysis, VCS diff review |
+| `/mxHealth` | — | Periodically, before releases. Phase 4: Auto-Bugreport |
 
 ---
 
-## Persistenz-Skills (Wann aufrufen?)
+## Persistence Skills (When to call?)
 
 | Skill | Trigger |
 |---|---|
-| `/mxSave` | Session-Ende, vor Compacting, nach 15-20 Tool-Aufrufen, nach Milestones |
-| `/mxPlan` | Nach Brainstorming, Spec-Ergebnis |
-| `/mxSpec` | Vor Planung, bei Feature-Definition |
-| `/mxDecision` | Bei Architektur-/Technologie-Entscheidungen |
-| `/mxOrchestrate` | Multi-Step-Workflows, Status-Check (`suggest`) |
+| `/mxSave` | Session end, before compacting, after 15-20 tool calls, after milestones |
+| `/mxPlan` | After brainstorming, spec result |
+| `/mxSpec` | Before planning, when defining features |
+| `/mxDecision` | For architecture/technology decisions |
+| `/mxOrchestrate` | Multi-step workflows, status check (`suggest`) |
 
 ---
 
-## doc_type Referenz (ADR-0007)
+## doc_type Reference (ADR-0007)
 
-| doc_type | Status-Werte |
+| doc_type | Status Values |
 |----------|-------------|
 | `plan`, `spec`, `decision` | draft, active, archived, superseded |
 | `session_note`, `workflow_log`, `reference`, `note` | draft, active, archived |
@@ -49,10 +49,10 @@
 
 ---
 
-## Tipps & Fallstricke
+## Tips & Pitfalls
 
-- **Parametername:** Einheitlich `project` (nicht `project_slug`)
-- **mx_search:** Kein Wildcard-Only Query (`*` allein funktioniert nicht)
-- **mx_briefing:** `token_budget` default 2000, bei Session-Start aufrufen
-- **mx_get_env Fallback:** Key→Developer→_global (mit `source`-Feld in Response)
-- **Notes vs. Docs:** `mx_create_note` fuer Notes/Bugreports/Feature-Requests, `mx_create_doc` fuer Specs/Plans/Decisions
+- **Parameter name:** Consistently `project` (not `project_slug`)
+- **mx_search:** No wildcard-only query (`*` alone does not work)
+- **mx_briefing:** `token_budget` default 2000, call at session start
+- **mx_get_env fallback:** Key→Developer→_global (with `source` field in response)
+- **Notes vs. Docs:** `mx_create_note` for notes/bugreports/feature requests, `mx_create_doc` for specs/plans/decisions

@@ -16,7 +16,7 @@ subagent return: max20, 1line each `file:line—finding` !raw-code
 mxDesignChecker/mxBugChecker/mxHealth→Agent !main-ctx
 grep-first→read(offset/limit) !>200lines !speculative
 !repeat-user !explain-intent →just-do-it. results>explanations
-⚡ !Bash fuer MCP-Calls. !`claude --print`. !`claude -p`. IMMER MCP-Tools direkt (mx_search, mx_detail, mx_update_doc etc.)
+⚡ !Bash for MCP-calls. !`claude --print`. !`claude -p`. ALWAYS MCP-tools direct (mx_search, mx_detail, mx_update_doc etc.)
 
 ## Security ⚡
 !secrets(keys/pw/tokens/logins) in code or external →envvar

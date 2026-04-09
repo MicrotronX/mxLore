@@ -78,7 +78,7 @@ try {
   saveJson(OUTCOME_FILE, outcomes);
 
   // Prompt Claude to call mx_recall_outcome
-  console.log(`[Recall Outcome] Die Datei "${fileName}" wurde erfolgreich bearbeitet. Falls du eine aktive recall_id aus einem vorherigen mx_recall-Aufruf fuer diese Datei hast, rufe jetzt mx_recall_outcome(recall_id=<ID>, outcome='edited_after_recall') auf.`);
+  console.log(`[Recall Outcome] File "${fileName}" was successfully edited. If you have an active recall_id from a previous mx_recall call for this file, call mx_recall_outcome(recall_id=<ID>, outcome='edited_after_recall') now.`);
 
 } catch {
   process.exit(0);

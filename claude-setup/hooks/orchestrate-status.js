@@ -69,12 +69,12 @@ try {
 
   // Save warning at >= 8 deltas
   if (deltas >= 8) {
-    console.log(`  ⚡ ${deltas} State-Deltas seit letztem Save — Zwischen-Save empfohlen`);
+    console.log(`  ⚡ ${deltas} state deltas since last save — intermediate /mxSave recommended`);
   }
 
   // Stack depth warning at > 3 parked
   if (parkedCount > 3) {
-    console.log(`  ⚡ ${parkedCount} geparkte Workflows — Abschluss empfohlen`);
+    console.log(`  ⚡ ${parkedCount} parked workflows — completion recommended`);
   }
 } catch (e) {
   // Silent fail: corrupt JSON, missing file, any error → no output

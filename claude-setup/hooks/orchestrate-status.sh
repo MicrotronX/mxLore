@@ -17,7 +17,7 @@ try{
   console.log('[mxOrchestrate] '+a.id+' '+a.title+' ('+a.current_step+'/'+a.total_steps+' '+a.status+') | parked: '+p);
   console.log('  adhoc: '+ah+' | deltas since save: '+d+' | team: '+t);
   console.log('  last: \"'+(a.last_action||'–')+'\"');
-  if(d>=8)console.log('  ⚡ '+d+' State-Deltas seit letztem Save — Zwischen-Save empfohlen');
-  if(p>3)console.log('  ⚡ '+p+' geparkte Workflows — Abschluss empfohlen');
+  if(d>=8)console.log('  ⚡ '+d+' state deltas since last save — intermediate /mxSave recommended');
+  if(p>3)console.log('  ⚡ '+p+' parked workflows — completion recommended');
 }catch(e){process.exit(0);}
 " 2>/dev/null

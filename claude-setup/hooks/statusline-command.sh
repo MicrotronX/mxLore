@@ -18,9 +18,13 @@ used=$(json_num "used_percentage")
 cwd=$(json_val "cwd")
 
 # --- Section 1: label (slug from CLAUDE.md or directory basename) ---
+# Accepts both formats: **Slug:** `mxLore` (backticked) and **Slug:** mxLore (plain)
 label=""
 if [ -n "$cwd" ] && [ -f "$cwd/CLAUDE.md" ]; then
   slug=$(sed -n 's/.*\*\*Slug:\*\*[[:space:]]*`\([^`]*\)`.*/\1/p' "$cwd/CLAUDE.md" 2>/dev/null | head -1)
+  if [ -z "$slug" ]; then
+    slug=$(sed -n 's/.*\*\*Slug:\*\*[[:space:]]*\([^[:space:]]*\).*/\1/p' "$cwd/CLAUDE.md" 2>/dev/null | head -1)
+  fi
   if [ -n "$slug" ]; then
     label="$slug"
   fi

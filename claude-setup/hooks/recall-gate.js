@@ -80,15 +80,15 @@ try {
   saveCooldown(cache);
 
   // B3.2 + B3.3 + C1.1 + C1.2: Recall prompt with gate interpretation
-  console.log(`[Recall Gate] Bevor du "${fileName}" aenderst:
-1. Rufe mx_recall(project='${project}', query='${fileName}', intent='${intent}', target_file='${filePath}') auf.
-2. Merke dir die recall_id aus der Response fuer spaeteres Outcome-Update.
-3. Interpretiere das gate-Objekt:
-   - gate_level=INFO: Hinweis zur Kenntnis nehmen, weiterarbeiten.
-   - gate_level=WARN: Lesson MUSS beruecksichtigt werden. Erklaere kurz wie du die Lesson befolgst. Dann: mx_recall_outcome(recall_id=<ID>, outcome='acknowledged').
-   - gate_level=BLOCK: STOPP. Erklaere dem User die Lesson und begruende warum du trotzdem fortfahren willst. Dann: mx_recall_outcome(recall_id=<ID>, outcome='overridden', reason='<deine Begruendung>'). Ohne Begruendung NICHT fortfahren.
-4. Falls du Lessons beruecksichtigst (INFO/WARN): mx_recall_outcome(recall_id=<ID>, outcome='acknowledged').
-5. Falls keine Treffer (total_lessons=0): weiter ohne Recall.`);
+  console.log(`[Recall Gate] Before you modify "${fileName}":
+1. Call mx_recall(project='${project}', query='${fileName}', intent='${intent}', target_file='${filePath}').
+2. Remember the recall_id from the response for later outcome update.
+3. Interpret the gate object:
+   - gate_level=INFO: Acknowledge hint, continue working.
+   - gate_level=WARN: Lesson MUST be considered. Briefly explain how you follow the lesson. Then: mx_recall_outcome(recall_id=<ID>, outcome='acknowledged').
+   - gate_level=BLOCK: STOP. Explain the lesson to the user and justify why you want to proceed anyway. Then: mx_recall_outcome(recall_id=<ID>, outcome='overridden', reason='<your justification>'). Do NOT proceed without justification.
+4. If you consider lessons (INFO/WARN): mx_recall_outcome(recall_id=<ID>, outcome='acknowledged').
+5. If no hits (total_lessons=0): continue without recall.`);
 
 } catch (e) {
   process.exit(0);
