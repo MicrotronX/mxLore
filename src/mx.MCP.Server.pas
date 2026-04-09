@@ -19,6 +19,7 @@ type
     FAuth: TMxAuthManager;
     FLogger: IMxLogger;
     FProtocol: TMxMcpProtocol;
+    FAllowUrlApiKey: Boolean;
     procedure HandleAgentInboxGet(const C: THttpServerContext;
       const AProject: string);
     procedure HandleAgentAckGet(const C: THttpServerContext;
@@ -28,7 +29,7 @@ type
   public
     constructor Create(const ABaseUri: string; APool: TMxConnectionPool;
       AAuth: TMxAuthManager; ARegistry: TMxMcpRegistry;
-      ALogger: IMxLogger); reintroduce;
+      ALogger: IMxLogger; AAllowUrlApiKey: Boolean); reintroduce;
     destructor Destroy; override;
   end;
 
@@ -53,12 +54,13 @@ implementation
 
 constructor TMxMcpApiModule.Create(const ABaseUri: string;
   APool: TMxConnectionPool; AAuth: TMxAuthManager;
-  ARegistry: TMxMcpRegistry; ALogger: IMxLogger);
+  ARegistry: TMxMcpRegistry; ALogger: IMxLogger; AAllowUrlApiKey: Boolean);
 begin
   inherited Create(ABaseUri);
   FPool := APool;
   FAuth := AAuth;
   FLogger := ALogger;
+  FAllowUrlApiKey := AAllowUrlApiKey;
   FProtocol := TMxMcpProtocol.Create(ARegistry, APool, ALogger);
 end;
 
@@ -66,6 +68,21 @@ destructor TMxMcpApiModule.Destroy;
 begin
   FreeAndNil(FProtocol);
   inherited;
+end;
+
+function ExtractQueryApiKey(const AQuery: string): string;
+var
+  KeyIdx, AmpIdx: Integer;
+begin
+  Result := '';
+  KeyIdx := Pos('api_key=', LowerCase(AQuery));
+  if KeyIdx > 0 then
+  begin
+    Result := Copy(AQuery, KeyIdx + 8, Length(AQuery));
+    AmpIdx := Pos('&', Result);
+    if AmpIdx > 0 then
+      Result := Copy(Result, 1, AmpIdx - 1);
+  end;
 end;
 
 procedure TMxMcpApiModule.ProcessRequest(const C: THttpServerContext);
@@ -123,9 +140,11 @@ begin
       Exit;
     end;
 
-    // Auth: Bearer token
+    // Auth: Bearer token or ?api_key= query parameter
     AuthHeader := '';
     C.Request.Headers.GetIfExists('Authorization', AuthHeader);
+    if (AuthHeader = '') and FAllowUrlApiKey then
+      AuthHeader := ExtractQueryApiKey(C.Request.Uri.Query);
     if AuthHeader = '' then
     begin
       C.Response.StatusCode := 401;
@@ -211,9 +230,11 @@ var
   Row, Resp: TJSONObject;
   ResponseBytes: TBytes;
 begin
-  // Auth: same Bearer token as MCP
+  // Auth: Bearer token or ?api_key= query parameter
   AuthHeader := '';
   C.Request.Headers.GetIfExists('Authorization', AuthHeader);
+  if (AuthHeader = '') and FAllowUrlApiKey then
+    AuthHeader := ExtractQueryApiKey(C.Request.Uri.Query);
   if AuthHeader = '' then
   begin
     C.Response.StatusCode := 401;
@@ -323,6 +344,8 @@ var
 begin
   AuthHeader := '';
   C.Request.Headers.GetIfExists('Authorization', AuthHeader);
+  if (AuthHeader = '') and FAllowUrlApiKey then
+    AuthHeader := ExtractQueryApiKey(C.Request.Uri.Query);
   if AuthHeader = '' then
   begin
     C.Response.StatusCode := 401;
@@ -403,7 +426,7 @@ begin
     BaseUrl := Format('http://%s:%d/', [FBindAddress, FPort]);
 
   FServer := THttpSysServer.Create;
-  var Module := TMxMcpApiModule.Create(BaseUrl, APool, AAuth, ARegistry, ALogger);
+  var Module := TMxMcpApiModule.Create(BaseUrl, APool, AAuth, ARegistry, ALogger, AConfig.AllowUrlApiKey);
   Module.AddMiddleware(TCorsMiddleware.Create('*', 'POST'));
   FServer.AddModule(Module);
 

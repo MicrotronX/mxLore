@@ -30,6 +30,7 @@ type
     FWarnAfterHours: Integer;
     // Security
     FAclMode: TAclMode;
+    FAllowUrlApiKey: Boolean;
     // Admin
     FAdminPort: Integer;
     // Logging
@@ -87,6 +88,7 @@ type
     property WarnAfterHours: Integer read FWarnAfterHours;
     // Security
     property AclMode: TAclMode read FAclMode;
+    property AllowUrlApiKey: Boolean read FAllowUrlApiKey;
     // Admin
     property AdminPort: Integer read FAdminPort;
     // Logging
@@ -325,6 +327,7 @@ begin
     // Security
     FAclMode := TAclMode.FromString(
       Ini.ReadString('Security', 'developer_acl_mode', 'off'));
+    FAllowUrlApiKey := Ini.ReadBool('Security', 'AllowUrlApiKey', False);
 
     // Admin
     FAdminPort := Ini.ReadInteger('Admin', 'admin_port', 0);

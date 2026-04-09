@@ -53,6 +53,9 @@ WarnAfterHours=24
 ; audit   = log unauthorized access attempts
 ; enforce = block unauthorized access (recommended for teams)
 developer_acl_mode=enforce
+; Allow ?api_key= query parameter for OAuth-only clients (e.g. ChatGPT)
+; Default: 0 (disabled for security). Enable only if needed.
+AllowUrlApiKey=0
 
 [Admin]
 ; Admin UI web interface
