@@ -1,157 +1,157 @@
 ---
 name: mxHealth
-description: "Use to verify Knowledge-DB and docs/ consistency via MCP. Checks document metadata, cross-references, orphaned relations, status consistency, CLAUDE.md weight, and local/DB sync. Run periodically or before major releases. Loop-tauglich."
+description: "Use to verify Knowledge-DB and docs/ consistency via MCP. Checks document metadata, cross-references, orphaned relations, status consistency, CLAUDE.md weight, and local/DB sync. Run periodically or before major releases. Loop-capable."
 user-invocable: true
 effort: medium
 allowed-tools: Read, Grep, Glob, Bash
 argument-hint: "[--scope decisions|plans|specs|workflows|all] [--loop]"
 ---
 
-# /mxHealth — Knowledge-DB Konsistenz-Pruefer (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
+# /mxHealth — Knowledge-DB Consistency Checker (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
-> **Context:** IMMER als Subagent(Agent-Tool) !Hauptkontext. Ergebnis: max 20 Zeilen, nur Probleme.
+> **Context:** ALWAYS run as subagent(Agent-Tool) !main-context. Result: max 20 lines, problems only.
 
-Health-Check-Agent. Konsistenz von Knowledge-DB + lokalen docs/ pruefen.
+Health-Check-Agent. Verify consistency of Knowledge-DB + local docs/.
 
 ## Init
 1. CLAUDE.md→`**Slug:**`=project. ∅slug→?user
-2. mx_ping()→OK=weiter | Fehler→"MCP nicht erreichbar — /mxHealth erfordert MCP." ABBRUCH
+2. mx_ping()→OK=continue | Error→"MCP unreachable — /mxHealth requires MCP." ABORT
 
-## Phase 1: Inventar laden
-Parallel ausfuehren:
-1. `mx_briefing(project)` — Uebersicht
+## Phase 1: Load Inventory
+Execute in parallel:
+1. `mx_briefing(project)` — Overview
 2. `mx_search(project, doc_type='plan')` + `spec` + `decision` + `workflow_log`
-3. Glob lokal: `docs/reference/*.md`
-4. CLAUDE.md + docs/status.md lesen
-5. Zaehlen: DB-Docs gesamt, lokale Reference-Dateien, CLAUDE.md Zeilenanzahl
+3. Glob local: `docs/reference/*.md`
+4. Read CLAUDE.md + docs/status.md
+5. Count: DB-Docs total, local reference files, CLAUDE.md line count
 
-## Phase 2: 11 Pruefungen
+## Phase 2: 11 Checks
 
-### P1: Dokument-Metadaten (DB)
-Aus mx_search Ergebnissen: title!empty, summary_l1 vorhanden, Slug eindeutig pro project+doc_type.
-ERROR=leere Titel | WARNING=fehlende Summaries
+### P1: Document Metadata (DB)
+From mx_search results: title!empty, summary_l1 present, slug unique per project+doc_type.
+ERROR=empty titles | WARNING=missing summaries
 
-### P2: Format-Konsistenz (Stichprobe max 5 Docs via mx_batch_detail(doc_ids=[...]))
+### P2: Format Consistency (Sample max 5 docs via mx_batch_detail(doc_ids=[...]))
 - ADRs: `**Status:**` (accepted|proposed|superseded|deprecated)
 - PLANs: `**Status:**` (active|completed|paused|cancelled)
-- SPECs: `**Erstellt:**` oder `**Slug:**`
-- Alle: H1-Ueberschrift. Severity: INFO
+- SPECs: `**Created:**` or `**Slug:**`
+- All: H1 heading. Severity: INFO
 
-### P3: Cross-Reference-Konsistenz (DB)
-Relations per mx_search(include_details=true): Ziel existiert(!deleted), Bidirektionalitaet(A→B dann B→A).
-ERROR=Relation auf deleted | WARNING=fehlende Rueckwaerts-Relation
+### P3: Cross-Reference Consistency (DB)
+Relations per mx_search(include_details=true): Target exists(!deleted), bidirectionality(A→B then B→A).
+ERROR=relation to deleted | WARNING=missing reverse relation
 
-### P4: Status-Konsistenz (DB, Content via mx_batch_detail)
-IDs aus P1 mx_search sammeln→mx_batch_detail(doc_ids=[...]) fuer alle active/completed PLANs + proposed ADRs (1 Call, max 10 IDs).
-- active PLANs MUESSEN `- [ ]` enthalten | completed PLANs DUERFEN KEINE `- [ ]` haben
-- proposed ADRs >30 Tage alt→WARNING
+### P4: Status Consistency (DB, Content via mx_batch_detail)
+IDs from P1 mx_search collected→mx_batch_detail(doc_ids=[...]) for all active/completed PLANs + proposed ADRs (1 call, max 10 IDs).
+- active PLANs MUST contain `- [ ]` | completed PLANs MUST NOT have `- [ ]`
+- proposed ADRs >30 days old→WARNING
 
-### P5: Workflow-Konsistenz (DB, Content via mx_batch_detail)
-IDs aus P1 mx_search(doc_type='workflow_log') sammeln→mx_batch_detail(doc_ids=[...]) fuer alle active WFs (1 Call).
-Active Workflows: MUESSEN pending-Schritte haben. >30 Tage alt→WARNING(vergessen?)
+### P5: Workflow Consistency (DB, Content via mx_batch_detail)
+IDs from P1 mx_search(doc_type='workflow_log') collected→mx_batch_detail(doc_ids=[...]) for all active WFs (1 call).
+Active Workflows: MUST have pending steps. >30 days old→WARNING(forgotten?)
 
-### P6: Lokal/DB-Sync
-Glob `docs/plans/PLAN-*.md`, `docs/specs/SPEC-*.md`, `docs/decisions/ADR-*.md`→Slug extrahieren→mx_search.
-Lokal ohne DB→WARNING("Nicht migriert→/mxMigrateToDb"). DB ohne lokal→INFO(normal).
+### P6: Local/DB Sync
+Glob `docs/plans/PLAN-*.md`, `docs/specs/SPEC-*.md`, `docs/decisions/ADR-*.md`→extract slug→mx_search.
+Local without DB→WARNING("Not migrated→/mxMigrateToDb"). DB without local→INFO(normal).
 
-### P7: CLAUDE.md + Reference-Konsistenz (lokal)
-- CLAUDE.md >200Z→WARNING | >300Z→ERROR(dringend auslagern)
-- docs/reference/ Dateien ohne Verweis in CLAUDE.md→WARNING
-- Tote Markdown-Links→ERROR(lokale Dateien) | INFO(migrierte docs/)
+### P7: CLAUDE.md + Reference Consistency (local)
+- CLAUDE.md >200L→WARNING | >300L→ERROR(urgently offload)
+- docs/reference/ files without reference in CLAUDE.md→WARNING
+- Dead markdown links→ERROR(local files) | INFO(migrated docs/)
 
-### P8: Verwaiste lokale Dateien
-Dateien in docs/plans|specs|decisions/ ohne Namensschema→INFO. index.md bei MCP→INFO("nicht mehr noetig").
+### P8: Orphaned Local Files
+Files in docs/plans|specs|decisions/ without naming convention→INFO. index.md with MCP→INFO("no longer needed").
 
-### P9: Content-Tiefe (DB)
-Alle nicht-archivierten/deleted Docs (OHNE session_note, workflow_log): token_estimate<50→WARNING.
-Datenquelle: mx_search Ergebnisse (kein mx_detail noetig).
+### P9: Content Depth (DB)
+All non-archived/deleted docs (EXCLUDING session_note, workflow_log): token_estimate<50→WARNING.
+Data source: mx_search results (no mx_detail needed).
 
 ### P10: Auto-Relations (Cross-Reference Scan)
-MCP required. Stichprobe max 20 Docs via mx_batch_detail(doc_ids=[...], level='full') (2 Calls à 10). Content scannen nach:
+MCP required. Sample max 20 docs via mx_batch_detail(doc_ids=[...], level='full') (2 calls of 10). Scan content for:
 - `doc_id=NNN`, `#NNN`, `ADR-XXXX`, `PLAN-xxx`, `SPEC-xxx`
-- Kontext-Phrasen→Relation-Type: "basiert auf"→assumes | "ersetzt"→supersedes | "fuehrt zu"→leads_to | "verursacht durch"→caused_by | "haengt ab von"→depends_on | "verworfen zugunsten"→rejected_in_favor_of | default→references
-- Duplikat-Check vor mx_add_relation. Ref: doc_id=620 Konventionen.
+- Context phrases→relation type: "based on"→assumes | "replaces"→supersedes | "leads to"→leads_to | "caused by"→caused_by | "depends on"→depends_on | "rejected in favor of"→rejected_in_favor_of | default→references
+- Duplicate check before mx_add_relation. Ref: doc_id=620 conventions.
 Severity: INFO
 
-### P11: CLAUDE.md Duplikat-Check (lokal)
-Global `~/.claude/CLAUDE.md` Sektionen vs Projekt-CLAUDE.md. Typische Duplikate: Security, Encoding, Context-Management, Shell, Skill-Routing, Delphi/PHP-Mindset.
-Projekt-CLAUDE.md >100Z→WARNING(Ziel: max 100Z projekt-spezifisch). !Auto-Fix→nur melden.
+### P11: CLAUDE.md Duplicate Check (local)
+Global `~/.claude/CLAUDE.md` sections vs project CLAUDE.md. Typical duplicates: Security, Encoding, Context-Management, Shell, Skill-Routing, Delphi/PHP-Mindset.
+Project CLAUDE.md >100L→WARNING(goal: max 100L project-specific). !auto-fix→report only.
 
-### P12: AI-Steno Format-Check (lokal)
-Pruefe ob CLAUDE.md-Dateien AI-Steno verwenden:
-1. Projekt-CLAUDE.md: Erste Zeile muss `AI-Steno:` enthalten ODER Inhalt muss Steno-Marker nutzen (`!`, `→`, `⚡`, `∅`)
-2. Globale `~/.claude/CLAUDE.md`: Gleiche Pruefung
-3. ∅Steno-Marker gefunden→WARNING: "CLAUDE.md nicht in AI-Steno Format. ~50% Token-Einsparung moeglich. Empfehlung: manuell konvertieren oder `/mxInitProject` neu ausfuehren."
-4. Steno vorhanden aber >200Z(global) oder >100Z(projekt)→WARNING: "AI-Steno CLAUDE.md zu lang"
+### P12: AI-Steno Format Check (local)
+Check whether CLAUDE.md files use AI-Steno:
+1. Project CLAUDE.md: first line must contain `AI-Steno:` OR content must use steno markers (`!`, `→`, `⚡`, `∅`)
+2. Global `~/.claude/CLAUDE.md`: same check
+3. ∅steno markers found→WARNING: "CLAUDE.md not in AI-Steno format. ~50% token savings possible. Recommendation: convert manually or re-run `/mxInitProject`."
+4. Steno present but >200L(global) or >100L(project)→WARNING: "AI-Steno CLAUDE.md too long"
 - Severity: WARNING
-- Ref: ADR-0010 (AI-Steno Standard-Format)
+- Ref: ADR-0010 (AI-Steno standard format)
 
-### P13: Skill Evolution Metriken
-MCP required. `mx_skill_metrics(skill='mxBugChecker', project=<slug>, days=90)` + gleich fuer mxDesignChecker, mxHealth.
-- FP-Rate >50% fuer eine Regel→WARNING("Regel {rule_id} hat {fp_rate}% False Positives — mx_skill_manage(action='tune', ...) empfohlen")
-- >20 pending Findings→INFO("N Findings warten auf Feedback")
-- ∅skill_findings Tabelle oder Fehler→skip (Feature nicht aktiv)
-Severity: WARNING(hohe FP-Rate) | INFO(pending)
+### P13: Skill Evolution Metrics
+MCP required. `mx_skill_metrics(skill='mxBugChecker', project=<slug>, days=90)` + same for mxDesignChecker, mxHealth.
+- FP rate >50% for a rule→WARNING("Rule {rule_id} has {fp_rate}% false positives — mx_skill_manage(action='tune', ...) recommended")
+- >20 pending findings→INFO("N findings awaiting feedback")
+- ∅skill_findings table or error→skip (feature not active)
+Severity: WARNING(high FP rate) | INFO(pending)
 
 ### P14: AI-Batch Status
-`mx_ai_batch_pending()`→Batch-Status auswerten.
-- Errors >0 in letztem Boot→WARNING("AI-Batch {job_type}: {c} Fehler seit {last_run}")
-- ∅Eintraege UND Batch-Feature aktiv→INFO("AI-Batch aktiv aber noch nie gelaufen")
-- Fehler oder leere Response→skip (Feature nicht aktiv)
-Severity: WARNING(Errors) | INFO(leer)
+`mx_ai_batch_pending()`→evaluate batch status.
+- Errors >0 in last boot→WARNING("AI-Batch {job_type}: {c} errors since {last_run}")
+- ∅entries AND batch feature active→INFO("AI-Batch active but never run")
+- Error or empty response→skip (feature not active)
+Severity: WARNING(errors) | INFO(empty)
 
 ## Phase 3: Report
 
 ```markdown
 ## /mxHealth Report — YYYY-MM-DD HH:MM
-**Projekt:** <slug> | **Scope:** <all|decisions|plans|specs|workflows>
+**Project:** <slug> | **Scope:** <all|decisions|plans|specs|workflows>
 
-### DB-Inventar
-| doc_type | Anzahl |
-|----------|--------|
+### DB Inventory
+| doc_type | Count |
+|----------|-------|
 
 ### Findings
-| # | Severity | Pruefung | Befund | Dokument |
-|---|----------|----------|--------|----------|
+| # | Severity | Check | Finding | Document |
+|---|----------|-------|---------|----------|
 
-### Zusammenfassung
-X ERROR | Y WARNING | Z INFO | Geprueft: N DB-Docs, M lokale Dateien
+### Summary
+X ERROR | Y WARNING | Z INFO | Checked: N DB docs, M local files
 ```
-∅Probleme→`/mxHealth: Alle Pruefungen bestanden. DB+docs/ konsistent.`
+∅problems→`/mxHealth: All checks passed. DB+docs/ consistent.`
 
-### Phase 3b: Findings→MCP-Notes persistieren (Spec#1139)
-Fuer jedes Finding mit Severity ERROR oder WARNING:
-1. Deduplizierung: mx_search(project, doc_type='note', query='[Health] <titel>', limit=1)
-   - Treffer mit gleichem Titel→skip
-2. mx_create_doc(project, doc_type='note', title='[Health] <finding-titel>', content='Severity: <sev>\n<details>\nGefunden: YYYY-MM-DD', tags='["health-finding","<severity-tag>"]')
+### Phase 3b: Persist Findings→MCP Notes (Spec#1139)
+For each finding with severity ERROR or WARNING:
+1. Deduplication: mx_search(project, doc_type='note', query='[Health] <title>', limit=1)
+   - Match with same title→skip
+2. mx_create_doc(project, doc_type='note', title='[Health] <finding-title>', content='Severity: <sev>\n<details>\nFound: YYYY-MM-DD', tags='["health-finding","<severity-tag>"]')
    - ERROR→tag 'bug', WARNING→tag 'improvement'
-3. Output: `Auto-Notes: N erstellt, M uebersprungen (Duplikat)`
-∅Findings oder nur INFO→skip
+3. Output: `Auto-Notes: N created, M skipped (duplicate)`
+∅findings or INFO only→skip
 
-## Phase 4: Auto-Bugreport + Findings persistieren (ERROR/WARNING)
-**Projekt-Routing:** Findings im Zielprojekt speichern, NICHT pauschal in mxLore.
-- Skill/Setup/Tool-Findings (betreffen mx*-Infrastruktur)→`project='mxLore'`
-- Projekt-spezifische Findings (Stubs, lokale Docs, fehlende Relations)→`project=<Zielprojekt>`
-`mx_create_doc(project=<siehe Routing>, doc_type='bugreport', title='mxHealth: N Findings...', tags='["mxhealth-auto"]', status='reported')`
-Deduplizierung: mx_search vor Erstellen. ∅ERROR/WARNING→kein Report.
+## Phase 4: Auto-Bugreport + Persist Findings (ERROR/WARNING)
+**Project routing:** Store findings in target project, NOT blanket in mxHannesMCP.
+- Skill/Setup/Tool findings (affect mx* infrastructure)→`project='mxHannesMCP'`
+- Project-specific findings (stubs, local docs, missing relations)→`project=<target-project>`
+`mx_create_doc(project=<see routing>, doc_type='bugreport', title='mxHealth: N Findings...', tags='["mxhealth-auto"]', status='reported')`
+Deduplication: mx_search before creating. ∅ERROR/WARNING→no report.
 
-**Skill Evolution:** Fuer jedes Finding (ERROR+WARNING): `mx_skill_manage(action='record_finding', skill='mxHealth', rule_id='<pN-lowercase>' (z.B. p1-metadaten, p3-crossref, p4-status), project='<slug>', severity='<error|warning>', title='<Befund kurzfassung>', details='<Dokument + Befund>')`
-- context_hash='<pruefung>:<dokument-slug>' fuer Dedup ueber Runs
-- ∅MCP→skip (bereits in Bugreport erfasst)
+**Skill Evolution:** For each finding (ERROR+WARNING): `mx_skill_manage(action='record_finding', skill='mxHealth', rule_id='<pN-lowercase>' (e.g. p1-metadata, p3-crossref, p4-status), project='<slug>', severity='<error|warning>', title='<finding summary>', details='<document + finding>')`
+- context_hash='<check>:<document-slug>' for dedup across runs
+- ∅MCP→skip (already captured in bugreport)
 
 ## Phase 5: Auto-Fix (P9)
-P9-Findings→Entfernt (B6.5). ∅P9→skip.
+P9 findings→removed (B6.5). ∅P9→skip.
 
-## Loop-Modus (--loop oder /loop Kontext)
-- Kompakt-Output: nur `mxHealth: X ERROR Y WARNING Z INFO` + Findings-Einzeiler
-- !Report-Header !Inventar-Tabelle !Zusammenfassung-Block
-- !Rueckfragen, !interaktive Schritte
-- Auto-Fix(P9) still ausfuehren, nur bei Aenderung melden
-- Bugreport nur bei ERROR erstellen (WARNING→skip in Loop)
-- ∅Findings→einzeilig: `mxHealth OK — 0 Probleme`
+## Loop Mode (--loop or /loop context)
+- Compact output: only `mxHealth: X ERROR Y WARNING Z INFO` + findings one-liners
+- !report header !inventory table !summary block
+- !prompts, !interactive steps
+- Auto-Fix(P9) run silently, report only on changes
+- Bugreport only on ERROR (WARNING→skip in loop)
+- ∅findings→single line: `mxHealth OK — 0 problems`
 
-## Regeln
-- Read-only + Bug-Notes + Summary-Fix. !Dokument-Inhalte aendern
-- MCP-Fehler→ERROR im Report, !abbrechen
-- >20 Docs/Typ→Stichproben(max 10 via mx_batch_detail). P1 auf alle(aus mx_search). ⚡ !einzelne mx_detail Calls→immer mx_batch_detail(doc_ids=[...])
-- IP-Schutz: nur Metadaten+Struktur. UTF-8 ohne BOM. !Annahmen→nur Fakten
+## Rules
+- Read-only + bug notes + summary fix. !modify document contents
+- MCP error→ERROR in report, !abort
+- >20 docs/type→sampling(max 10 via mx_batch_detail). P1 on all(from mx_search). ⚡ !individual mx_detail calls→always mx_batch_detail(doc_ids=[...])
+- IP protection: metadata+structure only. UTF-8 without BOM. !assumptions→facts only

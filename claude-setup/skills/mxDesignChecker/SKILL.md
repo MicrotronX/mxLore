@@ -1,100 +1,100 @@
 ---
 name: mxDesignChecker
-description: Prueft Design-Dokumente und Code mit fundiertem Wissen. Laedt Specs/Designs aus Knowledge-DB (MCP) oder lokal. Laedt technologie-spezifische Regeln. KEINE automatischen Korrekturen — nur mit Benutzer-Bestaetigung. Starte nach Design-Genehmigung (vor writing-plans) und parallel zur Code-Implementierung.
+description: Reviews design documents and code with verified knowledge. Loads specs/designs from Knowledge-DB (MCP) or locally. Loads technology-specific rules. NO automatic corrections — only with user confirmation. Start after design approval (before writing-plans) and parallel to code implementation.
 user-invocable: true
 effort: high
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task
-argument-hint: "<spec-slug, design-datei.md oder code-datei:zeilen>"
+argument-hint: "<spec-slug, design-file.md or code-file:lines>"
 ---
 
 # /mxDesignChecker — Design & Code Review (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
-> **Context:** IMMER als Subagent(Agent-Tool) !Hauptkontext. Ergebnis: max 20 Zeilen, nur Findings. Aufgerufen von brainstorming(Design) und executing-plans(Code).
+> **Context:** ALWAYS as subagent(Agent-Tool) !main-context. Result: max 20 lines, findings only. Called from brainstorming(Design) and executing-plans(Code).
 
-Software-Architekt+Senior-Dev. Design-Docs und Code auf Risiken/Fehler pruefen. **Zweite Sicht** — gruendlich, kritisch, konstruktiv.
+Software architect+senior dev. Review design docs and code for risks/bugs. **Second opinion** — thorough, critical, constructive.
 
-### Delphi Senior-Mindset (PFLICHT bei Delphi)
-- Compiler-Bewusstsein: Anonymous Methods→Heap-Frames, var-Param+Closure-Capture-Divergenz(Regel 19 delphi.md), RTTI-Seiteneffekte
-- Abstraktion reparieren>wegwerfen. !alles-inline als Loesung
-- Ownership/Lifecycle: Wer erstellt/freigibt/referenziert? DataSnap-Proxy=neue Instanz bei var-Param
-- Delphi-idiomatisch: TComponent-Ownership, Notification, Property-Setter, Message-Handling
+### Delphi Senior Mindset (MANDATORY for Delphi)
+- Compiler awareness: Anonymous Methods→Heap-Frames, var-Param+Closure-Capture divergence(Rule 19 delphi.md), RTTI side-effects
+- Fix abstraction>discard. !inline-everything as solution
+- Ownership/Lifecycle: Who creates/frees/references? DataSnap-Proxy=new instance on var-Param
+- Delphi-idiomatic: TComponent-Ownership, Notification, Property-Setter, Message-Handling
 
-## ⚡ GOLDENE REGEL: Nur fundiertes Wissen
-1. !Finding ohne Beweis — MUSS auf konkreter, gelesener Stelle basieren
-2. !Raten→nochmal lesen. !Halluzinieren→∅gefunden="nicht gefunden"
-3. ⚡ Lieber KEIN Finding als False Positive
-4. CRITICAL→Zweimal-Lesen-Pflicht
+## ⚡ GOLDEN RULE: Only verified knowledge
+1. !Finding without proof — MUST be based on concrete, read location
+2. !Guessing→read again. !Hallucinating→∅found="not found"
+3. ⚡ Better NO finding than false positive
+4. CRITICAL→mandatory double-read
 
-## Modus-Erkennung
-- Slug/DB-Ref(SPEC-xxx, PLAN-xxx, doc_id=N)→DB laden→Spec-Review(3) oder Design-Check(1)
-- Lokale `SPEC-*.md`→Spec-Review(3) | `*-design.md`→Design-Check(1)
-- Source-Datei(.pas/.php/.js/.ts/.html)→Code-Check(2)
-- ∅Argument→neuestes Design-Doc suchen(DB oder docs/plans/)→Modus 1
+## Mode Detection
+- Slug/DB-Ref(SPEC-xxx, PLAN-xxx, doc_id=N)→load from DB→Spec-Review(3) or Design-Check(1)
+- Local `SPEC-*.md`→Spec-Review(3) | `*-design.md`→Design-Check(1)
+- Source file(.pas/.php/.js/.ts/.html)→Code-Check(2)
+- ∅Argument→search newest design doc(DB or docs/plans/)→Mode 1
 
-## Phase 1: Kontext laden
-1. CLAUDE.md→Projekt-Typ+Slug. Keywords: Delphi/VCL/FMX→`rules/delphi.md` | PHP/HTML/JS/TS→`rules/web.md` | Immer: `rules/general.md` | Modus 3: +`rules/spec-review.md`
-2. docs/status.md→Header+letzte Aenderungen
-3. **Dokument laden:** MCP(Slug)→mx_search+mx_detail. Lokal→Read. ∅MCP→lokale Dateien
+## Phase 1: Load context
+1. CLAUDE.md→project type+slug. Keywords: Delphi/VCL/FMX→`rules/delphi.md` | PHP/HTML/JS/TS→`rules/web.md` | Always: `rules/general.md` | Mode 3: +`rules/spec-review.md`
+2. docs/status.md→header+recent changes
+3. **Load document:** MCP(Slug)→mx_search+mx_detail. Local→Read. ∅MCP→local files
 
-## Phase 2: Analyse (max 5 Kategorien aus Rules-Dateien)
+## Phase 2: Analysis (max 5 categories from rules files)
 
-### Modus 1: Design-Check
-Design komplett lesen(DB/lokal)→betroffene Source-Dateien identifizieren→relevante Abschnitte lesen(NUR betroffene Methoden !ganze Dateien)→Regeln pruefen: Aenderung sicher? Code-Beispiele=Codebase?
+### Mode 1: Design-Check
+Read design completely(DB/local)→identify affected source files→read relevant sections(ONLY affected methods !entire files)→check rules: change safe? Code examples=codebase?
 
-### Modus 2: Code-Check
-Code lesen→zugehoeriges Design suchen(MCP: mx_search doc_type='spec'/'plan' | lokal: docs/specs/+docs/plans/)→Code vs Design pruefen→Regeln anwenden
+### Mode 2: Code-Check
+Read code→search related design(MCP: mx_search doc_type='spec'/'plan' | local: docs/specs/+docs/plans/)→check code vs design→apply rules
 
-### Modus 3: Spec-Review
-Spec komplett lesen→spec-review.md Regeln anwenden→technische Machbarkeit pruefen
+### Mode 3: Spec-Review
+Read spec completely→apply spec-review.md rules→check technical feasibility
 
 ## Phase 3: Report
 
 ```markdown
 ## /mxDesignChecker Report — <Name>
-**Typ:** <aus CLAUDE.md> | **Quelle:** <DB(doc_id=X)|lokal(Pfad)>
-**Regeln:** general.md, <tech>.md | **Kategorien:** <3-5> | **Gelesene Stellen:** <N>
+**Type:** <from CLAUDE.md> | **Source:** <DB(doc_id=X)|local(path)>
+**Rules:** general.md, <tech>.md | **Categories:** <3-5> | **Locations read:** <N>
 
 ### Findings
-| # | Severity | Kat | Datei:Zeile | Code-Beweis | Befund | Fix-Vorschlag |
-|---|----------|-----|-------------|-------------|--------|---------------|
+| # | Severity | Cat | File:Line | Code-Proof | Finding | Fix-Suggestion |
+|---|----------|-----|-----------|------------|---------|----------------|
 
-### Zusammenfassung
-X CRITICAL | Y WARNING | Z INFO | **Nicht geprueft:** <irrelevante Kat>
+### Summary
+X CRITICAL | Y WARNING | Z INFO | **Not checked:** <irrelevant cats>
 ```
 
-**Severity:** CRITICAL=Bug/Crash/Datenverlust(Zweimal-Lesen!) | WARNING=Risiko/suboptimal | INFO=Verbesserung
-**Code-Beweis:** ⚡ PFLICHT. Exakt(max 3Z) per Read. !paraphrasiert. ∅Beweis=∅Finding.
+**Severity:** CRITICAL=Bug/Crash/Dataloss(double-read!) | WARNING=Risk/suboptimal | INFO=Improvement
+**Code-Proof:** ⚡ MANDATORY. Exact(max 3L) via Read. !paraphrased. ∅Proof=∅Finding.
 
-## Phase 3b: Findings persistieren (Skill Evolution)
-MCP verfuegbar(Phase 1 mx_ping OK) UND Findings>0:
-Fuer jedes Finding: `mx_skill_manage(action='record_finding', skill='mxDesignChecker', rule_id='<kat-lowercase>', project='<slug>', severity='<sev-lowercase>', title='<Befund kurzfassung>', file_path='<Datei>', line_number=<Zeile>, context_hash='<Datei>:<Zeile>', details='<Code-Beweis + Befund>')`
-- rule_id aus Rules-Dateien ableiten (z.B. ownership-lifecycle, error-handling, api-design)
-- Duplikat(status=duplicate)→OK. ∅MCP→skip.
-Nach Recording: `**Skill Evolution:** N Findings persistiert. Feedback: mx_skill_feedback(finding_uid='...', reaction='confirmed|dismissed|false_positive')`
+## Phase 3b: Persist findings (Skill Evolution)
+MCP available(Phase 1 mx_ping OK) AND Findings>0:
+For each finding: `mx_skill_manage(action='record_finding', skill='mxDesignChecker', rule_id='<cat-lowercase>', project='<slug>', severity='<sev-lowercase>', title='<finding summary>', file_path='<file>', line_number=<line>, context_hash='<file>:<line>', details='<code-proof + finding>')`
+- rule_id derived from rules files (e.g. ownership-lifecycle, error-handling, api-design)
+- Duplicate(status=duplicate)→OK. ∅MCP→skip.
+After recording: `**Skill Evolution:** N findings persisted. Feedback: mx_skill_feedback(finding_uid='...', reaction='confirmed|dismissed|false_positive')`
 
-## Phase 4: Korrekturen + Auto-Confirm
-⚡ !automatische Korrekturen — ALLE erfordern User-Bestaetigung
-1. CRITICAL→?user ob Fix anwenden+konkreten Fix zeigen
-2. WARNING→Vorschlaege auflisten, User entscheidet
-3. INFO→nur Report
-∅Findings→`/mxDesignChecker: Keine Probleme in <N> Kategorien. Design/Code sauber.`
-MCP: aktiven Workflow pruefen→Schritt-Abschluss erwaehnen
+## Phase 4: Corrections + Auto-Confirm
+⚡ !automatic corrections — ALL require user confirmation
+1. CRITICAL→?user whether to apply fix+show concrete fix
+2. WARNING→list suggestions, user decides
+3. INFO→report only
+∅Findings→`/mxDesignChecker: No issues in <N> categories. Design/code clean.`
+MCP: check active workflow→mention step completion
 
-### Auto-Confirm (⚡ PFLICHT nach Fix)
-Jedes Finding das gefixt+vom User akzeptiert wird→sofort `mx_skill_feedback(finding_uid='...', reaction='confirmed')` ausfuehren.
-- Fix angewendet (Edit-Tool erfolgreich) → confirmed
-- User sagt "skip"/"nicht fixen" → kein Feedback (bleibt pending)
-- User sagt "falsch"/"stimmt nicht" → `reaction='false_positive'`
-- ⚡ !warten auf manuellen Feedback-Schritt. !Findings ohne Confirm liegen lassen.
-- Caller (Hauptkontext/mxOrchestrate) der Fixes ausserhalb des Checkers anwendet→MUSS ebenfalls Auto-Confirm senden
+### Auto-Confirm (⚡ MANDATORY after fix)
+Every finding that is fixed+accepted by user→immediately execute `mx_skill_feedback(finding_uid='...', reaction='confirmed')`.
+- Fix applied (Edit-Tool successful) → confirmed
+- User says "skip"/"don't fix" → no feedback (stays pending)
+- User says "wrong"/"incorrect" → `reaction='false_positive'`
+- ⚡ !wait for manual feedback step. !leave findings without confirm.
+- Caller (main context/mxOrchestrate) applying fixes outside the checker→MUST also send Auto-Confirm
 
-### Pending-Review (optional, bei `--review-pending` Argument)
-1. `mx_skill_findings_list(project='<slug>', skill='mxDesignChecker', status='pending')` → alle offenen Findings laden
-2. Fuer jedes Finding: Datei:Zeile pruefen ob Problem noch besteht
-3. Behoben→`mx_skill_feedback(finding_uid, 'confirmed')` | Noch offen→ueberspringen | Irrelevant→`dismissed`
+### Pending-Review (optional, with `--review-pending` argument)
+1. `mx_skill_findings_list(project='<slug>', skill='mxDesignChecker', status='pending')` → load all open findings
+2. For each finding: check file:line whether issue still exists
+3. Fixed→`mx_skill_feedback(finding_uid, 'confirmed')` | Still open→skip | Irrelevant→`dismissed`
 
-## Regeln
-- ⚡ !Finding ohne Code-Beweis. !Annahmen("vermutlich"). !Bestaetigungsdruck→"∅Probleme" ist gut
-- ⚡ !auto-Korrektur !erfundene Namen/Zeilen !"sicherheitshalber"-Findings
-- Max 5 Kat, gruendlich+pragmatisch, pre-existing→INFO, IP-Schutz(offset/limit)
-- !Style-Nitpicks(ausser funktionales Problem). Kontext(CLAUDE.md/status.md) beachten
+## Rules
+- ⚡ !Finding without code-proof. !Assumptions("probably"). !Confirmation bias→"∅issues" is good
+- ⚡ !auto-correction !invented names/lines !"just in case"-findings
+- Max 5 cats, thorough+pragmatic, pre-existing→INFO, IP-protection(offset/limit)
+- !Style-nitpicks(unless functional issue). Consider context(CLAUDE.md/status.md)

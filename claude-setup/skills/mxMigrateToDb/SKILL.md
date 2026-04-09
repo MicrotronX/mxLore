@@ -1,167 +1,167 @@
 ---
 name: mxMigrateToDb
-description: "Migriert lokale docs/*.md Fallback-Dateien in die MCP Knowledge-DB. Ausfuehren nach MCP-Ausfall wenn lokale Dateien durch Offline-Fallback entstanden sind, oder einmalig nach MCP-Setup. Mit --extract-backlog: Extrahiert Legacy-Backlogs aus status.md direkt in MCP-Docs (ersetzt mxMigratelegacy)."
+description: "Migrates local docs/*.md fallback files into the MCP Knowledge-DB. Run after MCP outage when local files were created by offline-fallback, or once after MCP setup. With --extract-backlog: Extracts legacy backlogs from status.md directly into MCP docs (replaces mxMigratelegacy)."
 user-invocable: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash
 argument-hint: "[--dry-run | --cleanup | --sync | --scan | --extract-backlog]"
 ---
 
-# /mxMigrateToDb — Lokale Dokumente in Knowledge-DB importieren
+# /mxMigrateToDb — Import local documents into Knowledge-DB
 
-> **Context-Regel:** Diesen Skill IMMER als Subagent (Agent-Tool) ausfuehren, nie im Hauptkontext. MCP-Responses und Edit-Diffs fuellen sonst den Context unnoetig. Ergebnis: kompakter Report, max 20 Zeilen.
+> **Context rule:** ALWAYS run this skill as subagent (Agent tool), never in main context. MCP responses and edit diffs fill the context unnecessarily otherwise. Result: compact report, max 20 lines.
 
-Du bist ein Migrations-Agent. Importiere lokale `docs/*.md`-Dateien eines Projekts in die zentrale Knowledge-DB via MCP-Tool `mx_migrate_project`.
+You are a migration agent. Import local `docs/*.md` files of a project into the central Knowledge-DB via MCP tool `mx_migrate_project`.
 
-## Projekt-Kontext ermitteln (WICHTIG: Duplikate vermeiden!)
+## Determine project context (IMPORTANT: avoid duplicates!)
 
-1. Lies CLAUDE.md und finde die `**Slug:**`-Zeile → das ist der `project_slug`
-2. Falls kein Slug in CLAUDE.md:
-   a. **Zuerst in DB pruefen:** Rufe `mx_search(query='<verzeichnisname>')` auf um zu schauen ob das Projekt bereits existiert (unter anderem Slug-Namen). Pruefe auch den Pfad in den Suchergebnissen.
-   b. Falls Treffer mit passendem Projekt: Diesen Slug verwenden und Benutzer informieren ("Projekt existiert bereits als `<slug>` in der DB")
-   c. Falls kein Treffer: Leite einen Vorschlag aus dem Verzeichnisnamen ab und frage den Benutzer zur Bestaetigung (z.B. "Slug-Vorschlag: `mein-projekt` — passt das, oder ein anderer?")
-   d. **NIEMALS einen Slug automatisch uebernehmen ohne Bestaetigung!**
-3. Sobald der Slug feststeht: Schreibe ihn in CLAUDE.md als `**Slug:** <slug>` (damit er beim naechsten Mal gefunden wird)
+1. Read CLAUDE.md and find the `**Slug:**` line → that is the `project_slug`
+2. If no slug in CLAUDE.md:
+   a. **Check DB first:** Call `mx_search(query='<directoryname>')` to see if the project already exists (possibly under a different slug name). Also check the path in the search results.
+   b. If match with matching project: Use that slug and inform the user ("Project already exists as `<slug>` in the DB")
+   c. If no match: Derive a suggestion from the directory name and ask the user for confirmation (e.g. "Slug suggestion: `my-project` — does that work, or a different one?")
+   d. **NEVER adopt a slug automatically without confirmation!**
+3. Once the slug is determined: Write it into CLAUDE.md as `**Slug:** <slug>` (so it is found next time)
 
-## Voraussetzungen pruefen
+## Check prerequisites
 
-1. **MCP-Server erreichbar?** — Rufe `mx_ping()` auf. Falls Fehler: Bis zu 3 Versuche mit kurzer Pause (5s). Erst nach 3 Fehlschlaegen: Abbruch.
-2. **Projekt registriert?** — Rufe `mx_briefing(project='<slug>')` auf.
-   - Falls "Project not found": Frage den Benutzer nach dem **Projektnamen** (z.B. "Projektname fuer `<slug>`? (z.B. 'Mein Projekt — Kurzbeschreibung')"). Dann `mx_init_project(project_name='<antwort>')` aufrufen.
-   - **NIEMALS** den Slug als Projektnamen verwenden ohne Rueckfrage!
-   - Falls vorhanden: Notiere project_id und bestehende Dokument-Anzahl.
-3. **Lokale Dokumente vorhanden?** — Pruefe ob `docs/` irgendwelche .md-Dateien enthaelt (rekursiv alle Unterverzeichnisse).
-   - Der Server importiert ALLE *.md-Dateien aus docs/ und allen Unterverzeichnissen
-   - Nur `index.md` und `status.md` werden uebersprungen
-   - doc_type wird automatisch anhand des Dateinamens bestimmt (PLAN-→plan, SPEC-→spec, ADR-→decision, session-notes→session_note, workflow-log→workflow_log, alles andere→reference)
-   - Falls keine .md-Dateien gefunden: "Keine migrierbaren Dokumente gefunden."
-   - **WICHTIG:** Auch Legacy-Dateien ohne Standard-Prefix (Design-Docs, Findings, nummerierte Notes etc.) werden als `reference` importiert — alles in docs/ ist Projektwissen!
+1. **MCP server reachable?** — Call `mx_ping()`. On error: Up to 3 retries with short pause (5s). Only after 3 failures: abort.
+2. **Project registered?** — Call `mx_briefing(project='<slug>')`.
+   - If "Project not found": Ask the user for the **project name** (e.g. "Project name for `<slug>`? (e.g. 'My Project — Short description')"). Then call `mx_init_project(project_name='<answer>')`.
+   - **NEVER** use the slug as project name without asking!
+   - If present: Note project_id and existing document count.
+3. **Local documents present?** — Check if `docs/` contains any .md files (recursively all subdirectories).
+   - The server imports ALL *.md files from docs/ and all subdirectories
+   - Only `index.md` and `status.md` are skipped
+   - doc_type is determined automatically based on the filename (PLAN-→plan, SPEC-→spec, ADR-→decision, session-notes→session_note, workflow-log→workflow_log, everything else→reference)
+   - If no .md files found: "No migratable documents found."
+   - **IMPORTANT:** Legacy files without standard prefix (design docs, findings, numbered notes etc.) are also imported as `reference` — everything in docs/ is project knowledge!
 
-## Modi
+## Modes
 
-| Argument | Modus |
-|----------|-------|
-| (kein Argument) | Import: Lokale Dateien in DB importieren |
-| `--dry-run` | Nur anzeigen was importiert wuerde, nichts aendern |
-| `--cleanup` | Nur Cleanup: Bereits in DB vorhandene lokale Dateien loeschen |
-| `--sync` | Import + Cleanup in einem Schritt (empfohlen nach MCP-Ausfall) |
-| `--scan` | Auto-Scan: Lokale Docs gegen DB abgleichen + Stub-Erkennung |
-| `--extract-backlog` | Legacy-Backlog aus status.md extrahieren und direkt als MCP-Docs anlegen |
+| Argument | Mode |
+|----------|------|
+| (no argument) | Import: Import local files into DB |
+| `--dry-run` | Only show what would be imported, change nothing |
+| `--cleanup` | Cleanup only: Delete local files already present in DB |
+| `--sync` | Import + Cleanup in one step (recommended after MCP outage) |
+| `--scan` | Auto-scan: Compare local docs against DB + stub detection |
+| `--extract-backlog` | Extract legacy backlog from status.md and create directly as MCP docs |
 
-### Extract-Backlog Modus (--extract-backlog)
+### Extract-Backlog Mode (--extract-backlog)
 
-Extrahiert Backlog/ToDo-Listen aus `docs/status.md` und erstellt sie direkt als MCP-Dokumente (Plans/Todos). Ersetzt den frueheren mxMigratelegacy-Skill.
+Extracts backlog/todo lists from `docs/status.md` and creates them directly as MCP documents (plans/todos). Replaces the former mxMigratelegacy skill.
 
-1. **status.md analysieren:**
-   - Lies `docs/status.md` und identifiziere Backlog-Abschnitte:
-     - Lange Bullet-Listen mit offenen Punkten (>3 zusammenhaengende Bullets)
-     - Sektionen: "Backlog", "ToDo", "Open Tasks", "Next Steps", "Naechste Aufgaben", "Spaetere Features", "Offene Punkte"
-   - **Nicht extrahieren** (in status.md belassen):
-     - "Implementierte Features"-Listen (Historie)
-     - "Migrationen"-Listen (Referenz)
-     - "Bekannte Probleme" (kurze Listen, max 5 Eintraege)
-     - Einzelne Verweise oder 1-Zeiler
+1. **Analyze status.md:**
+   - Read `docs/status.md` and identify backlog sections:
+     - Long bullet lists with open items (>3 consecutive bullets)
+     - Sections: "Backlog", "ToDo", "Open Tasks", "Next Steps", "Naechste Aufgaben", "Spaetere Features", "Offene Punkte"
+   - **Do not extract** (keep in status.md):
+     - "Implemented Features" lists (history)
+     - "Migrations" lists (reference)
+     - "Known Issues" (short lists, max 5 entries)
+     - Single references or one-liners
 
-2. **MCP-Docs erstellen (direkt in DB, keine lokalen Dateien):**
-   - Pro identifizierter Backlog-Gruppe: `mx_create_doc(project, doc_type='plan', title='PLAN: Legacy Backlog — <Gruppenname>', content, status='draft')`
-   - Content-Template:
+2. **Create MCP docs (directly in DB, no local files):**
+   - Per identified backlog group: `mx_create_doc(project, doc_type='plan', title='PLAN: Legacy Backlog — <groupname>', content, status='draft')`
+   - Content template:
      ```markdown
-     # PLAN: Legacy Backlog — <Gruppenname>
-     **Erstellt:** YYYY-MM-DD | **Status:** draft | **Quelle:** docs/status.md
+     # PLAN: Legacy Backlog — <groupname>
+     **Created:** YYYY-MM-DD | **Status:** draft | **Source:** docs/status.md
 
      ## Tasks
      - [ ] Task 1
      - [ ] Task 2
-     - [x] Erledigter Task
+     - [x] Completed task
      ```
-   - Punkte die als erledigt markiert sind → `[x]`
-   - Unklarer Status → `[ ]` mit Vermerk "(Status unklar)"
+   - Items marked as done → `[x]`
+   - Unclear status → `[ ]` with note "(status unclear)"
 
-3. **status.md kuerzen:**
-   - Extrahierte Tasklisten durch Verweis ersetzen:
-     `> Backlog migriert in Knowledge-DB (doc_id=X, YYYY-MM-DD)`
-   - Nicht-Backlog-Inhalte belassen
+3. **Shorten status.md:**
+   - Replace extracted task lists with reference:
+     `> Backlog migrated to Knowledge-DB (doc_id=X, YYYY-MM-DD)`
+   - Keep non-backlog content
 
 4. **Report:**
    ```
-   Backlog-Extraktion abgeschlossen:
-   - Erstellt: X MCP-Docs (Plans)
-   - Extrahierte Tasks: Y (davon Z erledigt)
-   - status.md gekuerzt: N Zeilen entfernt
+   Backlog extraction completed:
+   - Created: X MCP docs (plans)
+   - Extracted tasks: Y (of which Z completed)
+   - status.md shortened: N lines removed
    ```
 
-### Scan-Modus (--scan)
+### Scan Mode (--scan)
 
-Prueft lokale docs/ gegen DB und erkennt Stubs. Kein Import, nur Report.
+Checks local docs/ against DB and detects stubs. No import, report only.
 
-1. **Nicht-migrierte Dateien finden:**
-   - `mx_search(project, limit=50)` → alle DB-Docs laden → `existing_slugs` Set bilden (⚡ 1 Call statt N)
-   - Alle *.md in docs/ (rekursiv, ausser index.md, status.md, CLAUDE.md) auflisten
-   - Pro Datei: Datei-Slug gegen `existing_slugs` pruefen. !mx_search pro Datei
-   - Kein Treffer = nicht migriert → in Report aufnehmen
-2. **Stub-Erkennung in DB:**
-   - `mx_search(project, limit=50)` → alle Docs laden
-   - Fuer jedes Doc: Token-Estimate aus mx_search Response pruefen
-   - Docs mit token_estimate < 50 = Stub → in Report aufnehmen
-3. **Report ausgeben:**
+1. **Find non-migrated files:**
+   - `mx_search(project, limit=50)` → load all DB docs → build `existing_slugs` set (⚡ 1 call instead of N)
+   - List all *.md in docs/ (recursive, except index.md, status.md, CLAUDE.md)
+   - Per file: Check file slug against `existing_slugs`. !mx_search per file
+   - No match = not migrated → include in report
+2. **Stub detection in DB:**
+   - `mx_search(project, limit=50)` → load all docs
+   - For each doc: Check token estimate from mx_search response
+   - Docs with token_estimate < 50 = stub → include in report
+3. **Output report:**
    ```
    ## Auto-Scan Report
 
-   ### Nicht-migrierte lokale Dateien
-   | Datei | doc_type (geschaetzt) |
-   |-------|-----------------------|
+   ### Non-migrated local files
+   | File | doc_type (estimated) |
+   |------|----------------------|
    | docs/plans/PLAN-foo.md | plan |
 
-   ### Stub-Dokumente in DB (<50 Tokens)
-   | doc_id | Titel | doc_type | Tokens |
+   ### Stub documents in DB (<50 tokens)
+   | doc_id | Title | doc_type | Tokens |
    |--------|-------|----------|--------|
    | 360 | PLAN: Stub | plan | 12 |
 
-   ### Empfehlung
-   - X Dateien nicht migriert → `/mxMigrateToDb` ausfuehren
-   - Y Stubs in DB → Auffuellen oder loeschen
+   ### Recommendation
+   - X files not migrated → run `/mxMigrateToDb`
+   - Y stubs in DB → fill in or delete
    ```
-4. **Keine Aenderungen durchfuehren** — nur Report
+4. **Do not make any changes** — report only
 
-### Dry-Run Modus
+### Dry-Run Mode
 
-- Zeige nur welche Dateien migriert wuerden (Tabelle mit Datei → doc_type Mapping)
-- Fuehre KEINE Migration durch
-- Gib Zusammenfassung aus und frage ob Migration starten soll
+- Only show which files would be migrated (table with file → doc_type mapping)
+- Do NOT perform migration
+- Output summary and ask whether migration should start
 
-## Migration ausfuehren
+## Execute migration
 
-### Strategie: Client-seitige Batch-Migration (funktioniert immer — auch remote)
+### Strategy: Client-side batch migration (always works — including remote)
 
-Der Skill liest die Dateien LOKAL (Claude Code hat Dateizugriff) und sendet sie gesammelt an die DB via `mx_batch_create`. Kein Dateisystem-Zugriff vom Server noetig.
+The skill reads files LOCALLY (Claude Code has file access) and sends them in batch to the DB via `mx_batch_create`. No filesystem access from server needed.
 
-**Ablauf (Batch-Strategie — alle Dateien sammeln, dann ein Call):**
+**Workflow (batch strategy — collect all files, then one call):**
 
-0. **DB-Inventar vorab laden (⚡ PFLICHT — vermeidet N+1 Searches):**
-   `mx_search(project='<slug>', limit=50)` → alle existierenden Docs laden. Falls >50: zweiten Call mit offset. Daraus Set bilden: `existing_slugs: set of string` (aus slug-Feld). Dieses Set fuer ALLE Duplikat-Checks verwenden. !einzelne mx_search pro Datei.
-1. **Sammel-Phase:** Fuer jede Datei in docs/:
-   a. Datei lokal lesen (Read-Tool)
-   b. doc_type anhand Dateiname bestimmen (siehe Mapping)
-   c. Status parsen: Suche im Content nach `**Status:** <value>` (Regex: `\*\*Status:\*\*\s*(\w+)`). Falls gefunden: Mappe auf DB-Status (siehe Status-Mapping). Falls nicht: kein status-Parameter (Default 'draft').
-   d. Duplikat-Check: Datei-Slug gegen `existing_slugs` Set pruefen — falls Treffer mit gleichem doc_type: ueberspringen. ⚡ !mx_search pro Datei
-   e. Nicht-Duplikate in Items-Array sammeln: `{project, doc_type, title, content, status}`
-2. **Batch-Import:** `mx_batch_create(items='[{...}, {...}, ...]')` — alle Dokumente in einer Transaktion. Rueckgabe: Array mit doc_ids. Import-Map fuehren: Dateiname → doc_id (fuer Relations-Phase).
-3. Ergebnis protokollieren (importiert / uebersprungen / fehler)
+0. **Pre-load DB inventory (⚡ MANDATORY — avoids N+1 searches):**
+   `mx_search(project='<slug>', limit=50)` → load all existing docs. If >50: second call with offset. Build set from this: `existing_slugs: set of string` (from slug field). Use this set for ALL duplicate checks. !individual mx_search per file.
+1. **Collection phase:** For each file in docs/:
+   a. Read file locally (Read tool)
+   b. Determine doc_type based on filename (see mapping)
+   c. Parse status: Search content for `**Status:** <value>` (regex: `\*\*Status:\*\*\s*(\w+)`). If found: Map to DB status (see status mapping). If not: no status parameter (default 'draft').
+   d. Duplicate check: Check file slug against `existing_slugs` set — if match with same doc_type: skip. ⚡ !mx_search per file
+   e. Collect non-duplicates in items array: `{project, doc_type, title, content, status}`
+2. **Batch import:** `mx_batch_create(items='[{...}, {...}, ...]')` — all documents in one transaction. Returns: array with doc_ids. Maintain import map: filename → doc_id (for relations phase).
+3. Log result (imported / skipped / errors)
 
-**Batch-Limit:** Falls >20 Dateien: in Gruppen à 20 aufteilen (mehrere mx_batch_create Calls).
-**Bei Verbindungsfehler:** Bis zu 3 Retry-Versuche mit 5s Pause pro Batch. Nach 3 Fehlschlaegen: Batch als fehlgeschlagen markieren, weiter zum naechsten.
+**Batch limit:** If >20 files: split into groups of 20 (multiple mx_batch_create calls).
+**On connection error:** Up to 3 retry attempts with 5s pause per batch. After 3 failures: mark batch as failed, continue to next.
 
-### doc_type Mapping (client-seitig)
+### doc_type Mapping (client-side)
 
-| Dateiname-Muster | doc_type |
+| Filename pattern | doc_type |
 |---|---|
 | `PLAN-*` | plan |
 | `SPEC-*` | spec |
 | `ADR-*` | decision |
 | `*session-notes*` | session_note |
 | `workflow-log*` | workflow_log |
-| Alles andere | reference |
+| Everything else | reference |
 
-### Status-Mapping (Content → DB)
+### Status Mapping (Content → DB)
 
 | Content `**Status:**` | DB status |
 |---|---|
@@ -173,45 +173,45 @@ Der Skill liest die Dateien LOKAL (Claude Code hat Dateizugriff) und sendet sie 
 | deprecated | archived |
 | paused | draft |
 | cancelled | archived |
-| (nicht gefunden) | draft (Default) |
+| (not found) | draft (default) |
 
-### Relations-Phase (nach dem Import-Loop)
+### Relations Phase (after import loop)
 
-Nachdem ALLE Dateien importiert sind, Markdown-Links zwischen Dokumenten analysieren:
+After ALL files are imported, analyze Markdown links between documents:
 
-1. Fuer jedes importierte Dokument: Content nach Links auf andere docs/-Dateien scannen
-   - Regex: `\[.*?\]\((.*?\.md)\)` oder Textmuster `Siehe (PLAN|ADR|SPEC)-...`
-2. Ziel-Slug aus Link-Pfad extrahieren
-3. In der Import-Map (Dateiname → doc_id) nachschlagen
-4. Falls Treffer: `mx_add_relation()` aufrufen:
+1. For each imported document: Scan content for links to other docs/ files
+   - Regex: `\[.*?\]\((.*?\.md)\)` or text patterns `See (PLAN|ADR|SPEC)-...`
+2. Extract target slug from link path
+3. Look up in import map (filename → doc_id)
+4. If match: Call `mx_add_relation()`:
    - ADR → PLAN: `leads_to`
    - PLAN → PLAN: `leads_to`
    - SPEC → PLAN: `implements`
-   - Sonstige: `references`
-5. Ergebnis: `N Relations erstellt`
+   - Other: `references`
+5. Result: `N relations created`
 
-### Ausgeschlossene Dateien (NICHT importieren)
+### Excluded files (do NOT import)
 
-- `index.md` (Index-Dateien)
-- `status.md` (bleibt lokal)
-- `CLAUDE.md` (bleibt lokal)
+- `index.md` (index files)
+- `status.md` (stays local)
+- `CLAUDE.md` (stays local)
 
-### Alle anderen Dateien
+### All other files
 
-Alle *.md-Dateien die keinem bekannten Prefix entsprechen werden als `reference` importiert. Das schliesst ein: Design-Docs, Findings, nummerierte Session-Notes, Brainstormings, Meeting-Notes etc. **Nichts geht verloren — alles in docs/ ist Projektwissen!**
+All *.md files that don't match a known prefix are imported as `reference`. This includes: design docs, findings, numbered session notes, brainstormings, meeting notes etc. **Nothing is lost — everything in docs/ is project knowledge!**
 
-## Nach der Migration
+## After migration
 
-1. **Ergebnis anzeigen:**
+1. **Show result:**
 
 ```
-Migration abgeschlossen:
-- Importiert: X Dokumente
-- Uebersprungen (Duplikate): Y
-- Fehler: Z
+Migration completed:
+- Imported: X documents
+- Skipped (duplicates): Y
+- Errors: Z
 
-| doc_type | Anzahl |
-|----------|--------|
+| doc_type | Count |
+|----------|-------|
 | plan | ... |
 | spec | ... |
 | decision | ... |
@@ -220,71 +220,71 @@ Migration abgeschlossen:
 | reference | ... |
 ```
 
-2. **Summaries:** Entfernt (B6.5) — server-autonomer Batch-Job, kein manueller Aufruf noetig.
+2. **Summaries:** Removed (B6.5) — server-autonomous batch job, no manual call needed.
 
-3. **Verifizierung:** Rufe `mx_briefing(project='<slug>')` auf und zeige die aktuelle Dokumenten-Uebersicht.
+3. **Verification:** Call `mx_briefing(project='<slug>')` and show the current document overview.
 
-4. **Health-Check:** `/mxHealth` als Subagent ausfuehren — prueft Import-Qualitaet (fehlende Relations, schlechte Summaries, falsche Status).
+4. **Health check:** Run `/mxHealth` as subagent — checks import quality (missing relations, bad summaries, wrong statuses).
 
-5. **Hinweise ausgeben:**
-   - "Lokale Index-Dateien (index.md) werden nicht mehr benoetigt — die DB ist die Wahrheitsquelle."
-   - "docs/status.md und CLAUDE.md bleiben lokal (werden von /mxSave gepflegt)."
-   - Falls `docs/reference/` existiert: "Reference-Dateien bleiben zusaetzlich lokal erhalten."
+5. **Output notes:**
+   - "Local index files (index.md) are no longer needed — the DB is the source of truth."
+   - "docs/status.md and CLAUDE.md stay local (maintained by /mxSave)."
+   - If `docs/reference/` exists: "Reference files additionally remain local."
 
-## Cleanup-Phase (bei --cleanup oder --sync)
+## Cleanup Phase (with --cleanup or --sync)
 
-Nach erfolgreichem Import (oder separat mit `--cleanup`): Lokale Fallback-Dateien entfernen die jetzt in der DB sind.
+After successful import (or separately with `--cleanup`): Remove local fallback files that are now in the DB.
 
-### Cleanup-Ablauf
+### Cleanup workflow
 
-1. **DB-Inventar vorab laden (⚡ 1 Call statt N):** `mx_search(project, limit=50)` → `existing_slugs` Set bilden (wie in Import-Phase).
-   **Fuer jede lokale Datei** in `docs/plans/`, `docs/specs/`, `docs/decisions/`:
-   - Datei-Slug gegen `existing_slugs` pruefen. !mx_search pro Datei
-   - Falls JA und Inhalt uebereinstimmt → Datei loeschen
-   - Falls NEIN → Datei behalten (wurde noch nicht importiert)
+1. **Pre-load DB inventory (⚡ 1 call instead of N):** `mx_search(project, limit=50)` → build `existing_slugs` set (same as import phase).
+   **For each local file** in `docs/plans/`, `docs/specs/`, `docs/decisions/`:
+   - Check file slug against `existing_slugs`. !mx_search per file
+   - If YES and content matches → delete file
+   - If NO → keep file (not yet imported)
 
-2. **Geschuetzte Dateien (NIEMALS loeschen):**
-   - `CLAUDE.md` — bleibt immer lokal
-   - `docs/status.md` — bleibt immer lokal
-   - `docs/ops/workflow-log.md` — bleibt als lokaler Fallback
-   - `docs/reference/*.md` — bleiben als lokale Referenz
-   - `*/index.md` — Index-Dateien bleiben
+2. **Protected files (NEVER delete):**
+   - `CLAUDE.md` — always stays local
+   - `docs/status.md` — always stays local
+   - `docs/ops/workflow-log.md` — stays as local fallback
+   - `docs/reference/*.md` — stay as local reference
+   - `*/index.md` — index files stay
 
-3. **Loeschbare Dateien (nur nach DB-Verifizierung):**
-   - `docs/plans/PLAN-*.md` — wenn in DB vorhanden
-   - `docs/specs/SPEC-*.md` — wenn in DB vorhanden
-   - `docs/decisions/ADR-*.md` — wenn in DB vorhanden
-   - `docs/plans/session-notes-*.md` — wenn in DB vorhanden
+3. **Deletable files (only after DB verification):**
+   - `docs/plans/PLAN-*.md` — if present in DB
+   - `docs/specs/SPEC-*.md` — if present in DB
+   - `docs/decisions/ADR-*.md` — if present in DB
+   - `docs/plans/session-notes-*.md` — if present in DB
 
-4. **Index-Dateien bereinigen:**
-   - Entferne Zeilen aus `docs/plans/index.md`, `docs/specs/index.md`, `docs/decisions/index.md` die auf geloeschte Dateien verweisen
-   - Falls Index danach leer: Platzhalter-Zeile einfuegen (`_Keine lokalen Eintraege — Dokumente in Knowledge-DB_`)
+4. **Clean up index files:**
+   - Remove lines from `docs/plans/index.md`, `docs/specs/index.md`, `docs/decisions/index.md` that reference deleted files
+   - If index is empty afterwards: Insert placeholder line (`_No local entries — documents in Knowledge-DB_`)
 
-5. **Referenz-Update (PFLICHT nach jeder Datei-Loeschung):**
-   Fuer jede geloeschte Datei den Dateinamen (ohne Pfad) in lokalen Dateien suchen und Links aktualisieren:
-   - Grep nach Dateiname in: `CLAUDE.md`, `docs/status.md`, `docs/*/index.md`
-   - Jeden Markdown-Link `[text](pfad/datei.md)` ersetzen durch: `text (Knowledge-DB, doc_id=X)`
-   - `docs/status.md` wird NICHT geloescht aber MUSS nach toten Links durchsucht werden
+5. **Reference update (MANDATORY after each file deletion):**
+   For each deleted file, search for the filename (without path) in local files and update links:
+   - Grep for filename in: `CLAUDE.md`, `docs/status.md`, `docs/*/index.md`
+   - Replace each Markdown link `[text](path/file.md)` with: `text (Knowledge-DB, doc_id=X)`
+   - `docs/status.md` is NOT deleted but MUST be searched for dead links
 
-6. **Ergebnis ausgeben:**
+6. **Output result:**
 
 ```
-Cleanup abgeschlossen:
-- Geloescht: X Dateien (in DB verifiziert)
-- Behalten: Y Dateien (geschuetzt oder nicht in DB)
+Cleanup completed:
+- Deleted: X files (verified in DB)
+- Kept: Y files (protected or not in DB)
 
-| Datei | Aktion | Grund |
-|-------|--------|-------|
-| docs/plans/PLAN-foo.md | geloescht | in DB (doc_id=42) |
-| docs/status.md | behalten | geschuetzt |
+| File | Action | Reason |
+|------|--------|--------|
+| docs/plans/PLAN-foo.md | deleted | in DB (doc_id=42) |
+| docs/status.md | kept | protected |
 ```
 
-## Regeln
+## Rules
 
-- **Idempotent:** Duplikate werden vom Server erkannt und uebersprungen.
-- **Cleanup nur nach Verifizierung:** Lokale Datei wird NUR geloescht wenn das Dokument nachweislich in der DB existiert (mx_search Treffer).
-- **Geschuetzte Dateien:** CLAUDE.md, status.md, workflow-log.md, reference/, index.md werden NIEMALS geloescht.
-- **Forward-Slashes:** Pfad-Parameter immer mit `/` statt `\` (ADR-0001 TMS-Bug).
-- **Encoding:** Server erkennt ANSI vs. UTF-8 automatisch.
-- **MCP-Fehler:** Bei Fehler → Fehlermeldung anzeigen, Benutzer informieren. KEIN Cleanup wenn Import fehlgeschlagen.
-- **Verbindungsabbruch waehrend Migration:** Falls ein MCP-Aufruf fehlschlaegt (Timeout, Connection Reset), bis zu 3 Retry-Versuche mit 5s Pause. Erst nach 3 Fehlschlaegen den Schritt als fehlgeschlagen markieren und mit dem naechsten weitermachen. Am Ende Zusammenfassung: X erfolgreich, Y fehlgeschlagen (mit Dateinamen).
+- **Idempotent:** Duplicates are detected by the server and skipped.
+- **Cleanup only after verification:** Local file is ONLY deleted if the document is verifiably present in the DB (mx_search match).
+- **Protected files:** CLAUDE.md, status.md, workflow-log.md, reference/, index.md are NEVER deleted.
+- **Forward slashes:** Path parameters always with `/` instead of `\` (ADR-0001 TMS bug).
+- **Encoding:** Server detects ANSI vs. UTF-8 automatically.
+- **MCP errors:** On error → show error message, inform user. NO cleanup if import failed.
+- **Connection loss during migration:** If an MCP call fails (timeout, connection reset), up to 3 retry attempts with 5s pause. Only after 3 failures mark the step as failed and continue to the next. Final summary: X successful, Y failed (with filenames).

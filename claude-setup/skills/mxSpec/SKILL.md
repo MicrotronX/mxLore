@@ -4,95 +4,95 @@ description: Use when the user says "/spec", wants to write a specification for 
 user-invocable: true
 effort: medium
 allowed-tools: Read, Write, Edit, Grep, Glob
-argument-hint: "<slug z.B. notification-system>"
+argument-hint: "<slug e.g. notification-system>"
 ---
 
-# /mxSpec — Spezifikation anlegen/aktualisieren (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
+# /mxSpec — Create/Update Specification (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
-> **Context:** IMMER als Subagent(Agent-Tool) !Hauptkontext. Ergebnis: max 20 Zeilen.
+> **Context:** ALWAYS as subagent(Agent-Tool) !main-context. Result: max 20 lines.
 
-Spec-Agent. Erstellt/aktualisiert Spezifikationen in Knowledge-DB via MCP.
+Spec-Agent. Creates/updates specifications in Knowledge-DB via MCP.
 
 ## Init
 1. CLAUDE.md→`**Slug:**`=project-param. ∅slug→?user
-2. mx_ping()→OK=MCP-Modus | Fehler=Lokal(`docs/specs/SPEC-<slug>.md`+Warnung→/mxMigrateToDb)
+2. mx_ping()→OK=MCP-mode | Error=Local(`docs/specs/SPEC-<slug>.md`+Warning→/mxMigrateToDb)
 
 ## Input
-Slug aus Command-Argument. ∅arg→?user. Slug: `a-z 0-9 -` only.
+Slug from command argument. ∅arg→?user. Slug: `a-z 0-9 -` only.
 
-## Ablauf
+## Workflow
 
-### 0) PRD-Kontext
-- Brainstorming in Session→PRD aus Chat ableiten, keine Rueckfragen
-- ∅Brainstorming→4 Fragen: (1) Problem? (2) Wer profitiert? (3) Was wenn nichts tun? (4) Teilloesungen?
-- Update bestehender Spec→Phase 0 skip
+### 0) PRD Context
+- Brainstorming in session→derive PRD from chat, no follow-up questions
+- ∅Brainstorming→4 questions: (1) Problem? (2) Who benefits? (3) What if nothing done? (4) Partial solutions?
+- Updating existing spec→Phase 0 skip
 
-### 1) Existenz pruefen
-`mx_search(project, doc_type='spec', query='<slug>', include_details=true, limit=1)` →Treffer=Update(3, doc_id+content direkt) | ∅=Neu(2)
+### 1) Check existence
+`mx_search(project, doc_type='spec', query='<slug>', include_details=true, limit=1)` →Hit=Update(3, doc_id+content directly) | ∅=New(2)
 
-### 2) Neue Spec
+### 2) New Spec
 
 **Template:**
 ```markdown
-# SPEC: <Titel>
-**Slug:** <slug> | **Erstellt:** YYYY-MM-DD | **Letzte Aenderung:** YYYY-MM-DD
+# SPEC: <Title>
+**Slug:** <slug> | **Created:** YYYY-MM-DD | **Last Modified:** YYYY-MM-DD
 
 ## Overview
-<2-4 Saetze>
+<2-4 sentences>
 
 ## Related
-- **ADR:** [ADR-xxxx] — <Bezug> (nur wenn im Chat erkennbar)
-- **Plan:** [PLAN-xxx] — <Bezug> (nur wenn im Chat erkennbar)
+- **ADR:** [ADR-xxxx] — <reference> (only if recognizable from chat)
+- **Plan:** [PLAN-xxx] — <reference> (only if recognizable from chat)
 
 ## Goals
-- <Ziele>
+- <goals>
 
 ## Non-goals
-- <Was NICHT in Spec>
+- <What is NOT in scope>
 
 ## Requirements
-1. <Anforderung>
+1. <Requirement>
 
 ## Acceptance Criteria
-- [ ] <Pruefbares Kriterium>
+- [ ] <Testable criterion>
 
 ## Interfaces / Data
-<DB-Tabellen, API — nur falls relevant>
+<DB tables, API — only if relevant>
 
 ## Edge Cases
-- <Sonderfall>
+- <Edge case>
 
 ## Open Questions
-- <Offene Frage>
+- <Open question>
 ```
 
-**MCP:** `mx_create_doc(project, doc_type='spec', title='SPEC: <Titel>', content)`
+**MCP:** `mx_create_doc(project, doc_type='spec', title='SPEC: <Title>', content)`
 Related→`mx_search`→target_id→`mx_add_relation(source, target, 'references')`
 
-**Lokal(Fallback):** `docs/specs/SPEC-<slug>.md` + index.md update + Warnung
+**Local(Fallback):** `docs/specs/SPEC-<slug>.md` + index.md update + Warning
 
-### 3) Spec aktualisieren
-**MCP:** mx_detail(doc_id)→Abschnitte aendern→"Letzte Aenderung"=heute→mx_update_doc(doc_id, content, change_reason) !bestehende Inhalte loeschen
-**Lokal:** Read→Edit→"Letzte Aenderung"=heute
+### 3) Update Spec
+**MCP:** mx_detail(doc_id)→modify sections→"Last Modified"=today→mx_update_doc(doc_id, content, change_reason) !delete existing content
+**Local:** Read→Edit→"Last Modified"=today
 
-### 4) Status-Transition (bei Update)
-Nach Schritt 3: Acceptance Criteria im Content pruefen.
-- **Alle `- [x]`** (keine `- [ ]` mehr) UND kein offenes Open Question:
-  - Content: `**Status:** implemented` ergaenzen (nach Letzte Aenderung)
-  - `mx_update_doc(doc_id, content, status='archived', change_reason='Alle AC erfuellt')`
-  - Output: `Spec #<doc_id> archiviert — alle Acceptance Criteria erfuellt`
-- **Gemischt:** ∅Aenderung, nur Info: `<N>/<M> AC erfuellt`
-- **Open Questions vorhanden:** ∅archivieren, auch wenn AC komplett. Hinweis: `AC komplett aber offene Fragen verbleiben`
-- ⚡ Nur bei eindeutig implementierten Specs. Zweifel→offen lassen+?user
+### 4) Status Transition (on update)
+After step 3: check Acceptance Criteria in content.
+- **All `- [x]`** (no `- [ ]` remaining) AND no open Open Question:
+  - Content: add `**Status:** implemented` (after Last Modified)
+  - `mx_update_doc(doc_id, content, status='archived', change_reason='All AC fulfilled')`
+  - Output: `Spec #<doc_id> archived — all Acceptance Criteria fulfilled`
+- **Mixed:** ∅change, info only: `<N>/<M> AC fulfilled`
+- **Open Questions present:** ∅archive, even if AC complete. Note: `AC complete but open questions remain`
+- ⚡ Only for clearly implemented specs. Doubt→leave open+?user
 
-## Regeln
-- ⚡ Nur fundiertes Wissen aus Chat !erfinden. ∅info→?user oder Open Question
-- ⚡ Related: mx_search verifizieren VOR mx_add_relation
-- !erfundene Metriken in AC. !Implementierungsdetails→/mxPlan
-- Requirements nummeriert. AC klar pruefbar !vage
-- MCP bevorzugen, lokal=Fallback
+## Rules
+- ⚡ Only verified knowledge from chat !invent. ∅info→?user or Open Question
+- ⚡ Related: mx_search verify BEFORE mx_add_relation
+- !invented metrics in AC. !implementation details→/mxPlan
+- Requirements numbered. AC clearly testable !vague
+- MCP preferred, local=fallback
 
-## Abschluss
-Output: (1) doc_id (2) Top 3-5 Acceptance Criteria (3) Relationen falls erstellt
-Empfehlung: `/mxDecision` falls ADR noetig, `/mxPlan <slug>` fuer Implementierung
-Aktiver Workflow→naechsten Schritt
+## Completion
+Output: (1) doc_id (2) Top 3-5 Acceptance Criteria (3) Relations if created
+Recommendation: `/mxDecision` if ADR needed, `/mxPlan <slug>` for implementation
+Active workflow→next step

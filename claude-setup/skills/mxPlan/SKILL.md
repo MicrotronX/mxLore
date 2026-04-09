@@ -4,83 +4,83 @@ description: Use when the user says "/plan", wants to create or update an implem
 user-invocable: true
 effort: medium
 allowed-tools: Read, Write, Edit, Grep, Glob
-argument-hint: "<slug z.B. edi-parser-refactor>"
+argument-hint: "<slug e.g. edi-parser-refactor>"
 ---
 
-# /mxPlan — Plan anlegen/aktualisieren (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
+# /mxPlan — Create/update plan (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
-> **Context:** IMMER als Subagent(Agent-Tool) !Hauptkontext. Ergebnis: max 20 Zeilen.
+> **Context:** ALWAYS as subagent(Agent-Tool) !main-context. Result: max 20 lines.
 
-Plan-Agent. Erstellt/aktualisiert Plans in Knowledge-DB via MCP.
+Plan agent. Creates/updates plans in Knowledge-DB via MCP.
 
 ## Init
 1. CLAUDE.md→`**Slug:**`=project-param. ∅slug→?user
-2. mx_ping()→OK=MCP-Modus | Fehler=Lokal(`docs/plans/PLAN-<slug>.md`+Warnung→/mxMigrateToDb)
+2. mx_ping()→OK=MCP-mode | error=local(`docs/plans/PLAN-<slug>.md`+warning→/mxMigrateToDb)
 
 ## Input
-Slug aus Command-Argument. ∅arg→?user. Slug: `a-z 0-9 -` only.
+Slug from command argument. ∅arg→?user. Slug: `a-z 0-9 -` only.
 
-## Ablauf
+## Workflow
 
-### 1) Existenz pruefen
-`mx_search(project, doc_type='plan', query='<slug>', include_details=true, limit=1)` →Treffer=Update(3, doc_id+content direkt) | ∅=Neu(2)
+### 1) Check existence
+`mx_search(project, doc_type='plan', query='<slug>', include_details=true, limit=1)` →match=Update(3, doc_id+content directly) | ∅=New(2)
 
-### 2) Neuer Plan
+### 2) New plan
 
 **Template:**
 ```markdown
-# PLAN: <Titel>
-**Slug:** <slug> | **Erstellt:** YYYY-MM-DD | **Status:** active
+# PLAN: <Title>
+**Slug:** <slug> | **Created:** YYYY-MM-DD | **Status:** active
 
 ## Goal
-<1-3 Saetze aus Chat-Kontext>
+<1-3 sentences from chat context>
 
 ## Related
-- **Spec:** [SPEC-xxx] (nur wenn im Chat erkennbar)
+- **Spec:** [SPEC-xxx] (only if identifiable in chat)
 
 ## Non-goals
-- <Was NICHT in Plan>
+- <What is NOT in plan>
 
 ## Milestones
-1. <Meilenstein>
+1. <Milestone>
 
 ## Tasks
 - [ ] Task 1
 - [ ] Task 2
 
 ## Risks
-- <Risiko>
+- <Risk>
 
 ## Notes
-- <Hinweise>
+- <Remarks>
 ```
 
-**MCP:** `mx_create_doc(project, doc_type='plan', title='PLAN: <Titel>', content)`
+**MCP:** `mx_create_doc(project, doc_type='plan', title='PLAN: <Title>', content)`
 Related→`mx_search`→target_id→`mx_add_relation(source, target, 'references')`
 
-**Lokal(Fallback):** `docs/plans/PLAN-<slug>.md` + index.md update + Warnung
+**Local(Fallback):** `docs/plans/PLAN-<slug>.md` + index.md update + warning
 
-### 3) Plan aktualisieren
-**MCP:** mx_detail(doc_id)→Abschnitte aendern→mx_update_doc(doc_id, content, change_reason) !bestehende Inhalte loeschen
-**Lokal:** Read→Edit→index update falls Status geaendert
+### 3) Update plan
+**MCP:** mx_detail(doc_id)→modify sections→mx_update_doc(doc_id, content, change_reason) !delete existing content
+**Local:** Read→Edit→index update if status changed
 
-### 4) Status-Transition (bei Update)
-Nach Schritt 3: Tasks-Zeilen im Content pruefen.
-- **Alle `- [x]`** (keine `- [ ]` mehr) UND Status noch `active`:
+### 4) Status transition (on update)
+After step 3: check task lines in content.
+- **All `- [x]`** (no `- [ ]` remaining) AND status still `active`:
   - Content: `**Status:** active`→`**Status:** completed`
-  - `mx_update_doc(doc_id, content, status='archived', change_reason='Alle Tasks erledigt')`
-  - Output: `Plan #<doc_id> archiviert — alle Tasks erledigt`
-- **Gemischt:** ∅Aenderung, nur Info: `<N>/<M> Tasks erledigt`
-- ⚡ Nur bei eindeutig erledigten Plans. Zweifel→offen lassen+?user
+  - `mx_update_doc(doc_id, content, status='archived', change_reason='All tasks completed')`
+  - Output: `Plan #<doc_id> archived — all tasks completed`
+- **Mixed:** ∅change, info only: `<N>/<M> tasks completed`
+- ⚡ Only for clearly completed plans. Doubt→leave open+?user
 
-## Regeln
-- Tasks: klein+pruefbar, `- [ ]`/`- [x]`, max 15-20/Plan, 1 Session/Task
-- ⚡ Nur fundiertes Wissen aus Chat !erfinden. ∅info→?user
-- ⚡ Related: mx_search verifizieren VOR mx_add_relation !Relationen auf ∅docs
-- !ADRs→nur /mxDecision. !Prosa→praegnant+operativ
-- MCP bevorzugen, lokal=Fallback
+## Rules
+- Tasks: small+verifiable, `- [ ]`/`- [x]`, max 15-20/plan, 1 session/task
+- ⚡ Only verified knowledge from chat !invent. ∅info→?user
+- ⚡ Related: mx_search verify BEFORE mx_add_relation !relations to ∅docs
+- !ADRs→only /mxDecision. !prose→concise+operational
+- MCP preferred, local=fallback
 
-## Abschluss
-Output: (1) doc_id (2) Top-5 Tasks (3) Relationen falls erstellt
-Empfehlung: `superpowers:executing-plans` oder `superpowers:subagent-driven-development`
-Falls aktiver Workflow→naechsten Schritt nennen
+## Conclusion
+Output: (1) doc_id (2) top-5 tasks (3) relations if created
+Recommendation: `superpowers:executing-plans` or `superpowers:subagent-driven-development`
+If active workflow→name next step

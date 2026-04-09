@@ -1,64 +1,64 @@
 ---
 name: mxInitProject
-description: "Du bist ein Repo-Bootstrap-Agent. Lege im aktuellen Repository eine skalierbare AI-Dokumentationsstruktur an, ohne bestehende Inhalte kaputt zu machen."
+description: "You are a repo bootstrap agent. Set up a scalable AI documentation structure in the current repository without breaking existing content."
 user-invocable: true
 effort: low
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Skill
 ---
 
-Du bist ein Repo-Bootstrap-Agent. Lege im aktuellen Repository eine skalierbare AI-Dokumentationsstruktur an, ohne bestehende Inhalte kaputt zu machen.
+You are a repo bootstrap agent. Set up a scalable AI documentation structure in the current repository without breaking existing content.
 
-## Idempotenz-Garantie ⚡
+## Idempotency Guarantee ⚡
 
-Dieser Skill ist **sicher bei Mehrfachaufruf**. Pre-Flight-Check VOR allen Schritten:
+This skill is **safe for repeated invocation**. Pre-flight check BEFORE all steps:
 
-1. Glob: `CLAUDE.md` im Projektroot → existiert?
-2. Glob: `docs/status.md` → existiert?
-3. Glob: `docs/decisions/`, `docs/specs/`, `docs/plans/`, `docs/ops/`, `docs/reference/` → existieren?
-4. Falls CLAUDE.md existiert: Grep `AI Start Here` → Block vorhanden?
-5. Falls MCP-Modus: `mx_briefing(project)` → Projekt registriert?
+1. Glob: `CLAUDE.md` in project root → exists?
+2. Glob: `docs/status.md` → exists?
+3. Glob: `docs/decisions/`, `docs/specs/`, `docs/plans/`, `docs/ops/`, `docs/reference/` → exist?
+4. If CLAUDE.md exists: Grep `AI Start Here` → block present?
+5. If MCP mode: `mx_briefing(project)` → project registered?
 
-**Entscheidungsmatrix:**
-| CLAUDE.md | AI-Start-Here | Verzeichnisse | MCP-Projekt | status.md | Ergebnis |
-|-----------|---------------|---------------|-------------|-----------|----------|
-| ✓ | ✓ | ✓ | ✓ | ✓ | `"Alles vorhanden — keine Aenderungen noetig."` → **SOFORT ABBRECHEN** |
-| ✓ | ✗ | ✓ | ✓ | ✓ | Nur AI-Start-Here-Block einfuegen |
-| ✗ | — | ✗ | ✗ | ✗ | Voller Bootstrap (alle Schritte) |
-| ✓ | ✓ | ✓ | ✗ | ✓ | Nur MCP-Registrierung (Schritt 2) |
-| beliebig | beliebig | beliebig | beliebig | beliebig | Nur fehlende Teile erstellen, vorhandene ueberspringen |
+**Decision matrix:**
+| CLAUDE.md | AI-Start-Here | Directories | MCP-Project | status.md | Result |
+|-----------|---------------|-------------|-------------|-----------|--------|
+| ✓ | ✓ | ✓ | ✓ | ✓ | `"Everything present — no changes needed."` → **ABORT IMMEDIATELY** |
+| ✓ | ✗ | ✓ | ✓ | ✓ | Only insert AI-Start-Here block |
+| ✗ | — | ✗ | ✗ | ✗ | Full bootstrap (all steps) |
+| ✓ | ✓ | ✓ | ✗ | ✓ | Only MCP registration (step 2) |
+| any | any | any | any | any | Only create missing parts, skip existing ones |
 
-⚡ **Jeder Schritt prueft individuell ob sein Artefakt existiert → skip wenn ja.**
-⚡ **Niemals bestehende Inhalte ueberschreiben, loeschen oder duplizieren.**
+⚡ **Each step individually checks whether its artifact exists → skip if yes.**
+⚡ **Never overwrite, delete, or duplicate existing content.**
 
-## Projekt-Kontext / MCP-Erkennung
+## Project Context / MCP Detection
 
-MCP-Verfuegbarkeit wird so geprueft (in dieser Reihenfolge):
+MCP availability is checked as follows (in this order):
 
-1. **`mx_ping()` aufrufen** — wenn erfolgreich: MCP-Modus (Server global oder per Projekt konfiguriert)
-2. Falls mx_ping fehlschlaegt: `.mcp.json` im Projektverzeichnis pruefen (Fallback)
-3. Falls beides negativ: Nicht-MCP-Modus (lokale Dateien)
+1. **Call `mx_ping()`** — if successful: MCP mode (server configured globally or per project)
+2. If mx_ping fails: check `.mcp.json` in project directory (fallback)
+3. If both negative: non-MCP mode (local files)
 
-**MCP-Modus:** Keine lokalen Index-Dateien anlegen — die Knowledge-DB ist die Wahrheitsquelle.
-**Nicht-MCP-Modus:** Lokale Index-Dateien anlegen (decisions/index.md, specs/index.md, plans/index.md).
+**MCP mode:** Do not create local index files — the Knowledge-DB is the source of truth.
+**Non-MCP mode:** Create local index files (decisions/index.md, specs/index.md, plans/index.md).
 
-## 0. Projekt-spezifischer MCP-Server (optional)
+## 0. Project-specific MCP Server (optional)
 
-Ermoeglicht Multi-Team-Szenarien: Verschiedene Projekte koennen unterschiedliche mxLore-Server nutzen.
+Enables multi-team scenarios: different projects can use different mxLore servers.
 
-**Wann fragen:** Nur bei Ersteinrichtung (CLAUDE.md existiert noch NICHT) und MCP ist global verfuegbar (mx_ping OK).
-**Nicht fragen:** Bei Idempotenz-Skip, bei Nicht-MCP-Modus, bei bereits eingerichtetem Projekt.
+**When to ask:** Only during initial setup (CLAUDE.md does NOT exist yet) and MCP is globally available (mx_ping OK).
+**Do not ask:** On idempotency skip, in non-MCP mode, or for already configured projects.
 
-?user: "MCP-Server fuer dieses Projekt? (Enter=globalen Server nutzen, oder eigene URL eingeben)"
+?user: "MCP server for this project? (Enter=use global server, or enter custom URL)"
 
-**Falls Enter (Default/global):** Weiter wie bisher — globaler user-scope MCP wird genutzt. Keine `.mcp.json` schreiben, kein lokaler Proxy.
+**If Enter (default/global):** Continue as before — global user-scope MCP is used. Do not write `.mcp.json`, no local proxy.
 
-**Falls eigene URL:**
-1. URL validieren: muss mit `https://` beginnen und auf `/mcp` enden
-2. API-Key abfragen: ?user: "API-Key fuer diesen Server? (beginnt mit mxk_)"
-3. **Proxy-INI erstellen:** `.claude/mxMCPProxy.ini` im Projektverzeichnis:
+**If custom URL:**
+1. Validate URL: must start with `https://` and end with `/mcp`
+2. Request API key: ?user: "API key for this server? (starts with mxk_)"
+3. **Create proxy INI:** `.claude/mxMCPProxy.ini` in the project directory:
    ```ini
    [Server]
-   BaseUrl=<URL ohne /mcp Suffix>
+   BaseUrl=<URL without /mcp suffix>
    ApiKey=<API-KEY>
    McpEndpoint=/mcp
 
@@ -66,206 +66,206 @@ Ermoeglicht Multi-Team-Szenarien: Verschiedene Projekte koennen unterschiedliche
    Polling=1
    PollInterval=15
    ```
-4. **Proxy-EXE:** Globale `~/.claude/mxMCPProxy.exe` verlinken oder Pfad merken
-5. **`.mcp.json` erstellen/aktualisieren** im Projektverzeichnis:
+4. **Proxy EXE:** Link global `~/.claude/mxMCPProxy.exe` or note the path
+5. **Create/update `.mcp.json`** in the project directory:
    ```json
    {
      "mcpServers": {
        "mxai-knowledge": {
-         "command": "<absoluter-pfad-zu>/.claude/mxMCPProxy.exe",
-         "args": ["<absoluter-pfad-zu-projekt>/.claude/mxMCPProxy.ini"]
+         "command": "<absolute-path-to>/.claude/mxMCPProxy.exe",
+         "args": ["<absolute-path-to-project>/.claude/mxMCPProxy.ini"]
        }
      }
    }
    ```
-   (Proxy nimmt INI-Pfad als erstes Argument, kein Flag noetig)
-   ⚡ Falls `.mcp.json` bereits existiert: nur `mxai-knowledge` Key ergaenzen/ersetzen, Rest beibehalten
-6. **Testen:** `mx_ping()` aufrufen — muss den projekt-spezifischen Server erreichen
-   - Erfolg: "Projekt-MCP eingerichtet: <URL>"
-   - Fehler: URL/Key pruefen, Abbruch mit Hinweis
-7. `.claude/` in `.gitignore` ergaenzen (INI enthaelt API-Key)
+   (Proxy takes INI path as first argument, no flag needed)
+   ⚡ If `.mcp.json` already exists: only add/replace the `mxai-knowledge` key, keep the rest
+6. **Test:** Call `mx_ping()` — must reach the project-specific server
+   - Success: "Project MCP configured: <URL>"
+   - Failure: Check URL/key, abort with notice
+7. Add `.claude/` to `.gitignore` (INI contains API key)
 
-⚡ **Transparenz:** Nach diesem Schritt sprechen alle mx*-Skills automatisch mit dem Projekt-Server statt dem globalen. Keine weiteren Aenderungen noetig.
+⚡ **Transparency:** After this step, all mx*-skills automatically communicate with the project server instead of the global one. No further changes needed.
 
-## 1. Verzeichnisse anlegen (falls fehlend)
+## 1. Create directories (if missing)
 
-Erstelle diese Verzeichnisse, falls sie noch nicht existieren:
+Create these directories if they do not already exist:
 - docs/decisions
 - docs/specs
 - docs/plans
 - docs/ops
 - docs/reference
 
-## 1b. Workflow-Log (nur bei Nicht-MCP-Projekten)
+## 1b. Workflow Log (non-MCP projects only)
 
-Falls Nicht-MCP-Modus (mx_ping fehlgeschlagen) UND `docs/ops/workflow-log.md` nicht existiert, erstelle:
+If non-MCP mode (mx_ping failed) AND `docs/ops/workflow-log.md` does not exist, create:
 
 ```markdown
 # Workflow Log
 
-<!-- Eintraege werden automatisch via /mxOrchestrate ergaenzt. Nicht manuell bearbeiten. -->
+<!-- Entries are added automatically via /mxOrchestrate. Do not edit manually. -->
 ```
 
-Bei MCP-Projekten werden Workflows in der DB gespeichert.
+For MCP projects, workflows are stored in the DB.
 
-## 2. Index-Dateien (nur bei Nicht-MCP-Projekten)
+## 2. Index files (non-MCP projects only)
 
-**Falls MCP-Modus (mx_ping erfolgreich):** Keine Index-Dateien anlegen. Stattdessen pruefen ob Projekt in DB registriert ist:
-1. Slug aus CLAUDE.md lesen (`**Slug:**`-Zeile). Falls kein Slug: aus Verzeichnisnamen ableiten und Benutzer fragen: "Projekt-Slug Vorschlag: `<slug>` — passt das?"
-2. Rufe `mx_briefing(project='<slug>')` auf
-3. Falls "Project not found":
-   - **STOPP — MUSS den Benutzer fragen!** Frage: "Projektname fuer `<slug>`? (z.B. 'Mein Projekt — Kurzbeschreibung')"
-   - **Warte auf Antwort.** Erst DANACH `mx_init_project(project_name='<antwort>')` aufrufen.
-   - **NIEMALS** den Slug oder einen selbst erfundenen Namen als Projektnamen verwenden!
-4. Slug in CLAUDE.md eintragen falls noch nicht vorhanden
+**If MCP mode (mx_ping successful):** Do not create index files. Instead check if the project is registered in the DB:
+1. Read slug from CLAUDE.md (`**Slug:**` line). If no slug: derive from directory name and ask the user: "Suggested project slug: `<slug>` — does that work?"
+2. Call `mx_briefing(project='<slug>')`
+3. If "Project not found":
+   - **STOP — MUST ask the user!** Question: "Project name for `<slug>`? (e.g. 'My Project — Short description')"
+   - **Wait for response.** Only THEN call `mx_init_project(project_name='<response>')`.
+   - **NEVER** use the slug or a self-invented name as the project name!
+4. Add slug to CLAUDE.md if not already present
 
-**Falls Nicht-MCP-Modus:** Lege Index-Dateien an wie bisher:
+**If non-MCP mode:** Create index files as before:
 
 ### docs/decisions/index.md
 ```markdown
 # Architecture Decision Records (ADR)
 
-Entscheidungen werden ausschliesslich via `/mxDecision` angelegt.
+Decisions are created exclusively via `/mxDecision`.
 
-| ADR | Titel | Status | Datum |
-|-----|-------|--------|-------|
-| — | _Noch keine Eintraege_ | — | — |
+| ADR | Title | Status | Date |
+|-----|-------|--------|------|
+| — | _No entries yet_ | — | — |
 ```
 
 ### docs/specs/index.md
 ```markdown
-# Spezifikationen (Specs)
+# Specifications (Specs)
 
-Specs werden ausschliesslich via `/mxSpec` angelegt.
+Specs are created exclusively via `/mxSpec`.
 
-| Spec | Titel | Datum |
-|------|-------|-------|
-| — | _Noch keine Eintraege_ | — |
+| Spec | Title | Date |
+|------|-------|------|
+| — | _No entries yet_ | — |
 ```
 
 ### docs/plans/index.md
 ```markdown
-# Plaene
+# Plans
 
-Plaene werden ausschliesslich via `/mxPlan` angelegt.
+Plans are created exclusively via `/mxPlan`.
 
-| Plan | Titel | Status | Datum |
-|------|-------|--------|-------|
-| — | _Noch keine Eintraege_ | — | — |
+| Plan | Title | Status | Date |
+|------|-------|--------|------|
+| — | _No entries yet_ | — | — |
 ```
 
-## 3. CLAUDE.md anpassen
+## 3. Adjust CLAUDE.md
 
-Falls CLAUDE.md existiert: Fuege OBEN (nach der ersten H1-Zeile) einen "AI Start Here"-Block ein. Ueberschreibe NICHTS — nur einfuegen.
+If CLAUDE.md exists: Insert an "AI Start Here" block at the TOP (after the first H1 line). Do NOT overwrite anything — insert only.
 
-Falls CLAUDE.md nicht existiert: Erstelle eine minimale CLAUDE.md nach folgendem Template.
-**WICHTIG:** NUR projekt-spezifische Infos. Keine globalen Regeln (Sicherheit, Encoding, etc.) — die stehen in `~/.claude/CLAUDE.md`.
+If CLAUDE.md does not exist: Create a minimal CLAUDE.md using the following template.
+**IMPORTANT:** ONLY project-specific info. No global rules (security, encoding, etc.) — those are in `~/.claude/CLAUDE.md`.
 
-### Projekt-CLAUDE.md Template (wenn neu erstellt)
+### Project CLAUDE.md Template (when newly created)
 
 ```markdown
-# <Projektname>
+# <ProjectName>
 
-> **AI Start Here** — [AI Start Here Block wie unten]
+> **AI Start Here** — [AI Start Here Block as below]
 
-## Projekt
+## Project
 
 - **Slug:** <slug>
-- **Stack:** <erkannter Stack, z.B. "Delphi + FireDAC" oder "PHP + Laravel">
-- **Status:** Initialisiert
+- **Stack:** <detected stack, e.g. "Delphi + FireDAC" or "PHP + Laravel">
+- **Status:** Initialized
 
-## Architektur
+## Architecture
 
-_(wird im Laufe des Projekts ergaenzt)_
+_(will be expanded as the project progresses)_
 
-## Regeln (projekt-spezifisch)
+## Rules (project-specific)
 
-_(nur Regeln die NUR fuer dieses Projekt gelten, keine globalen Regeln duplizieren)_
+_(only rules that apply ONLY to this project, do not duplicate global rules)_
 ```
 
-Falls CLAUDE.md existiert: Fuege NUR den "AI Start Here"-Block ein (nach der ersten H1-Zeile). Ueberschreibe NICHTS.
+If CLAUDE.md exists: Insert ONLY the "AI Start Here" block (after the first H1 line). Do NOT overwrite anything.
 
-### Einzufuegender Block (MCP-Projekt)
+### Block to insert (MCP project)
 
-Falls MCP-Modus:
+If MCP mode:
 
 ```markdown
-> **AI Start Here** — Lies diese Dateien zum Einstieg:
+> **AI Start Here** — Read these files to get started:
 >
-> | Dokument | Zweck |
-> |----------|-------|
-> | [CLAUDE.md](./CLAUDE.md) | Architektur, Konventionen, Regeln (diese Datei) |
-> | [docs/status.md](./docs/status.md) | Aktueller Projektstatus, offene Punkte |
+> | Document | Purpose |
+> |----------|---------|
+> | [CLAUDE.md](./CLAUDE.md) | Architecture, conventions, rules (this file) |
+> | [docs/status.md](./docs/status.md) | Current project status, open items |
 >
-> **Dokumentations-Regeln (MCP-basiert):**
-> - Entscheidungen NUR via `/mxDecision` → Knowledge-DB (doc_type='decision')
-> - Plaene NUR via `/mxPlan` → Knowledge-DB (doc_type='plan')
-> - Specs NUR via `/mxSpec` → Knowledge-DB (doc_type='spec')
-> - `/mxSave` aktualisiert CLAUDE.md + docs/status.md (lokal) + Session-Notes (DB)
-> - Dokumente suchen: `mx_search(project='<slug>', ...)` oder `mx_briefing(project='<slug>')`
-> - CLAUDE.md bleibt kompakt: Links + Regeln + Architektur. Keine langen Backlogs.
+> **Documentation rules (MCP-based):**
+> - Decisions ONLY via `/mxDecision` → Knowledge-DB (doc_type='decision')
+> - Plans ONLY via `/mxPlan` → Knowledge-DB (doc_type='plan')
+> - Specs ONLY via `/mxSpec` → Knowledge-DB (doc_type='spec')
+> - `/mxSave` updates CLAUDE.md + docs/status.md (local) + session notes (DB)
+> - Search documents: `mx_search(project='<slug>', ...)` or `mx_briefing(project='<slug>')`
+> - CLAUDE.md stays compact: links + rules + architecture. No long backlogs.
 ```
 
-### Einzufuegender Block (Nicht-MCP-Projekt)
+### Block to insert (non-MCP project)
 
-Falls kein MCP-Server:
+If no MCP server:
 
 ```markdown
-> **AI Start Here** — Lies diese Dateien zum Einstieg:
+> **AI Start Here** — Read these files to get started:
 >
-> | Dokument | Zweck |
-> |----------|-------|
-> | [CLAUDE.md](./CLAUDE.md) | Architektur, Konventionen, Regeln (diese Datei) |
-> | [docs/status.md](./docs/status.md) | Aktueller Projektstatus, offene Punkte |
+> | Document | Purpose |
+> |----------|---------|
+> | [CLAUDE.md](./CLAUDE.md) | Architecture, conventions, rules (this file) |
+> | [docs/status.md](./docs/status.md) | Current project status, open items |
 > | [docs/decisions/index.md](./docs/decisions/index.md) | Architecture Decision Records (ADR) |
-> | [docs/specs/index.md](./docs/specs/index.md) | Spezifikationen |
-> | [docs/plans/](./docs/plans/) | Plaene und Session-Notes |
+> | [docs/specs/index.md](./docs/specs/index.md) | Specifications |
+> | [docs/plans/](./docs/plans/) | Plans and session notes |
 >
-> **Dokumentations-Regeln:**
-> - Entscheidungen NUR via `/mxDecision` → `docs/decisions/ADR-XXXX-slug.md`
-> - Plaene NUR via `/mxPlan` → `docs/plans/PLAN-XXXX-slug.md`
-> - Specs NUR via `/mxSpec` → `docs/specs/SPEC-slug.md`
-> - `/mxSave` aktualisiert `docs/status.md` + Session-Notes
-> - CLAUDE.md bleibt kompakt: Links + Regeln + Architektur. Keine langen Backlogs.
+> **Documentation rules:**
+> - Decisions ONLY via `/mxDecision` → `docs/decisions/ADR-XXXX-slug.md`
+> - Plans ONLY via `/mxPlan` → `docs/plans/PLAN-XXXX-slug.md`
+> - Specs ONLY via `/mxSpec` → `docs/specs/SPEC-slug.md`
+> - `/mxSave` updates `docs/status.md` + session notes
+> - CLAUDE.md stays compact: links + rules + architecture. No long backlogs.
 ```
 
-## 4. docs/status.md anlegen (falls fehlend)
+## 4. Create docs/status.md (if missing)
 
-Falls `docs/status.md` nicht existiert, erstelle eine minimale Datei:
+If `docs/status.md` does not exist, create a minimal file:
 
 ```markdown
-# Projektstatus
+# Project Status
 
-_Erstellt via /mxInitProject_
+_Created via /mxInitProject_
 
-## Implementierte Features
+## Implemented Features
 
-- (noch keine)
+- (none yet)
 
-## Offene Punkte
+## Open Items
 
-- (noch keine)
+- (none yet)
 ```
 
-## 5. Abschlussbericht
+## 5. Summary Report
 
-Gib eine Tabelle aus mit allen angelegten/geaenderten Dateien und der jeweiligen Aktion (erstellt / geaendert / bereits vorhanden / uebersprungen (MCP)).
+Output a table with all created/modified files and the respective action (created / modified / already present / skipped (MCP)).
 
-## 6. Migration (MCP-Projekte)
+## 6. Migration (MCP projects)
 
-Falls MCP-Modus und Projekt in DB registriert:
-- Pruefe ob `docs/status.md` migrierbare Tasklisten enthaelt (Backlog, ToDo, Open Tasks etc.)
-  - Falls ja: Automatisch `/mxMigrateToDb --extract-backlog` per Skill-Tool ausfuehren
-  - Falls keine Tasklisten: "Keine Legacy-Backlogs gefunden — Extraktion uebersprungen."
-- Pruefe ob `docs/` lokale .md-Dateien enthaelt (PLAN-*, SPEC-*, ADR-*, session-notes-*)
-  - Falls ja: Automatisch `/mxMigrateToDb --sync` per Skill-Tool ausfuehren
-  - Falls keine migrierbaren Dateien: "Keine lokalen Dokumente zum Migrieren gefunden."
+If MCP mode and project registered in DB:
+- Check if `docs/status.md` contains migratable task lists (backlog, ToDo, open tasks, etc.)
+  - If yes: Automatically run `/mxMigrateToDb --extract-backlog` via Skill tool
+  - If no task lists: "No legacy backlogs found — extraction skipped."
+- Check if `docs/` contains local .md files (PLAN-*, SPEC-*, ADR-*, session-notes-*)
+  - If yes: Automatically run `/mxMigrateToDb --sync` via Skill tool
+  - If no migratable files: "No local documents found for migration."
 
-## Wichtige Regeln
+## Important Rules
 
-- **Niemals** bestehende Inhalte ueberschreiben oder loeschen
-- **Niemals** Dateien anlegen, die bereits existieren (nur pruefen und "bereits vorhanden" melden)
-- Bei CLAUDE.md NUR den "AI Start Here"-Block einfuegen, wenn er noch nicht vorhanden ist
-- Alle Dateien in UTF-8 ohne BOM
-- **Idempotenz:** Bei Mehrfachaufruf sofort abbrechen wenn alles vorhanden (Pre-Flight-Check)
-- **Abschlussbericht IMMER:** Auch bei Sofort-Abbruch die Tabelle mit Status "bereits vorhanden" ausgeben
+- **Never** overwrite or delete existing content
+- **Never** create files that already exist (only check and report "already present")
+- For CLAUDE.md ONLY insert the "AI Start Here" block if it is not already present
+- All files in UTF-8 without BOM
+- **Idempotency:** On repeated invocation, abort immediately if everything is present (pre-flight check)
+- **Summary report ALWAYS:** Even on immediate abort, output the table with status "already present"

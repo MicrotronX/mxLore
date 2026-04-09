@@ -4,67 +4,67 @@ description: "Persistent Session Orchestrator. Always-on via Hooks. Manages work
 user-invocable: true
 effort: medium
 allowed-tools: Read, Write, Edit, Grep, Glob, Skill, Agent
-argument-hint: "init | start <typ> | track <notiz> | park [reason] | resume [id] | status | suggest | --resume"
+argument-hint: "init | start <type> | track <note> | park [reason] | resume [id] | status | suggest | --resume"
 ---
 
 # /mxOrchestrate — Persistent Session Orchestrator (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
-> **Context:** IMMER als Subagent(Agent-Tool) !Hauptkontext. Ergebnis: max 20 Zeilen.
+> **Context:** ALWAYS run as subagent(Agent-Tool) !main-context. Result: max 20 lines.
 
-Zentraler Session-Manager. Verwaltet Workflow-Stack, Ad-hoc Tasks, Team Agents.
-Skills **vollautomatisch ausfuehren**. Nur bei **optionalen Schritten** User fragen.
+Central session manager. Manages workflow stack, ad-hoc tasks, team agents.
+Skills **auto-execute fully**. Only ask user for **optional steps**.
 **Spec:** #1089 | **Plan:** #1090
 
-## Architektur
+## Architecture
 ```
-SessionStart Hook → laedt State, informiert Claude (kein Fragen!)
-UserPromptSubmit Hook → injiziert 3-Zeilen-Kontext bei jedem Prompt
-mxOrchestrate Skill → Gehirn: Routing, Tracking, Steuerung
+SessionStart Hook → loads state, informs Claude (no questions!)
+UserPromptSubmit Hook → injects 3-line context on every prompt
+mxOrchestrate Skill → brain: routing, tracking, control
 MCP = Source of Truth | .claude/orchestrate-state.json = Cache
 ```
 
-## Init (Pre-Routing, JEDER Aufruf)
+## Init (Pre-Routing, EVERY call)
 1. CLAUDE.md→`**Slug:**`=project-param. ∅slug→?user
-2. State laden: `.claude/orchestrate-state.json`→parse. ∅Datei oder korrupt→Modus `init`
-3. **Session sicherstellen:**
-   - state.session_id vorhanden UND Modus≠`init` → mx_ping()→OK=MCP-Modus | Fehler=Lokal
-   - ∅session_id ODER Modus=`init` → **Setup-Version:** `~/.claude/setup-version.json`→parse→`version`. ∅Datei→`''`
-     → `mx_session_start(project, include_briefing=true, setup_version=<version>)`→session_id+Response in State
-     → Fehler=Lokal(`docs/ops/workflow-log.md`+Warnung)
-4. **Auto-Detect: Projekt-Setup** (siehe unten)
-5. → Modus-Routing nach Argument
+2. Load state: `.claude/orchestrate-state.json`→parse. ∅file or corrupt→mode `init`
+3. **Ensure session:**
+   - state.session_id present AND mode≠`init` → mx_ping()→OK=MCP-mode | Error=Local
+   - ∅session_id OR mode=`init` → **Setup version:** `~/.claude/setup-version.json`→parse→`version`. ∅file→`''`
+     → `mx_session_start(project, include_briefing=true, setup_version=<version>)`→session_id+Response into state
+     → Error=Local(`docs/ops/workflow-log.md`+warning)
+4. **Auto-Detect: Project Setup** (see below)
+5. → Mode routing by argument
 
-## Auto-Detect: Projekt-Setup
-Laeuft im Pre-Routing nach Session-Aufbau. ⚡ 0 Extra-MCP-Calls — nutzt mx_session_start Response + max 2x Glob.
+## Auto-Detect: Project Setup
+Runs in pre-routing after session setup. ⚡ 0 extra MCP calls — uses mx_session_start response + max 2x Glob.
 
-1. **CLAUDE.md Pruefung** (immer, 1x Glob):
-   - Glob: `CLAUDE.md` im Projektroot → ∅Treffer = Setup fehlt
-   - → User: "Projekt hat keine AI-Config. `/mxInitProject` ausfuehren? (1=ja/2=nein)"
-   - ⚡ Nur vorschlagen, nie auto-ausfuehren
-2. **MCP-Projekt Pruefung** (nur MCP-Modus, nur wenn mx_session_start lief):
-   - mx_session_start Response enthaelt "project not found" → Projekt nicht registriert
-   - Falls CLAUDE.md vorhanden: → User: "Projekt nicht in MCP. `/mxInitProject` registriert es. (1=ja/2=nein)"
-   - Falls CLAUDE.md fehlt: in Vorschlag aus Schritt 1 integriert
-3. **Lokale Migrations-Kandidaten** (nur MCP-Modus + Projekt existiert, 1x Glob):
-   - Glob: `docs/*.md` (NICHT rekursiv)
-   - Erlaubt-Liste: `status.md`, `workflows.md`
-   - Treffer ausserhalb Erlaubt-Liste → User: "N lokale Docs gefunden (Liste). `/mxMigrateToDb` ausfuehren? (1=ja/2=nein)"
-   - ⚡ Nur vorschlagen, nie auto-ausfuehren
-4. **Alle Checks OK → keine Meldung** (kein Rauschen bei korrekt eingerichteten Projekten)
+1. **CLAUDE.md check** (always, 1x Glob):
+   - Glob: `CLAUDE.md` in project root → ∅match = setup missing
+   - → User: "Project has no AI config. Run `/mxInitProject`? (1=yes/2=no)"
+   - ⚡ Only suggest, never auto-execute
+2. **MCP project check** (MCP-mode only, only if mx_session_start ran):
+   - mx_session_start response contains "project not found" → project not registered
+   - If CLAUDE.md present: → User: "Project not in MCP. `/mxInitProject` registers it. (1=yes/2=no)"
+   - If CLAUDE.md missing: integrate into suggestion from step 1
+3. **Local migration candidates** (MCP-mode only + project exists, 1x Glob):
+   - Glob: `docs/*.md` (NOT recursive)
+   - Allow-list: `status.md`, `workflows.md`
+   - Matches outside allow-list → User: "N local docs found (list). Run `/mxMigrateToDb`? (1=yes/2=no)"
+   - ⚡ Only suggest, never auto-execute
+4. **All checks OK → no message** (no noise for correctly configured projects)
 
-## Modi
-| Argument | Modus |
-|----------|-------|
-| `init` | 1: State aus MCP initialisieren |
-| `start <typ>` (`neues-feature`, `bugfix`, `entscheidung`, `<custom>`) | 2: Workflow starten (Stack push) |
-| `track <notiz>` | 3: Ad-hoc Task loggen |
-| `park [reason]` | 4: Aktiven WF parken (Stack push-down) |
-| `resume [id]` | 5: WF fortsetzen (Stack pop / ID select) |
-| `--resume` | 5: Alias fuer resume (Rueckwaertskompatibel) |
-| `status` | 6: Vollstaendige Uebersicht |
-| `suggest` | 7: Naechsten Schritt vorschlagen |
+## Modes
+| Argument | Mode |
+|----------|------|
+| `init` | 1: Initialize state from MCP |
+| `start <type>` (`new-feature`, `bugfix`, `decision`, `<custom>`) | 2: Start workflow (stack push) |
+| `track <note>` | 3: Log ad-hoc task |
+| `park [reason]` | 4: Park active WF (stack push-down) |
+| `resume [id]` | 5: Resume WF (stack pop / ID select) |
+| `--resume` | 5: Alias for resume (backward-compatible) |
+| `status` | 6: Full overview |
+| `suggest` | 7: Suggest next step |
 
-## State-Datei (.claude/orchestrate-state.json)
+## State File (.claude/orchestrate-state.json)
 
 **Schema v2 (Spec#1161):**
 ```json
@@ -81,160 +81,160 @@ Laeuft im Pre-Routing nach Session-Aufbau. ⚡ 0 Extra-MCP-Calls — nutzt mx_se
 }
 ```
 
-**Stack-Regeln:**
-- workflow_stack[0] = aktiver Workflow
-- park = aktiven WF nach Index 1+ schieben, neuen an [0]
-- resume = WF an [0] holen (LIFO oder per ID)
-- ⚡ Max 5 Stack-Eintraege. >3 geparkt→Warnung "N geparkte WFs — Abschluss empfohlen?"
-- state_deltas++: bei jedem Step-Done, Ad-hoc, Park, Resume, Start
-- events_log: jeden Event sofort loggen {ts, type, wf, detail}
+**Stack rules:**
+- workflow_stack[0] = active workflow
+- park = move active WF to index 1+, new one at [0]
+- resume = bring WF to [0] (LIFO or by ID)
+- ⚡ Max 5 stack entries. >3 parked→warning "N parked WFs — recommend completing?"
+- state_deltas++: on every step-done, ad-hoc, park, resume, start
+- events_log: log every event immediately {ts, type, wf, detail}
 
-**State-Operationen (intern):**
-- `loadState()`: Datei lesen+parsen. Korrupt/fehlend→leeren State zurueckgeben+Warnung
-- `saveState(state)`: JSON.stringify→Datei schreiben
-- `addEvent(type, wf, detail)`: Event in events_log pushen + state_deltas++
+**State operations (internal):**
+- `loadState()`: Read+parse file. Corrupt/missing→return empty state+warning
+- `saveState(state)`: JSON.stringify→write file
+- `addEvent(type, wf, detail)`: Push event to events_log + state_deltas++
 
-## Modus 1: Init
-1. ⚡ **Erzwingt mx_session_start** im Pre-Routing (Schritt 3, ignoriert gecachte session_id)
-2. Aktive Workflows aus mx_session_start Response in workflow_stack laden
-3. State-Datei schreiben (session_id + workflows + events_log reset)
-4. **Multi-Agent Auto-Listener:** Falls Response `active_peers` enthaelt→`/mxAgentListen` Background-Agent
-5. Output: `Orchestrator initialisiert. Session #<id>. <N> aktive Workflows.`
+## Mode 1: Init
+1. ⚡ **Forces mx_session_start** in pre-routing (step 3, ignores cached session_id)
+2. Load active workflows from mx_session_start response into workflow_stack
+3. Write state file (session_id + workflows + events_log reset)
+4. **Multi-Agent Auto-Listener:** If response contains `active_peers`→`/mxAgentListen` background agent
+5. Output: `Orchestrator initialized. Session #<id>. <N> active workflows.`
 
-## Modus 2: Start (Workflow erstellen)
-1. Workflow-Template suchen: `docs/workflows.md`(projekt) dann `~/.claude/skills/mxOrchestrate/workflows.md`(global). ∅Template→?user→Ad-hoc
+## Mode 2: Start (Create workflow)
+1. Search workflow template: `docs/workflows.md`(project) then `~/.claude/skills/mxOrchestrate/workflows.md`(global). ∅template→?user→ad-hoc
 2. ID: `WF-YYYY-MM-DD-NNN`
-3. `mx_create_doc(project, doc_type='workflow_log', title='WF-...: <Titel>', content)`
-4. WF-Objekt auf Stack pushen (wird [0] = aktiv). Bisheriger [0]→parked (falls vorhanden)
-5. State speichern + Event loggen (type='start')
-6. Output: `Workflow "<Name>" gestartet (WF-xxx, doc_id=<id>). Stack: <N> WFs.`
-7. Ersten Schritt auto-invoke
+3. `mx_create_doc(project, doc_type='workflow_log', title='WF-...: <Title>', content)`
+4. Push WF object onto stack (becomes [0] = active). Previous [0]→parked (if present)
+5. Save state + log event (type='start')
+6. Output: `Workflow "<Name>" started (WF-xxx, doc_id=<id>). Stack: <N> WFs.`
+7. Auto-invoke first step
 
-**WF-Markdown (MCP):**
+**WF Markdown (MCP):**
 ```markdown
-**Template:** <name> | **Gestartet:** YYYY-MM-DD HH:MM | **Status:** active
+**Template:** <name> | **Started:** YYYY-MM-DD HH:MM | **Status:** active
 
-| # | Schritt | Skill | Status | Ergebnis | Timestamp |
-|---|---------|-------|--------|----------|-----------|
-| 1 | <Beschreibung> | <Skill> | pending | | |
+| # | Step | Skill | Status | Result | Timestamp |
+|---|------|-------|--------|--------|-----------|
+| 1 | <Description> | <Skill> | pending | | |
 ```
 
-## Modus 3: Track (Ad-hoc Task)
-1. Ad-hoc Objekt erstellen: `{note, created: now(), origin_workflow: stack[0].id, mcp_note_id: null}`
-2. In adhoc_tasks[] pushen
-3. MCP persistieren: `mx_create_doc(project, doc_type='todo', title=note, content='Origin: <WF-ID>')`→mcp_note_id setzen. Fehler→null (nur lokal)
-4. Event loggen (type='track_adhoc')
-4. **Escalation pruefen** (Claude entscheidet basierend auf Kontext):
-   - **note** (default): Nur notiert. Workflow laeuft weiter.
-   - **park+start**: Aktuellen WF parken→Modus 4(park) + Modus 2(start)
-   - **spawn**: Team Agent starten→Modus spawn (siehe Team Agents)
-5. Output: `Ad-hoc getrackt: "<notiz>" (origin: <WF-ID>). Escalation: <note|park|spawn>.`
+## Mode 3: Track (Ad-hoc Task)
+1. Create ad-hoc object: `{note, created: now(), origin_workflow: stack[0].id, mcp_note_id: null}`
+2. Push to adhoc_tasks[]
+3. Persist to MCP: `mx_create_doc(project, doc_type='todo', title=note, content='Origin: <WF-ID>')`→set mcp_note_id. Error→null (local only)
+4. Log event (type='track_adhoc')
+4. **Escalation check** (Claude decides based on context):
+   - **note** (default): Only noted. Workflow continues.
+   - **park+start**: Park current WF→Mode 4(park) + Mode 2(start)
+   - **spawn**: Start team agent→Mode spawn (see Team Agents)
+5. Output: `Ad-hoc tracked: "<note>" (origin: <WF-ID>). Escalation: <note|park|spawn>.`
 
-## Modus 4: Park
+## Mode 4: Park
 1. Stack[0].status = 'parked', Stack[0].parked_reason = reason
-2. ⚡ Pruefe Stack-Tiefe: >3 geparkt→Warnung + Vorschlag aeltesten abzuschliessen
-3. Event loggen (type='park')
-4. State speichern
-5. Output: `WF "<Name>" geparkt. Grund: <reason>. Stack: <N> WFs.`
-6. ∅neuer WF gestartet→suggest Modus aufrufen
+2. ⚡ Check stack depth: >3 parked→warning + suggest completing oldest
+3. Log event (type='park')
+4. Save state
+5. Output: `WF "<Name>" parked. Reason: <reason>. Stack: <N> WFs.`
+6. ∅new WF started→invoke suggest mode
 
-## Modus 5: Resume
-1. **Ohne ID:** Stack LIFO — obersten geparkten WF (stack[1]) nach [0] holen
-2. **Mit ID:** WF per ID im Stack suchen→nach [0] verschieben, Rest nachrücken
+## Mode 5: Resume
+1. **Without ID:** Stack LIFO — bring top parked WF (stack[1]) to [0]
+2. **With ID:** Find WF by ID in stack→move to [0], shift rest down
 3. WF.status = 'active'
-4. Event loggen (type='resume')
-5. MCP: `mx_detail(doc_id)`→parse→naechsten pending-Schritt identifizieren
-6. Output: `WF "<Name>" fortgesetzt. Stand: <X>/<Y>. Naechster Schritt: <Beschreibung>.`
-7. Naechsten Schritt auto-invoke
+4. Log event (type='resume')
+5. MCP: `mx_detail(doc_id)`→parse→identify next pending step
+6. Output: `WF "<Name>" resumed. Progress: <X>/<Y>. Next step: <Description>.`
+7. Auto-invoke next step
 
-**Rueckwaertskompatibel:** `--resume` ohne aktiven Stack→Offene-Punkte-Liste wie bisher (Phase 1 Kontext laden)
+**Backward-compatible:** `--resume` without active stack→open-items list as before (Phase 1 context load)
 
-### Kontext laden (bei --resume ohne Stack)
-**MCP:** (Session+Briefing bereits aus Pre-Routing verfuegbar)
-1. Offene Punkte: `mx_search(project, doc_type='note,bugreport,feature_request', status='active')`
-   - Filtern: Tags `todo,bug,feature-request,optimization,next,later` oder ohne session_note/e2e/test
-   - ⚡ KEINE _global-Suche (_global nur fuer Env-Variablen, nicht fuer offene Punkte)
-   - ⚡ `status='active'` — archivierte/erledigte Docs NICHT anzeigen
-3. Offene Plans/Specs: `mx_search(project, doc_type='plan,spec', status='active', limit=10)`
-   - Nur Titel+doc_id anzeigen, nicht den vollen Content
-4. status.md: "Bekannte offene Punkte"→alle Bullets. "Naechste Schritte"→nur `- [ ]`
-   - ⚡ Gegen MCP deduplizieren: Punkt in status.md der bereits als archived in MCP→entfernen aus Anzeige
-5. Ergebnis: **Offene-Punkte-Liste** (dedupliziert, Bug→TODO→Feature→Opt→Sonstiges, max 30)
+### Load context (on --resume without stack)
+**MCP:** (Session+Briefing already available from pre-routing)
+1. Open items: `mx_search(project, doc_type='note,bugreport,feature_request', status='active')`
+   - Filter: Tags `todo,bug,feature-request,optimization,next,later` or without session_note/e2e/test
+   - ⚡ NO _global search (_global only for env variables, not for open items)
+   - ⚡ `status='active'` — DO NOT show archived/completed docs
+3. Open plans/specs: `mx_search(project, doc_type='plan,spec', status='active', limit=10)`
+   - Show only title+doc_id, not full content
+4. status.md: "Known open items"→all bullets. "Next steps"→only `- [ ]`
+   - ⚡ Deduplicate against MCP: item in status.md already archived in MCP→remove from display
+5. Result: **Open-items list** (deduplicated, Bug→TODO→Feature→Opt→Other, max 30)
 
-## Modus 6: Status
-Vollstaendige Uebersicht:
-- **Workflow-Stack:** ID|Name|Step|Status fuer jeden Eintrag
-- **Ad-hoc Tasks:** Notiz|Origin|Erstellt
+## Mode 6: Status
+Full overview:
+- **Workflow Stack:** ID|Name|Step|Status for each entry
+- **Ad-hoc Tasks:** Note|Origin|Created
 - **Team Agents:** Task|Status|Origin
-- **Events (letzte 10):** Timestamp|Type|Detail
-- **Aktive MCP-Docs:** `mx_search(project, doc_type='workflow_log,plan,spec', status='active')`→nur offene anzeigen
-- **Kuerzlich archiviert:** `mx_search(project, doc_type='workflow_log,plan,spec', status='archived', limit=5)`→letzte 5 erledigte
-- **Offene Punkte:** MCP-Notes(status='active') + status.md (dedupliziert gegen MCP)
+- **Events (last 10):** Timestamp|Type|Detail
+- **Active MCP Docs:** `mx_search(project, doc_type='workflow_log,plan,spec', status='active')`→show only open
+- **Recently archived:** `mx_search(project, doc_type='workflow_log,plan,spec', status='archived', limit=5)`→last 5 completed
+- **Open items:** MCP-Notes(status='active') + status.md (deduplicated against MCP)
 
-## Modus 7: Suggest
-1. Aktiver WF→naechsten Schritt
-2. Geparkte WFs→aeltesten vorschlagen
-3. Ad-hoc Tasks→priorisiert: Bug→TODO→Feature→Next/Later
-4. ∅Stack→Offene-Punkte-Liste + Chat-Heuristik: ADR→/mxPlan | Plan→Impl | Code→/mxDesignChecker | lange Session→/mxSave
+## Mode 7: Suggest
+1. Active WF→next step
+2. Parked WFs→suggest oldest
+3. Ad-hoc tasks→prioritized: Bug→TODO→Feature→Next/Later
+4. ∅stack→open-items list + chat heuristic: ADR→/mxPlan | Plan→Impl | Code→/mxDesignChecker | long session→/mxSave
 
 ## Team Agents (Ad-hoc Escalation: spawn)
-1. Claude erkennt: Ad-hoc Task ist unabhaengig + parallelisierbar
-2. **TeamCreate** aufrufen mit Kontext:
-   - Projekt-Slug + MCP-Zugang
-   - Aufgabenbeschreibung
-   - Anweisung: Ergebnis als MCP-Note (tag: team-result) persistieren
-3. team_agents[] aktualisieren: {id, task, origin_workflow, spawned, status:'running'}
-4. Event loggen (type='spawn')
-5. ⚡ **Isolation:** Team-Agent hat KEINEN Zugriff auf orchestrate-state.json. Nur MCP.
-6. **Rueckfluss:** Team-Agent fertig→MCP-Note mit tag 'team-result'→Proactive Notification
-7. Hook zeigt Team-Status in Zeile 2
+1. Claude recognizes: ad-hoc task is independent + parallelizable
+2. **TeamCreate** call with context:
+   - Project slug + MCP access
+   - Task description
+   - Instruction: persist result as MCP note (tag: team-result)
+3. Update team_agents[]: {id, task, origin_workflow, spawned, status:'running'}
+4. Log event (type='spawn')
+5. ⚡ **Isolation:** Team agent has NO access to orchestrate-state.json. MCP only.
+6. **Return flow:** Team agent done→MCP note with tag 'team-result'→Proactive Notification
+7. Hook shows team status in line 2
 
-## Auto-Invoke (alle Workflow-Modi)
-- Nicht-optional→auto ausfuehren→Step `done` + State update + Event loggen
+## Auto-Invoke (all workflow modes)
+- Non-optional→auto-execute→step `done` + state update + log event
 - Optional→?user, "skip"→`skipped`
-- Bedingt→Bedingung pruefen, ∅erfuellt→`skipped`
-- Analyse-Skills→Agent-Tool: /mxDesignChecker, /mxBugChecker
-- Unabhaengige Schritte→parallel per Agent-Tool
-- **Skill-Mapping:** mx*/superpowers:*→**Skill-Tool** | mxDesignChecker/mxBugChecker→**Agent-Tool** | frontend-design→**Skill-Tool**(falls installiert, sonst skip)
+- Conditional→check condition, ∅met→`skipped`
+- Analysis skills→Agent-Tool: /mxDesignChecker, /mxBugChecker
+- Independent steps→parallel via Agent-Tool
+- **Skill mapping:** mx*/superpowers:*→**Skill-Tool** | mxDesignChecker/mxBugChecker→**Agent-Tool** | frontend-design→**Skill-Tool**(if installed, otherwise skip)
 - ⚡ **MCP-First Step-Update (Spec#1161):**
-  1. `mx_update_doc(doc_id, content mit Step=done+Timestamp+Ergebnis, change_reason='Schritt N→done')` → MCP zuerst
-  2. State-Datei aus MCP-Response ableiten: current_step++, Event in events_log pushen (synced=true)
+  1. `mx_update_doc(doc_id, content with Step=done+Timestamp+Result, change_reason='Step N→done')` → MCP first
+  2. Derive state file from MCP response: current_step++, push event to events_log (synced=true)
   3. state_deltas++
-  4. **MCP-Fehler→** State-Datei direkt schreiben + `unsynced=true` auf WF setzen + Event (synced=false)
-  5. ⚡ **NIEMALS** State-Datei als done markieren ohne MCP-Update oder unsynced-Flag
+  4. **MCP error→** Write state file directly + set `unsynced=true` on WF + event (synced=false)
+  5. ⚡ **NEVER** mark state file as done without MCP update or unsynced flag
 
-## Workflow-Abschluss
-Alle Schritte done/skipped:
-1. Content aktualisieren: `**Status:** completed` + `**Abgeschlossen:** YYYY-MM-DD HH:MM`
-2. ⚡ `mx_update_doc(doc_id, content, status='archived', change_reason='Workflow completed')` — Content UND status synchron in EINEM Call
-3. WF vom Stack entfernen + Event loggen (synced=true)
-4. **Ad-hoc Rueckbindung:** Alle adhoc_tasks mit origin_workflow==WF-ID anzeigen:
-   `N Ad-hoc Tasks entstanden waehrend <WF-ID>: [Liste]. Neuen Workflow starten?`
-5. Event loggen (type='completed')
-6. Naechsten Stack-WF aktivieren falls vorhanden
-7. Output: Artefakte-Liste + Ad-hoc-Rueckbindung + Empfehlung `/mxSave`
+## Workflow Completion
+All steps done/skipped:
+1. Update content: `**Status:** completed` + `**Completed:** YYYY-MM-DD HH:MM`
+2. ⚡ `mx_update_doc(doc_id, content, status='archived', change_reason='Workflow completed')` — content AND status synchronously in ONE call
+3. Remove WF from stack + log event (synced=true)
+4. **Ad-hoc back-link:** Show all adhoc_tasks with origin_workflow==WF-ID:
+   `N ad-hoc tasks created during <WF-ID>: [list]. Start new workflow?`
+5. Log event (type='completed')
+6. Activate next stack WF if present
+7. Output: Artifacts list + ad-hoc back-link + recommend `/mxSave`
 
 ## Auto-Tracking (Spec#1615)
-Hook injiziert Signal bei jedem Prompt. Claude reagiert basierend auf Kontext.
+Hook injects signal on every prompt. Claude reacts based on context.
 
-**Regel 1 — NO_WORKFLOW + substantielle Arbeit:**
-Hook meldet `NO_WORKFLOW` + User-Prompt beschreibt Implementierung/Fix/Feature/Refactoring
-→ Auto-erstellen: Ad-hoc WF (Template `ad-hoc`, Titel `Ad-hoc: <50Z Zusammenfassung>`)
-→ Keine Rueckfrage. Bei Fragen/Smalltalk/Auskuenften/mxSave/mxOrchestrate: ignorieren
+**Rule 1 — NO_WORKFLOW + substantive work:**
+Hook reports `NO_WORKFLOW` + user prompt describes implementation/fix/feature/refactoring
+→ Auto-create: ad-hoc WF (template `ad-hoc`, title `Ad-hoc: <50char summary>`)
+→ No confirmation. For questions/smalltalk/inquiries/mxSave/mxOrchestrate: ignore
 
-**Regel 2 — WF aktiv + Thema-Abweichung:**
-Hook zeigt aktiven WF-Namen + User-Prompt betrifft anderes Thema (semantischer Vergleich)
-→ Kleiner Seitensprung (1 Antwort): automatisch `track` als Ad-hoc-Task
-→ Grosser Seitensprung (>1 Schritt): `park` vorschlagen
+**Rule 2 — WF active + topic deviation:**
+Hook shows active WF name + user prompt concerns different topic (semantic comparison)
+→ Small deviation (1 response): automatically `track` as ad-hoc task
+→ Large deviation (>1 step): suggest `park`
 
-**Regel 3 — JUST_COMPLETED + Weiterarbeit:**
-Hook meldet `JUST_COMPLETED` (WF <5min abgeschlossen) + substantieller Prompt
-→ Neuen Ad-hoc WF erstellen (wie Regel 1)
+**Rule 3 — JUST_COMPLETED + continued work:**
+Hook reports `JUST_COMPLETED` (WF completed <5min ago) + substantive prompt
+→ Create new ad-hoc WF (like rule 1)
 
-## Regeln
-- Skills auto-aufrufen per Skill/Agent-Tool. !manuell durch User
-- Optional→?user. Nicht-optional→ohne Rueckfrage
-- ⚡ Max 5 Stack-Eintraege. State-Deltas>=8→Save empfehlen
-- ⚡ Team Agents: nur MCP-Zugriff, nie lokale State-Datei
-- UTF-8 ohne BOM. MCP bevorzugen, lokal=Fallback
-- Workflow-Templates: `docs/workflows.md`(projekt, Vorrang) dann `~/.claude/skills/mxOrchestrate/workflows.md`(global)
+## Rules
+- Auto-invoke skills via Skill/Agent-Tool. !manually by user
+- Optional→?user. Non-optional→without confirmation
+- ⚡ Max 5 stack entries. State-deltas>=8→recommend save
+- ⚡ Team agents: MCP access only, never local state file
+- UTF-8 without BOM. Prefer MCP, local=fallback
+- Workflow templates: `docs/workflows.md`(project, priority) then `~/.claude/skills/mxOrchestrate/workflows.md`(global)
