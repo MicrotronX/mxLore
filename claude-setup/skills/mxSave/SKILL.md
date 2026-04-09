@@ -16,8 +16,8 @@ Save-Agent. Sichert Projektzustand fuer nahtlose Session-Fortsetzung.
 
 ## Ausfuehrungsmodus ⚡
 **Parallel starten:**
-- **Agent(Background):** Steps 2, 3, 5, 6 (MCP-Calls, CLAUDE.md/status.md lesen+pruefen)
-- **Hauptkontext:** Steps 1 + 4 (`.claude/settings.local.json` bereinigen, `.claude/orchestrate-state.json` syncen)
+- **Agent(Background):** Steps 3, 5, 6 (reine MCP-Calls)
+- **Hauptkontext:** Steps 1, 2, 4 (lokale Dateien lesen+schreiben, `.claude/`-Dateien syncen. Step 2 Zombie-Check nutzt MCP→bei MCP-Fehler skip)
 Grund: Subagents bekommen keine Write-Permission fuer `.claude/`-Dateien.
 
 ## Init
@@ -34,7 +34,7 @@ Grund: Subagents bekommen keine Write-Permission fuer `.claude/`-Dateien.
 - Sinnvolles behalten (WebSearch, WebFetch-Domains, python)
 - Logisch sortieren: WebSearch→WebFetch→Bash
 
-### 2) CLAUDE.md + status.md aktualisieren (LOKAL)
+### 2) CLAUDE.md + status.md aktualisieren (HYBRID — lokal + MCP fuer Zombie-Check)
 **CLAUDE.md:**
 - **Gewicht:** `wc -l` pruefen. Ziel: max 200 Zeilen.
 - Ueberschritten→Domain-Details nach `docs/reference/` auslagern, nur Verweis in CLAUDE.md.
@@ -44,6 +44,7 @@ Grund: Subagents bekommen keine Write-Permission fuer `.claude/`-Dateien.
 - Neue Features(+Datum) ergaenzen. Offene Punkte aktualisieren.
 - Aktive Workflows: aus mx_session_start(include_briefing=true) active_workflows nutzen, ∅separater mx_search noetig
 - Verweise auf Docs statt Inhalte kopieren
+- ⚡ **Zombie-Referenz-Check:** Alle `#NNNN` Doc-IDs in "Naechste Schritte" extrahieren→`mx_batch_detail(doc_ids=[...])` (max 10 pro Call, bei >10 IDs chunken)→status pruefen. Archived/superseded→aus "Naechste Schritte" entfernen. MCP-Fehler→Zombie-Check skip+Warnung. Output: `Zombie-Refs entfernt: #X, #Y (archived)`
 
 ### 3) MCP-Docs aktualisieren (nur MCP)
 **Verwaiste Workflows bereinigen (ADR-0006):**
@@ -54,7 +55,7 @@ Grund: Subagents bekommen keine Write-Permission fuer `.claude/`-Dateien.
 
 **Ad-hoc WF Auto-Cleanup (Spec#1615):**
 Pruefe WFs deren Titel mit "Ad-hoc:" beginnt:
-- WF hat nur Schritt 1 UND keine Artefakte (Session-Delta=0, keine MCP-Docs erstellt in WF-Zeitraum)
+- WF hat nur Schritt 1 UND Titel beginnt mit "Ad-hoc:" UND WF-Content zeigt keine done-Schritte ausser Step 1
   → Still archivieren: `mx_update_doc(doc_id, status='archived', change_reason='auto-cleanup: empty ad-hoc WF')`
   → Kein Output (kein Rauschen)
 - WF hat echte Arbeit→normal archivieren wie andere WFs
@@ -100,12 +101,10 @@ Aus Chat-Verlauf Lesson-Candidates ableiten:
 ∅MCP→skip
 
 **Pending Findings auto-dismissen:**
-`mx_skill_metrics(project, skill='mxBugChecker', days=999)` + `mxDesignChecker` + `mxHealth`
-→ Falls pending > 0 fuer irgendeinen Skill:
-- Pro Skill mit pending: `mx_skill_manage(project, action='tune', skill=<name>, rule_name='*', tune_action='auto_dismiss_pending', reason='auto-dismissed by mxSave')`
-- Falls `auto_dismiss_pending` nicht unterstuetzt: `mx_search(project, query='pending findings')` → pending Finding-UIDs sammeln → pro UID: `mx_skill_feedback(project, finding_uid=<uid>, reaction='dismissed', reason='auto-dismissed by mxSave (nicht im Session-Kontext reviewed)')`
-- Output: `Findings: <N> pending auto-dismissed`
-- ∅pending→skip
+Batch-Dismiss aller pending Findings (nicht im Session-Kontext reviewed):
+`mx_skill_feedback(project=<slug>, reaction='dismissed')` — ein Call dismissed alle pending Findings des Projekts.
+- Output: `Findings: batch-dismissed`
+- MCP-Fehler→skip
 
 ### 4) Orchestrate-State Sync (HYBRID, Spec#1161)
 `.claude/orchestrate-state.json` lesen. Falls vorhanden+nicht leer:
@@ -122,13 +121,13 @@ Aus Chat-Verlauf Lesson-Candidates ableiten:
 mx_create_doc(project, doc_type='session_note', title='Session Notes YYYY-MM-DD[-N]', content)
 ```
 **Template:** Was gemacht? | Geaenderte Dateien | Naechster Schritt | Offene Bugs | User-Notizen
-**Nummerierung:** mx_search(doc_type='session_note', query='YYYY-MM-DD')→existiert→Nummer anhaengen
+**Nummerierung:** mx_search(project=<slug>, doc_type='session_note', query='YYYY-MM-DD')→existiert→Nummer anhaengen
 **MCP-Fehler→** Fallback lokal `docs/plans/session-notes-YYYY-MM-DD.md`+Warnung
 
 ### 6) Peer-Notify (MCP, nur bei delta > 0)
 `mx_session_delta(project)`→delta==0→skip.
 `mx_agent_peers(project)`→∅peers→skip.
-1 Call: `mx_agent_send(project, target_project=<peer_slug>, message_type='status', ttl_days=30, payload=<summary>)`
+1 Call: `mx_agent_send(project, target_project=<peer_slug>, message_type='status', ttl_days=7, payload=<summary>)`
 - Payload: `{"type":"session_summary","summary":"<1-2 Saetze>","changed_files":<anzahl>,"project":"<slug>"}`
 - Fehler→loggen, nicht abbrechen
 
