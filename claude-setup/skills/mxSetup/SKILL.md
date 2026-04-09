@@ -115,6 +115,15 @@ If `node` not found: show warning:
 | `PostToolUse` (matcher: `Edit\|Write`) | `node ~/.claude/hooks/recall-outcome-hook.js` (2000ms) | Node.js |
 | `PreCompact` | prompt: (Auto-ADR + /mxSave, see below) | — |
 
+**5b-StatusLine** — Add `statusLine` block at top level of settings.json (NOT inside `hooks`):
+```json
+"statusLine": {
+  "type": "command",
+  "command": "bash ~/.claude/hooks/statusline-command.sh"
+}
+```
+Shows: `<slug> | <model> | <context%> | <$cost> | <tasks>`. Reads slug from `CLAUDE.md` (`**Slug:**` line, accepts both backticked and plain format). ⚡ Legacy path `~/.claude/statusline-command.sh` (pre-2026-04): delete it and ensure command points to `~/.claude/hooks/statusline-command.sh` — all hooks live under `~/.claude/hooks/` for consistency.
+
 **PreCompact prompt** (adopt verbatim):
 ```
 CONTEXT COMPACTING IS IMMINENT! Execute these 2 steps IMMEDIATELY:
