@@ -51,13 +51,12 @@ rm -rf /tmp/mxLore-skills /tmp/mxLore-skills.zip
 
 ### Phase 3: Install Proxy
 
-1. **Build Admin URL:** From mx_ping `admin_port` + `proxy_download_path`.
-   ⚡ Host = same host as MCP connection (from Phase 1 server URL). Server does not know its external access path (IIS Reverse Proxy).
-   → `http://<MCP-HOST>:<admin_port><proxy_download_path>`
-   If no admin_port: server URL port+1 (8080→8081). If admin_port unreachable: warning, skip proxy update.
+1. **Resolve Download URL** from mx_ping response:
+   - Use `proxy_download_url` — always set when `admin_port > 0` (external URL if configured, otherwise localhost)
+   - If `admin_port` missing in mx_ping response: warning, skip proxy install.
 2. Download:
 ```bash
-curl -f -o ~/.claude/mxMCPProxy.exe "http://<MCP-HOST>:<admin_port>/api/download/proxy"
+curl -f -o ~/.claude/mxMCPProxy.exe "<RESOLVED-URL>"
 ```
 3. Check file size (>100KB). If smaller: warning, skip proxy.
 4. Create proxy INI (Write tool → `~/.claude/mxMCPProxy.ini`):
@@ -166,7 +165,7 @@ Next steps:
 
 1. Run Phase 2 (skills from GitHub)
 2. Run Phase 5 (update config)
-3. Proxy update: download new EXE → rename old → move new → delete old
+3. Proxy update: call `mx_ping()`, resolve URL as Phase 3 step 1 → download new EXE → rename old → move new → delete old
 4. Show summary
 
 ## Rules

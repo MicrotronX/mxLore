@@ -143,9 +143,22 @@ Runs in pre-routing after session setup. ⚡ 0 extra MCP calls — uses mx_sessi
 2. **With ID:** Find WF by ID in stack→move to [0], shift rest down
 3. WF.status = 'active'
 4. Log event (type='resume')
-5. MCP: `mx_detail(doc_id)`→parse→identify next pending step
-6. Output: `WF "<Name>" resumed. Progress: <X>/<Y>. Next step: <Description>.`
-7. Auto-invoke next step
+5. **⚡ Reconciliation (Session-Boundary Sync):**
+   - ⚡ Pre-check: `doc_id` must be positive integer. If not→remove WF from stack + warn user, skip to next WF
+   - `mx_detail(doc_id)`→parse response:
+     - **Error/NotFound:** remove WF from local stack + warn user "WF deleted in MCP"→skip
+     - **status='archived':** remove WF from local stack + warn user "WF already archived"→skip
+     - **OK:** parse step table→count done steps = `mcp_step`, count total rows = `mcp_total`
+   - Sanity: if local `current_step` > `total_steps`→clamp to `total_steps` + warn
+   - Compare: local `current_step` vs `mcp_step`
+   - If local > MCP (local is ahead): push ALL locally-done steps to MCP via `mx_update_doc(doc_id, content with Steps=done+Timestamps, change_reason='Reconcile: Steps N-M→done')` → update `doc_revision` from response → set `unsynced=false`
+   - If MCP > local (MCP is ahead): update local→`current_step=mcp_step`, `total_steps=mcp_total`, `doc_revision` from response, `unsynced=false`
+   - If both diverged (steps overlap with different results, e.g. team-agent vs local): WARN user, show both versions, ask which to keep before pushing
+   - If equal: no action needed
+   - Set `state.last_reconciliation = now()`
+6. Identify next pending step from reconciled state
+7. Output: `WF "<Name>" resumed. Progress: <X>/<Y>. Next step: <Description>.`
+8. Auto-invoke next step
 
 **Backward-compatible:** `--resume` without active stack→open-items list as before (Phase 1 context load)
 
