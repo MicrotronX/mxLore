@@ -75,8 +75,9 @@ find "${OUTDIR}" -type f | sort | while read f; do
 done
 
 # Create ZIP
-if command -v 7z &>/dev/null; then
-  cd release && 7z a -tzip "../${ZIPFILE}" "${BASENAME}" && cd ..
+SEVENZIP="${SEVENZIP:-$(command -v 7z 2>/dev/null || echo '/c/Program Files/7-Zip/7z.exe')}"
+if [ -x "$SEVENZIP" ] || command -v 7z &>/dev/null; then
+  cd release && "$SEVENZIP" a -tzip "../${ZIPFILE}" "${BASENAME}" && cd ..
   echo ""
   echo "ZIP created: ${ZIPFILE}"
 elif command -v zip &>/dev/null; then

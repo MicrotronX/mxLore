@@ -146,9 +146,18 @@ begin
     finally
       Defaults.Free;
     end;
-    WriteLn('Config generated: ', IniPath);
-    WriteLn('Please set database password and restart.');
-    WriteLn('Docs: https://www.mxlore.dev');
+    // Log to file (works in all modes: console, GUI, service)
+    var Msg := 'Config generated: ' + IniPath + sLineBreak +
+               'Please set the database password in the INI file and restart.' + sLineBreak +
+               'Docs: https://www.mxlore.dev';
+    TFile.WriteAllText(BasePath + 'FIRST-START-README.txt', Msg, TEncoding.UTF8);
+    // Console output only if not GUI/service
+    if not FHost.IsGUIMode then
+    begin
+      WriteLn('Config generated: ', IniPath);
+      WriteLn('Please set database password and restart.');
+    end;
+    raise Exception.Create('First start: INI generated. Set password and restart. See FIRST-START-README.txt');
   end;
 
   // 0. FormatSettings auf ISO setzen (FireDAC nutzt System-Locale fuer DateTime-Parsing)
@@ -290,12 +299,10 @@ begin
           FLogger.Log(mlInfo, 'Auto-migrate: creating app_settings table (v2.4.0)');
           var DdlQry := MigCtx.CreateQuery(
             'CREATE TABLE IF NOT EXISTS app_settings (' +
-            '  setting_key VARCHAR(64) NOT NULL PRIMARY KEY, ' +
+            '  setting_key VARCHAR(100) NOT NULL PRIMARY KEY, ' +
             '  setting_value TEXT, ' +
-            '  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, ' +
             '  updated_by INT DEFAULT NULL, ' +
-            '  CONSTRAINT fk_app_settings_updated_by FOREIGN KEY (updated_by) ' +
-            '    REFERENCES developers(id) ON DELETE SET NULL' +
+            '  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP' +
             ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
           try DdlQry.ExecSQL; finally DdlQry.Free; end;
 
@@ -330,7 +337,7 @@ begin
             '  token VARCHAR(128) NOT NULL, ' +
             '  developer_id INT NOT NULL, ' +
             '  client_key_id INT NOT NULL, ' +
-            '  mode VARCHAR(16) NOT NULL, ' +
+            '  mode VARCHAR(30) NOT NULL DEFAULT ''external'', ' +
             '  expires_at DATETIME NOT NULL, ' +
             '  first_viewed_at DATETIME DEFAULT NULL, ' +
             '  revoked_at DATETIME DEFAULT NULL, ' +

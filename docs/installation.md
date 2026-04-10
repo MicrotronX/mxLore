@@ -79,7 +79,20 @@ BindAddress=0.0.0.0
 
 See [Network Security](../README.md#network-security) for HTTPS requirements.
 
-## Step 4: First Start
+## Step 4: Register URL (one-time, as Administrator)
+
+Windows requires URL reservations for HTTP servers. Open a **Command Prompt as Administrator** and run:
+
+```bash
+netsh http add urlacl url=http://+:8080/ user=Everyone
+netsh http add urlacl url=http://+:8081/ user=Everyone
+```
+
+You only need to do this once. After that, the server runs without admin rights.
+
+> **Note:** If you change the ports in the INI, adjust the URLs accordingly.
+
+## Step 5: First Start
 
 ```bash
 mxLoreMCP.exe
@@ -100,7 +113,7 @@ The server will:
 Console output should show:
 
 ```
-INFO  mxLore v2.4.0 (Build 80) starting...
+INFO  mxLore v2.4.0 (Build 81) starting...
 INFO  Database connected: mxai_knowledge@localhost
 INFO  Auto-schema: setup.sql executed (fresh install)
 INFO  MCP server listening on 127.0.0.1:8080
@@ -109,7 +122,7 @@ INFO  Admin server listening on 127.0.0.1:8081
 
 If you see errors, check [Troubleshooting](troubleshooting.md).
 
-## Step 5: Verify
+## Step 6: Verify
 
 Open `http://localhost:8081` in your browser. You should see the Admin UI.
 
@@ -121,7 +134,7 @@ curl http://localhost:8080/mcp -X POST -H "Content-Type: application/json" -d "{
 
 Expected: JSON response containing `"name":"mxLore"` and `"version":"2.4.0"`.
 
-## Step 6: Create First Team Member
+## Step 7: Create First Team Member
 
 The Admin UI is open without login on first start (no team members exist yet).
 
@@ -132,7 +145,7 @@ The Admin UI is open without login on first start (no team members exist yet).
 
 **Copy your API key** — you'll need it to connect AI clients.
 
-## Step 7: Connect Your AI Client
+## Step 8: Connect Your AI Client
 
 See [Team Onboarding](team-onboarding.md) for detailed instructions for each client:
 - Claude Code (`/mxSetup`)

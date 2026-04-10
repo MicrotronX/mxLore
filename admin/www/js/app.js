@@ -138,8 +138,8 @@ var App = (function () {
           '<td><span class="badge badge--' + statusClass + '">' + statusText + '</span></td>' +
           '<td>' +
             '<button class="btn btn--small btn--ghost" onclick="App.openDeveloper(' + d.id + ')" title="Edit">&#9998;</button>' +
-            (d.is_active ? '<button class="btn btn--small btn--danger" onclick="App.confirmDelete(' + d.id + ', \'' + escHtml(d.name) + '\', false)" title="Deactivate">&#10005;</button>' : '') +
-            '<button class="btn btn--small btn--danger" onclick="App.confirmDelete(' + d.id + ', \'' + escHtml(d.name) + '\', true)" title="Hard Delete" style="opacity:0.6">&#128465;</button>' +
+            (d.is_active ? '<button class="btn btn--small btn--danger" onclick="App.confirmDelete(' + d.id + ', \'' + escJsStr(d.name) + '\', false)" title="Deactivate">&#10005;</button>' : '') +
+            '<button class="btn btn--small btn--danger" onclick="App.confirmDelete(' + d.id + ', \'' + escJsStr(d.name) + '\', true)" title="Hard Delete" style="opacity:0.6">&#128465;</button>' +
           '</td>' +
         '</tr>';
       }).join('');
@@ -187,12 +187,24 @@ var App = (function () {
       if (!name) return;
 
       try {
+        var isFirstMember = !window._lastDevList || window._lastDevList.length === 0;
         var resp = await Api.createDeveloper(name, email, role);
         closeModal('modal-new-dev');
-        // Navigate to Connect Team and open invite dialog for the new member
-        await loadConnectPage();
         var newDevId = resp && resp.id ? resp.id : 0;
-        if (newDevId) {
+
+        if (isFirstMember && newDevId) {
+          // First member: auto-create admin API key and show it prominently
+          var keyResp = await Api.createKey(newDevId, 'Admin Key (auto-created)', 'admin', null);
+          var apiKey = keyResp && keyResp.key ? keyResp.key : '';
+          if (apiKey) {
+            showFirstSetupKey(name, apiKey);
+          } else {
+            navigateTo('developers');
+            loadDeveloperList();
+          }
+        } else if (newDevId) {
+          // Subsequent members: navigate to Connect Team with invite dialog
+          await loadConnectPage();
           openNewInviteDialog();
           var sel = $('#invite-developer');
           if (sel) sel.value = String(newDevId);
@@ -1042,6 +1054,45 @@ var App = (function () {
     } catch (e) {
       showConnectAlert('error', 'Cleanup failed: ' + (e.message || e));
     }
+  }
+
+  // --- First Setup: show admin API key after creating first member ---
+  function showFirstSetupKey(memberName, apiKey) {
+    var html =
+      '<div class="modal-overlay visible" id="modal-first-setup" style="z-index:9999">' +
+        '<div class="modal" style="max-width:560px">' +
+          '<div class="modal__header">' +
+            '<span class="modal__title">' +
+              '\u2705 Setup Complete' +
+            '</span>' +
+          '</div>' +
+          '<div class="modal__body">' +
+            '<p style="margin-bottom:12px"><strong>' + escapeHtml(memberName) + '</strong> created with admin API key:</p>' +
+            '<div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-family:var(--font-mono);font-size:0.88rem;word-break:break-all;user-select:all;margin-bottom:12px" id="first-setup-key">' +
+              escapeHtml(apiKey) +
+            '</div>' +
+            '<button type="button" class="btn btn--primary" style="width:100%;margin-bottom:12px" onclick="' +
+              'var t=document.getElementById(\'first-setup-key\').textContent;' +
+              'navigator.clipboard.writeText(t)' +
+              '.then(function(){this.textContent=\'Copied!\'}.bind(this))' +
+              '.catch(function(){window.prompt(\'Copy this key:\',t)})' +
+            '">' +
+              '\uD83D\uDCCB Copy API Key' +
+            '</button>' +
+            '<div class="alert alert--warning visible" style="margin:0">' +
+              '<strong>Save this key now!</strong> It cannot be shown again. ' +
+              'Use it to connect Claude Code, claude.ai, Cursor, or other MCP clients.' +
+            '</div>' +
+          '</div>' +
+          '<div class="modal__footer">' +
+            '<button type="button" class="btn btn--primary" onclick="' +
+              'document.getElementById(\'modal-first-setup\').remove();' +
+              'App.navigateTo(\'connect\');' +
+            '">Continue to Connect Team</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    document.body.insertAdjacentHTML('beforeend', html);
   }
 
   function showConnectAlert(level, text) {
@@ -2733,7 +2784,10 @@ var App = (function () {
       Api.setCsrfToken(data.csrf_token);
       setUserUI(data.developer.name);
       $('#page-login').style.display = 'none';
-      var restoreHash = location.hash.replace('#', '') || 'global';
+      // Setup mode: first start with no members → go to Team Members page
+      // Detect via developer.id === 0 (server sets DeveloperId=0 in HasNoDevelopers bypass)
+      var isSetupMode = data.developer && data.developer.id === 0;
+      var restoreHash = location.hash.replace('#', '') || (isSetupMode ? 'developers' : 'global');
       if (restoreHash.indexOf('developer/') === 0) {
         var devParts = restoreHash.split('/');
         var devId = parseInt(devParts[1]);

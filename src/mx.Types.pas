@@ -106,7 +106,7 @@ function MxGetThreadAuth: TMxAuthResult;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 80;  // Team Connect System, Invite Links, Settings UI
+  MXAI_BUILD   = 81;  // First-Setup UX, proxy_download_url, escHtml XSS fix, netsh docs
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';
