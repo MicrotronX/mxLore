@@ -29,7 +29,9 @@ logs/
 backups/
 release/
 lib/
-docs/
+docs/status.md
+docs/reference/
+docs/ops/
 
 # Claude Code local state
 .claude/

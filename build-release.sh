@@ -52,6 +52,10 @@ find "${OUTDIR}/claude-setup" -name "*.exe" -delete 2>/dev/null
 # Docs
 cp "${SRCDIR}/LICENSE.txt" "${OUTDIR}/"
 cp "${SRCDIR}/README.md"   "${OUTDIR}/"
+mkdir -p "${OUTDIR}/docs"
+cp "${SRCDIR}/docs/installation.md"    "${OUTDIR}/docs/"
+cp "${SRCDIR}/docs/troubleshooting.md" "${OUTDIR}/docs/"
+cp "${SRCDIR}/docs/team-onboarding.md" "${OUTDIR}/docs/"
 
 # IIS reverse proxy config (optional, for WAN deployments)
 cp "${SRCDIR}/iis-url-rewrite-rule.xml" "${OUTDIR}/"
