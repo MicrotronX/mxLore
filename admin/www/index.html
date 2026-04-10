@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -29,11 +29,18 @@
       </button>
       <button class="nav-link" data-nav="developers" onclick="App.navigateTo('developers')">
         <i data-lucide="users" class="icon-sm"></i>
-        <span>Developer</span>
+        <span>Team Members</span>
       </button>
       <button class="nav-link" data-nav="projects" onclick="App.navigateTo('projects')">
         <i data-lucide="folder-open" class="icon-sm"></i>
-        <span>Projekte</span>
+        <span>Projects</span>
+      </button>
+      <button class="nav-link" data-nav="connect" onclick="App.navigateTo('connect')">
+        <i data-lucide="link" class="icon-sm"></i>
+        <span>Connect Team</span>
+      </button>
+      <button class="nav-link nav-link--icon" data-nav="settings" onclick="App.navigateTo('settings')" title="Settings" aria-label="Settings">
+        <i data-lucide="settings" class="icon-sm"></i>
       </button>
     </div>
     <div class="navbar__actions">
@@ -43,7 +50,7 @@
       </div>
       <button id="btn-logout" class="btn btn--nav">
         <i data-lucide="log-out" class="icon-sm"></i>
-        <span class="btn__label">Abmelden</span>
+        <span class="btn__label">Sign out</span>
       </button>
     </div>
   </nav>
@@ -66,8 +73,8 @@
           mx<span>Lore</span>
         </h1>
         <p class="login-hero__desc">
-          Model Context Protocol Server fuer projektuebergreifendes Knowledge Management.
-          AI-gesteuerte Dokumentation, Versionierung und Zugriffskontrolle.
+          Model Context Protocol server for cross-project knowledge management.
+          AI-driven documentation, versioning and access control.
         </p>
         <div class="login-hero__features">
           <div class="login-feature">
@@ -76,7 +83,7 @@
           </div>
           <div class="login-feature">
             <div class="login-feature__icon"><i data-lucide="lock"></i></div>
-            <span>Multi-Developer ACL</span>
+            <span>Multi-Member ACL</span>
           </div>
           <div class="login-feature">
             <div class="login-feature__icon"><i data-lucide="database"></i></div>
@@ -96,7 +103,7 @@
             <i data-lucide="shield" class="login-header__shield"></i>
           </div>
           <h2 class="login-header__title">Admin <span>Login</span></h2>
-          <p class="login-header__subtitle">Authentifizierung via API-Key</p>
+          <p class="login-header__subtitle">Authentication via API key</p>
         </div>
         <div id="login-alert" class="alert"></div>
         <form id="login-form" class="login-form">
@@ -107,7 +114,7 @@
             <input id="login-key" class="form-input" type="password" placeholder="mxk_..." autocomplete="off" required>
           </div>
           <button id="login-btn" type="submit" class="btn btn--primary btn--lg">
-            <i data-lucide="log-in" class="icon-sm"></i> Anmelden
+            <i data-lucide="log-in" class="icon-sm"></i> Sign in
           </button>
         </form>
         <div class="login-scanline">SECURED ENDPOINT</div>
@@ -119,11 +126,11 @@
   <div id="page-developers" class="page">
     <div class="page-header">
       <h2 class="page-header__title">
-        <i data-lucide="users" class="icon-header"></i> Developer
+        <i data-lucide="users" class="icon-header"></i> Team Members
       </h2>
       <div class="page-header__actions">
         <button id="btn-new-dev" class="btn btn--primary">
-          <i data-lucide="user-plus" class="icon-sm"></i> Neuer Developer
+          <i data-lucide="user-plus" class="icon-sm"></i> New member
         </button>
       </div>
     </div>
@@ -136,7 +143,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="stat-total">-</div>
-          <div class="stat-card__label">Developer</div>
+          <div class="stat-card__label">Members</div>
         </div>
       </div>
       <div class="stat-card">
@@ -145,7 +152,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="stat-active">-</div>
-          <div class="stat-card__label">Aktiv</div>
+          <div class="stat-card__label">Active</div>
         </div>
       </div>
       <div class="stat-card">
@@ -154,7 +161,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="stat-keys">-</div>
-          <div class="stat-card__label">API-Keys</div>
+          <div class="stat-card__label">API keys</div>
         </div>
       </div>
       <div class="stat-card">
@@ -163,7 +170,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="stat-projects">-</div>
-          <div class="stat-card__label">Projekte</div>
+          <div class="stat-card__label">Projects</div>
         </div>
       </div>
     </div>
@@ -177,7 +184,7 @@
         <span class="merge-bar__info"><span id="merge-count">0</span></span>
       </div>
       <button id="btn-merge" class="btn btn--primary btn--small">
-        <i data-lucide="git-merge" class="icon-xs"></i> Zusammenfuehren...
+        <i data-lucide="git-merge" class="icon-xs"></i> Merge...
       </button>
     </div>
 
@@ -189,8 +196,9 @@
             <th style="width:32px"></th>
             <th>Name</th>
             <th>Email</th>
+            <th>Role</th>
             <th>Keys</th>
-            <th>Projekte</th>
+            <th>Projects</th>
             <th>Status</th>
             <th style="width:80px"></th>
           </tr>
@@ -206,7 +214,7 @@
     <div class="page-header">
       <h2 class="page-header__title">
         <span class="cell-link" id="btn-back">
-          <i data-lucide="arrow-left" class="icon-sm"></i> Developer
+          <i data-lucide="arrow-left" class="icon-sm"></i> Team Members
         </span>
         <span class="chevron">/</span>
         <span id="detail-title-name"></span>
@@ -218,16 +226,16 @@
     <!-- Tabs -->
     <div class="tabs">
       <button class="tab-btn active" data-tab="info">
-        <i data-lucide="user" class="icon-xs"></i> Stammdaten
+        <i data-lucide="user" class="icon-xs"></i> Profile
       </button>
       <button class="tab-btn" data-tab="keys">
-        <i data-lucide="key" class="icon-xs"></i> API-Keys
+        <i data-lucide="key" class="icon-xs"></i> API keys
       </button>
       <button class="tab-btn" data-tab="projects">
-        <i data-lucide="folder" class="icon-xs"></i> Projekte
+        <i data-lucide="folder" class="icon-xs"></i> Projects
       </button>
       <button class="tab-btn" data-tab="settings">
-        <i data-lucide="settings" class="icon-xs"></i> Pfade
+        <i data-lucide="settings" class="icon-xs"></i> Paths
       </button>
     </div>
 
@@ -244,16 +252,28 @@
             <input id="detail-email" class="form-input" type="email" placeholder="optional">
           </div>
           <div class="form-group">
+            <label class="form-label" for="detail-role">Role</label>
+            <select id="detail-role" class="form-input">
+              <option value="">— not set —</option>
+              <option value="Developer">Developer</option>
+              <option value="CTO">CTO</option>
+              <option value="PM">PM / Product Manager</option>
+              <option value="Designer">Designer</option>
+              <option value="QA">QA / Testing</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
             <label class="form-label">Status</label>
             <label class="toggle-label">
               <input id="detail-active" type="checkbox" class="toggle-input">
               <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              <span class="toggle-text">Aktiv</span>
+              <span class="toggle-text">Active</span>
             </label>
           </div>
           <div class="form-group" style="align-self:end">
             <button type="submit" class="btn btn--primary">
-              <i data-lucide="save" class="icon-sm"></i> Speichern
+              <i data-lucide="save" class="icon-sm"></i> Save
             </button>
           </div>
         </form>
@@ -265,10 +285,10 @@
       <div class="detail-card">
         <div class="detail-card__header">
           <span class="detail-card__title">
-            <i data-lucide="key" class="icon-sm"></i> API-Keys
+            <i data-lucide="key" class="icon-sm"></i> API keys
           </span>
           <button id="btn-new-key" class="btn btn--primary btn--small">
-            <i data-lucide="plus" class="icon-xs"></i> Neuer Key
+            <i data-lucide="plus" class="icon-xs"></i> New key
           </button>
         </div>
         <div class="data-table-wrap">
@@ -277,8 +297,8 @@
               <tr>
                 <th>Name</th>
                 <th>Prefix</th>
-                <th>Rolle</th>
-                <th>Letzter Zugriff</th>
+                <th>Role</th>
+                <th>Last access</th>
                 <th>IP</th>
                 <th>Status</th>
                 <th></th>
@@ -296,10 +316,10 @@
       <div class="detail-card">
         <div class="detail-card__header">
           <span class="detail-card__title">
-            <i data-lucide="folder" class="icon-sm"></i> Projekt-Zuweisungen
+            <i data-lucide="folder" class="icon-sm"></i> Project assignments
           </span>
           <button id="btn-save-access" class="btn btn--primary btn--small">
-            <i data-lucide="save" class="icon-xs"></i> Zuweisungen speichern
+            <i data-lucide="save" class="icon-xs"></i> Save assignments
           </button>
         </div>
         <div id="access-grid" class="access-grid">
@@ -312,7 +332,7 @@
       <div class="detail-card">
         <div class="detail-card__header">
           <span class="detail-card__title">
-            <i data-lucide="settings" class="icon-sm"></i> Umgebungspfade
+            <i data-lucide="settings" class="icon-sm"></i> Environment paths
           </span>
         </div>
         <div class="data-table-wrap">
@@ -320,8 +340,8 @@
             <thead>
               <tr>
                 <th>Key</th>
-                <th>Wert</th>
-                <th>API-Key</th>
+                <th>Value</th>
+                <th>API key</th>
                 <th></th>
               </tr>
             </thead>
@@ -337,11 +357,11 @@
   <div id="page-projects" class="page">
     <div class="page-header">
       <h2 class="page-header__title">
-        <i data-lucide="folder-open" class="icon-header"></i> Projekte
+        <i data-lucide="folder-open" class="icon-header"></i> Projects
       </h2>
       <div class="page-header__actions">
         <button id="btn-new-project" class="btn btn--primary">
-          <i data-lucide="plus" class="icon-sm"></i> Neues Projekt
+          <i data-lucide="plus" class="icon-sm"></i> New project
         </button>
       </div>
     </div>
@@ -354,7 +374,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="pstat-total">-</div>
-          <div class="stat-card__label">Projekte</div>
+          <div class="stat-card__label">Projects</div>
         </div>
       </div>
       <div class="stat-card">
@@ -363,7 +383,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="pstat-active">-</div>
-          <div class="stat-card__label">Aktiv</div>
+          <div class="stat-card__label">Active</div>
         </div>
       </div>
       <div class="stat-card">
@@ -372,7 +392,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="pstat-docs">-</div>
-          <div class="stat-card__label">Dokumente</div>
+          <div class="stat-card__label">Documents</div>
         </div>
       </div>
       <div class="stat-card">
@@ -381,7 +401,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="pstat-devs">-</div>
-          <div class="stat-card__label">Developer</div>
+          <div class="stat-card__label">Members</div>
         </div>
       </div>
     </div>
@@ -389,7 +409,7 @@
     <!-- Developer Filter -->
     <div style="margin-bottom:8px">
       <select id="proj-filter-dev" class="form-input" style="width:auto;min-width:180px" onchange="App.filterProjectsByDev()">
-        <option value="">Alle Developer</option>
+        <option value="">All members</option>
       </select>
     </div>
 
@@ -402,7 +422,7 @@
         <span class="merge-bar__info"><span id="proj-merge-count">0</span></span>
       </div>
       <button id="btn-proj-merge" class="btn btn--primary btn--small">
-        <i data-lucide="git-merge" class="icon-xs"></i> Zusammenfuehren...
+        <i data-lucide="git-merge" class="icon-xs"></i> Merge...
       </button>
     </div>
 
@@ -415,9 +435,9 @@
             <th class="sortable" data-sort="name">Name</th>
             <th class="sortable" data-sort="slug">Slug</th>
             <th class="sortable" data-sort="doc_count">Docs</th>
-            <th class="sortable" data-sort="developer_count">Developer</th>
-            <th class="sortable" data-sort="created_by_name">Erstellt von</th>
-            <th class="sortable sort-active sort-desc" data-sort="last_activity">Letzte Aktivitaet</th>
+            <th class="sortable" data-sort="developer_count">Members</th>
+            <th class="sortable" data-sort="created_by_name">Created by</th>
+            <th class="sortable sort-active sort-desc" data-sort="last_activity">Last activity</th>
             <th class="sortable" data-sort="is_active">Status</th>
             <th style="width:80px"></th>
           </tr>
@@ -435,7 +455,7 @@
         <button id="btn-back-proj" class="btn btn--ghost btn--small" style="margin-right:8px">&#8592;</button>
         <i data-lucide="folder-open" class="icon-header"></i>
         <span class="chevron">/</span>
-        <span id="proj-detail-title">Projekt</span>
+        <span id="proj-detail-title">Project</span>
       </h2>
     </div>
 
@@ -449,7 +469,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="pd-docs">-</div>
-          <div class="stat-card__label">Dokumente</div>
+          <div class="stat-card__label">Documents</div>
         </div>
       </div>
       <div class="stat-card">
@@ -458,7 +478,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="pd-devs">-</div>
-          <div class="stat-card__label">Developer</div>
+          <div class="stat-card__label">Members</div>
         </div>
       </div>
       <div class="stat-card">
@@ -467,7 +487,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="pd-activity" style="font-size:0.85rem">-</div>
-          <div class="stat-card__label">Letzte Aktivitaet</div>
+          <div class="stat-card__label">Last activity</div>
         </div>
       </div>
     </div>
@@ -476,7 +496,7 @@
     <div class="detail-card">
       <div class="detail-card__header">
         <span class="detail-card__title">
-          <i data-lucide="info" class="icon-sm"></i> Projekt-Info
+          <i data-lucide="info" class="icon-sm"></i> Project info
         </span>
       </div>
       <form id="proj-detail-form" class="detail-form">
@@ -493,18 +513,18 @@
           <span id="proj-detail-status" class="badge" style="width:fit-content"></span>
         </div>
         <div class="form-group">
-          <label class="form-label">Erstellt</label>
+          <label class="form-label">Created</label>
           <span id="proj-detail-created" class="text-secondary" style="font-size:0.85rem"></span>
         </div>
         <div class="form-group">
-          <label class="form-label" for="proj-detail-creator">Erstellt von</label>
+          <label class="form-label" for="proj-detail-creator">Created by</label>
           <select id="proj-detail-creator" class="form-input">
-            <option value="">— laden —</option>
+            <option value="">— loading —</option>
           </select>
         </div>
         <div class="form-group--full" style="grid-column: 1 / -1; display:flex; justify-content:flex-end; gap:8px; margin-top:8px">
           <button type="submit" class="btn btn--primary">
-            <i data-lucide="save" class="icon-xs"></i> Speichern
+            <i data-lucide="save" class="icon-xs"></i> Save
           </button>
         </div>
       </form>
@@ -514,12 +534,12 @@
     <div class="detail-card">
       <div class="detail-card__header">
         <span class="detail-card__title">
-          <i data-lucide="file-text" class="icon-sm"></i> Dokumente
+          <i data-lucide="file-text" class="icon-sm"></i> Documents
         </span>
       </div>
       <div class="data-table-wrap">
         <table class="data-table">
-          <thead><tr><th>Typ</th><th>Anzahl</th></tr></thead>
+          <thead><tr><th>Type</th><th>Count</th></tr></thead>
           <tbody id="pd-doctypes-body"></tbody>
         </table>
       </div>
@@ -529,7 +549,7 @@
     <div class="detail-card">
       <div class="detail-card__header">
         <span class="detail-card__title">
-          <i data-lucide="activity" class="icon-sm"></i> Letzte Aenderungen
+          <i data-lucide="activity" class="icon-sm"></i> Recent changes
         </span>
       </div>
       <div id="pd-activity-body" style="padding:8px 16px">
@@ -540,12 +560,12 @@
     <div class="detail-card">
       <div class="detail-card__header">
         <span class="detail-card__title">
-          <i data-lucide="users" class="icon-sm"></i> Developer-Zuweisungen
+          <i data-lucide="users" class="icon-sm"></i> Member assignments
         </span>
       </div>
       <div class="data-table-wrap">
         <table class="data-table">
-          <thead><tr><th>Name</th><th>Zugriff</th></tr></thead>
+          <thead><tr><th>Name</th><th>Access</th></tr></thead>
           <tbody id="pd-devs-body"></tbody>
         </table>
       </div>
@@ -555,12 +575,12 @@
     <div class="detail-card">
       <div class="detail-card__header">
         <span class="detail-card__title">
-          <i data-lucide="git-branch" class="icon-sm"></i> Verknuepfte Projekte
+          <i data-lucide="git-branch" class="icon-sm"></i> Related projects
         </span>
       </div>
       <div class="data-table-wrap">
         <table class="data-table">
-          <thead><tr><th>Projekt</th><th>Beziehung</th><th>Richtung</th></tr></thead>
+          <thead><tr><th>Project</th><th>Relation</th><th>Direction</th></tr></thead>
           <tbody id="pd-relations-body"></tbody>
         </table>
       </div>
@@ -585,7 +605,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="gstat-docs">-</div>
-          <div class="stat-card__label">Dokumente</div>
+          <div class="stat-card__label">Documents</div>
         </div>
       </div>
       <div class="stat-card">
@@ -594,7 +614,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="gstat-projects">-</div>
-          <div class="stat-card__label">Projekte</div>
+          <div class="stat-card__label">Projects</div>
         </div>
       </div>
       <div class="stat-card">
@@ -603,7 +623,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="gstat-devs">-</div>
-          <div class="stat-card__label">Developer</div>
+          <div class="stat-card__label">Members</div>
         </div>
       </div>
       <div class="stat-card">
@@ -612,7 +632,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="gstat-keys">-</div>
-          <div class="stat-card__label">API-Keys</div>
+          <div class="stat-card__label">API keys</div>
         </div>
       </div>
       <div class="stat-card">
@@ -621,7 +641,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="gstat-acl" style="font-size:0.85rem">-</div>
-          <div class="stat-card__label">ACL-Modus</div>
+          <div class="stat-card__label">ACL mode</div>
         </div>
       </div>
     </div>
@@ -629,11 +649,11 @@
     <!-- Dashboard Grid -->
     <div class="global-dashboard">
 
-      <!-- Row 1: Health + Zugriffe + Prefetch (compact, 3-col) -->
+      <!-- Row 1: Health + Access + Prefetch (compact, 3-col) -->
       <div class="detail-card global-cell--health">
         <div class="detail-card__header">
           <span class="detail-card__title">
-            <i data-lucide="heart-pulse" class="icon-sm"></i> Server Health
+            <i data-lucide="heart-pulse" class="icon-sm"></i> Server health
           </span>
         </div>
         <div id="global-health-body" style="padding:12px 16px">
@@ -644,7 +664,7 @@
       <div class="detail-card global-cell--accesslog">
         <div class="detail-card__header">
           <span class="detail-card__title">
-            <i data-lucide="bar-chart-3" class="icon-sm"></i> Zugriffe (Access-Log)
+            <i data-lucide="bar-chart-3" class="icon-sm"></i> Access log
           </span>
         </div>
         <div id="global-accesslog-body" style="padding:12px 16px">
@@ -655,7 +675,7 @@
       <div class="detail-card global-cell--prefetch">
         <div class="detail-card__header">
           <span class="detail-card__title">
-            <i data-lucide="zap" class="icon-sm"></i> Prefetch-Kandidaten
+            <i data-lucide="zap" class="icon-sm"></i> Prefetch candidates
           </span>
         </div>
         <div id="global-prefetch-body" style="padding:12px 16px">
@@ -667,7 +687,7 @@
       <div class="detail-card global-cell--sessions">
         <div class="detail-card__header">
           <span class="detail-card__title">
-            <i data-lucide="radio" class="icon-sm"></i> Aktive Sessions
+            <i data-lucide="radio" class="icon-sm"></i> Active sessions
           </span>
         </div>
         <div id="global-sessions-body" style="padding:12px 16px">
@@ -675,17 +695,17 @@
         </div>
       </div>
 
-      <!-- Row 3: Doc Types (50%) + Wartung/Settings stacked (50%) -->
+      <!-- Row 3: Doc Types (50%) + Maintenance/Settings stacked (50%) -->
       <div class="detail-card global-cell--doctypes">
         <div class="detail-card__header">
           <span class="detail-card__title">
-            <i data-lucide="pie-chart" class="icon-sm"></i> Dokumente nach Typ
+            <i data-lucide="pie-chart" class="icon-sm"></i> Documents by type
           </span>
         </div>
         <div class="data-table-wrap">
           <table class="data-table">
             <thead>
-              <tr><th>Typ</th><th>Anzahl</th><th>Anteil</th></tr>
+              <tr><th>Type</th><th>Count</th><th>Share</th></tr>
             </thead>
             <tbody id="global-doctypes-body"></tbody>
           </table>
@@ -696,19 +716,19 @@
         <div class="detail-card">
           <div class="detail-card__header">
             <span class="detail-card__title">
-              <i data-lucide="wrench" class="icon-sm"></i> Wartung
+              <i data-lucide="wrench" class="icon-sm"></i> Maintenance
             </span>
           </div>
           <div style="padding:12px 16px; display:flex; flex-direction:column; gap:10px">
             <div style="display:flex; align-items:center; gap:10px">
               <button id="btn-cleanup" class="btn btn--primary btn--small" onclick="App.runCleanup()">
-                <i data-lucide="archive" class="icon-xs"></i> Notes archivieren
+                <i data-lucide="archive" class="icon-xs"></i> Archive notes
               </button>
               <span id="cleanup-result" class="text-secondary" style="font-size:0.82rem"></span>
             </div>
             <div style="display:flex; align-items:center; gap:10px">
               <button id="btn-backup" class="btn btn--primary btn--small" onclick="App.runBackup()">
-                <i data-lucide="database-backup" class="icon-xs"></i> DB Backup
+                <i data-lucide="database-backup" class="icon-xs"></i> DB backup
               </button>
               <span id="backup-result" class="text-secondary" style="font-size:0.82rem"></span>
             </div>
@@ -718,13 +738,13 @@
         <div class="detail-card">
           <div class="detail-card__header">
             <span class="detail-card__title">
-              <i data-lucide="settings" class="icon-sm"></i> Server-Einstellungen
+              <i data-lucide="settings" class="icon-sm"></i> Server settings
             </span>
           </div>
           <div class="data-table-wrap">
             <table class="data-table">
               <thead>
-                <tr><th>Einstellung</th><th>Wert</th></tr>
+                <tr><th>Setting</th><th>Value</th></tr>
               </thead>
               <tbody id="global-settings-body"></tbody>
             </table>
@@ -732,7 +752,7 @@
         </div>
       </div>
 
-      <!-- Env Vars removed from Global — now per Developer in Dev Detail -->
+      <!-- Env Vars removed from Global — now per developer in dev detail -->
 
     </div>
   </div>
@@ -766,7 +786,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="sstat-confirmed">-</div>
-          <div class="stat-card__label">Bestaetigt</div>
+          <div class="stat-card__label">Confirmed</div>
         </div>
       </div>
       <div class="stat-card">
@@ -775,7 +795,7 @@
         </div>
         <div class="stat-card__content">
           <div class="stat-card__value" id="sstat-dismissed">-</div>
-          <div class="stat-card__label">Abgelehnt</div>
+          <div class="stat-card__label">Dismissed</div>
         </div>
       </div>
       <div class="stat-card">
@@ -863,7 +883,7 @@
     <div class="detail-card" style="margin-bottom: var(--gap-lg)">
       <div class="detail-card__header">
         <span class="detail-card__title">
-          <i data-lucide="activity" class="icon-sm"></i> Skill Evolution — Metriken
+          <i data-lucide="activity" class="icon-sm"></i> Skill Evolution — Metrics
         </span>
       </div>
       <div class="skills-grid" id="skills-grid" style="padding: 12px 16px">
@@ -871,7 +891,7 @@
           <span class="spinner"></span>
         </div>
       </div>
-      <!-- Feature Tracking (im gleichen Container) -->
+      <!-- Feature Tracking (in the same container) -->
       <div style="border-top: 1px solid var(--border); margin-top: var(--gap-md)">
         <div class="detail-card__header" style="padding: var(--gap-md) 16px 0">
           <span class="detail-card__title">
@@ -891,7 +911,7 @@
           <i data-lucide="list" class="icon-sm"></i> Findings
         </button>
         <button class="tab-btn" data-tab="rules" onclick="App.switchSkillTab('rules')">
-          <i data-lucide="git-branch" class="icon-sm"></i> Regeln
+          <i data-lucide="git-branch" class="icon-sm"></i> Rules
         </button>
         <button class="tab-btn" data-tab="tuning" onclick="App.switchSkillTab('tuning')">
           <i data-lucide="sliders" class="icon-sm"></i> Tuning
@@ -907,12 +927,12 @@
               <tr>
                 <th>Severity</th>
                 <th>Skill</th>
-                <th>Regel</th>
+                <th>Rule</th>
                 <th>Finding</th>
-                <th>Projekt</th>
-                <th>Datum</th>
+                <th>Project</th>
+                <th>Date</th>
                 <th>Status</th>
-                <th>Aktion</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody id="skills-findings-body">
@@ -929,13 +949,13 @@
             <thead>
               <tr>
                 <th>Skill</th>
-                <th>Regel</th>
+                <th>Rule</th>
                 <th>Status</th>
                 <th>Findings</th>
-                <th>Bestaetigt</th>
-                <th>Abgelehnt</th>
+                <th>Confirmed</th>
+                <th>Dismissed</th>
                 <th>FP</th>
-                <th>Conf-Rate</th>
+                <th>Conf rate</th>
               </tr>
             </thead>
             <tbody id="skills-rules-body">
@@ -953,12 +973,12 @@
               <tr>
                 <th>Skill</th>
                 <th>Parameter</th>
-                <th>Wert</th>
+                <th>Value</th>
                 <th>Version</th>
-                <th>Vorher</th>
-                <th>Grund</th>
-                <th>Projekt</th>
-                <th>Aktualisiert</th>
+                <th>Previous</th>
+                <th>Reason</th>
+                <th>Project</th>
+                <th>Updated</th>
               </tr>
             </thead>
             <tbody id="skills-tuning-body">
@@ -981,11 +1001,11 @@
       </div>
     </div>
 
-    <!-- Installed Skills (ganz unten) -->
+    <!-- Installed Skills (at the bottom) -->
     <div class="detail-card" style="margin-top: var(--gap-lg)">
       <div class="detail-card__header">
         <span class="detail-card__title">
-          <i data-lucide="package" class="icon-sm"></i> Installierte Skills
+          <i data-lucide="package" class="icon-sm"></i> Installed skills
         </span>
         <span class="badge badge--small" id="skills-installed-count">-</span>
       </div>
@@ -996,14 +1016,282 @@
 
   </div>
 
+  <!-- ===== Settings Page (v2.4.0) ===== -->
+  <div id="page-settings" class="page">
+    <div class="page-header" style="margin-bottom: var(--gap-lg)">
+      <h2 class="page-header__title">
+        <i data-lucide="settings" class="icon-header"></i> Settings
+      </h2>
+      <p class="page-header__sub">Runtime configuration for team onboarding and reverse-proxy setup</p>
+    </div>
+
+    <div id="settings-alert" class="alert" style="margin-bottom:var(--gap-md)"></div>
+
+    <form id="settings-form" class="card" style="padding: var(--gap-lg); max-width: 720px">
+      <h3 style="margin-bottom: var(--gap-md)">Connect URLs</h3>
+      <p class="text-muted" style="margin-bottom: var(--gap-md); font-size: 0.9rem">
+        Configure how team members reach your mxLore server. Internal URL is for LAN access (direct binary).
+        External URLs are for reverse-proxy deployments (e.g. IIS with HTTPS).
+      </p>
+
+      <div class="form-group">
+        <label for="setting-internal-host">Internal Host or IP</label>
+        <div style="display: flex; gap: var(--gap-sm)">
+          <input type="text" id="setting-internal-host" class="form-input"
+                 placeholder="e.g. 192.168.1.10 (leave empty for auto-detect)" style="flex: 1">
+          <button type="button" class="btn" onclick="App.testConnection('internal')" title="Test Internal Connection">
+            <i data-lucide="zap" class="icon-xs"></i> Test
+          </button>
+        </div>
+        <small class="form-hint" id="setting-internal-host-hint"></small>
+      </div>
+
+      <div class="form-group">
+        <label for="setting-external-mcp-url">External MCP URL</label>
+        <div style="display: flex; gap: var(--gap-sm)">
+          <input type="text" id="setting-external-mcp-url" class="form-input"
+                 placeholder="e.g. https://erp.example.com/mxLore/mcp" style="flex: 1">
+          <button type="button" class="btn" onclick="App.testConnection('external-mcp')" title="Test External MCP">
+            <i data-lucide="zap" class="icon-xs"></i> Test
+          </button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="setting-external-admin-url">External Admin URL</label>
+        <div style="display: flex; gap: var(--gap-sm)">
+          <input type="text" id="setting-external-admin-url" class="form-input"
+                 placeholder="e.g. https://erp.example.com/mxLore-admin" style="flex: 1">
+          <button type="button" class="btn" onclick="App.testConnection('external-admin')" title="Test External Admin">
+            <i data-lucide="zap" class="icon-xs"></i> Test
+          </button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="setting-trusted-proxies">Trusted Proxies</label>
+        <textarea id="setting-trusted-proxies" class="form-input" rows="2"
+                  placeholder="127.0.0.1, 192.168.1.5"></textarea>
+        <small class="form-hint">Comma-separated IP addresses. Required for X-Forwarded-For handling behind IIS/nginx.</small>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: var(--gap-sm); margin-top: var(--gap-lg)">
+        <button type="button" class="btn" onclick="App.loadSettingsPage()">
+          <i data-lucide="rotate-ccw" class="icon-xs"></i> Reload
+        </button>
+        <button type="submit" class="btn btn--primary">
+          <i data-lucide="save" class="icon-xs"></i> Save
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ===== Connect Team Page (v2.4.0) ===== -->
+  <div id="page-connect" class="page">
+    <div class="page-header" style="margin-bottom: var(--gap-lg)">
+      <h2 class="page-header__title">
+        <i data-lucide="link" class="icon-header"></i> Connect Team
+      </h2>
+      <p class="page-header__sub">Generate invite links for team members to onboard their MCP clients</p>
+    </div>
+
+    <div id="connect-alert" class="alert" style="margin-bottom:var(--gap-md); display:none"></div>
+
+    <!-- ===== Active Invites — card stream ===== -->
+    <div class="connect-header">
+      <div>
+        <h3 class="connect-section-title">
+          <span class="connect-section-title__dot"></span>
+          Active Invites
+        </h3>
+        <p class="connect-section-sub">Team members currently in the onboarding flow</p>
+      </div>
+      <button type="button" class="btn btn--primary" onclick="App.openNewInviteDialog()">
+        <i data-lucide="plus" class="icon-xs"></i> New Invite
+      </button>
+    </div>
+
+    <div id="connect-active-stream" class="invite-stream">
+      <div class="invite-stream__loading">
+        <div class="spinner-dots"><span></span><span></span><span></span></div>
+      </div>
+    </div>
+
+    <!-- ===== History — compact table ===== -->
+    <div class="connect-header connect-header--history">
+      <div>
+        <h3 class="connect-section-title connect-section-title--muted">
+          <span class="connect-section-title__dot connect-section-title__dot--muted"></span>
+          History
+        </h3>
+        <p class="connect-section-sub">Expired and revoked invites</p>
+      </div>
+      <button type="button" class="btn btn--ghost btn--sm" onclick="App.cleanupInvites()" title="Delete all expired and revoked invites">Clear History</button>
+    </div>
+
+    <div class="data-table-wrap data-table-wrap--muted">
+      <table class="data-table data-table--compact">
+        <thead>
+          <tr>
+            <th>Developer</th>
+            <th>Mode</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Consumer IP</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="connect-history-body">
+          <tr><td colspan="6" class="table-loading">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
 </div><!-- /app-shell -->
+
+<!-- ===== Modal: New Invite ===== -->
+<div id="modal-new-invite" class="modal-overlay">
+  <div class="modal" style="max-width: 560px">
+    <div class="modal__header">
+      <span class="modal__title">
+        <i data-lucide="link" class="icon-sm"></i> New Invite Link
+      </span>
+      <button class="modal-close modal__close-btn">
+        <i data-lucide="x" class="icon-sm"></i>
+      </button>
+    </div>
+    <form id="new-invite-form" style="padding: var(--gap-lg)">
+      <div id="new-invite-alert" class="alert" style="display:none; margin-bottom: var(--gap-md)"></div>
+
+      <div class="form-group">
+        <label for="invite-developer">Team Member</label>
+        <select id="invite-developer" class="form-input" required></select>
+      </div>
+
+      <div class="form-group">
+        <label>Connection Mode *</label>
+        <div style="display: flex; flex-direction: column; gap: var(--gap-sm); margin-top: var(--gap-xs)">
+          <label style="display: flex; align-items: flex-start; gap: var(--gap-sm); padding: var(--gap-sm); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-weight: normal">
+            <input type="radio" name="invite-mode" value="external" checked style="margin-top: 2px">
+            <span>
+              <strong style="display: block">External (via reverse proxy)</strong>
+              <small class="form-hint" style="display: block; margin-top: 2px">
+                Uses <code>connect.external_admin_url</code> from Settings. Recommended for team members outside your LAN.
+              </small>
+            </span>
+          </label>
+          <label style="display: flex; align-items: flex-start; gap: var(--gap-sm); padding: var(--gap-sm); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-weight: normal">
+            <input type="radio" name="invite-mode" value="internal" style="margin-top: 2px">
+            <span>
+              <strong style="display: block">Internal (LAN direct)</strong>
+              <small class="form-hint" style="display: block; margin-top: 2px">
+                Uses the admin host directly. Only works for team members on the same network.
+              </small>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="invite-key-name">Key Name</label>
+        <input type="text" id="invite-key-name" class="form-input"
+               placeholder="e.g. Alice – claude.ai" required>
+        <small class="form-hint">Displayed in the developer's key list.</small>
+      </div>
+
+      <div class="form-group">
+        <label for="invite-permissions">Permissions</label>
+        <select id="invite-permissions" class="form-input">
+          <option value="read">Read only</option>
+          <option value="readwrite" selected>Read + Write</option>
+          <option value="admin">Admin (full access)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="invite-expires">Expires in</label>
+        <select id="invite-expires" class="form-input">
+          <option value="24">24 hours</option>
+          <option value="48" selected>48 hours</option>
+          <option value="168">7 days</option>
+          <option value="720">30 days</option>
+        </select>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: var(--gap-sm); margin-top: var(--gap-lg)">
+        <button type="button" class="btn modal-close">Cancel</button>
+        <button type="submit" class="btn btn--primary">
+          <i data-lucide="link" class="icon-xs"></i> Generate
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== Modal: Invite Result (one-shot key display) ===== -->
+<div id="modal-invite-result" class="modal-overlay">
+  <div class="modal" style="max-width: 640px">
+    <div class="modal__header">
+      <span class="modal__title">
+        <i data-lucide="check-circle" class="icon-sm"></i> Invite Created
+      </span>
+      <button class="modal-close modal__close-btn">
+        <i data-lucide="x" class="icon-sm"></i>
+      </button>
+    </div>
+    <div style="padding: var(--gap-lg)">
+      <div id="invite-result-alert" class="alert" style="display:none; margin-bottom: var(--gap-md)"></div>
+
+      <div class="alert alert--warning" style="margin-bottom: var(--gap-md)">
+        <strong>Copy both values now.</strong> The raw API key will be shown only while the invite is unconfirmed.
+        After the recipient clicks Confirm (or 1 hour after first view), the key is removed from the database.
+      </div>
+
+      <div class="form-group">
+        <label>Invite Link (for the recipient)</label>
+        <div style="display: flex; gap: var(--gap-sm)">
+          <input type="text" id="invite-result-link" class="form-input" readonly style="flex: 1; font-family: monospace">
+          <button type="button" class="btn" onclick="App.copyInviteField('invite-result-link')">
+            <i data-lucide="copy" class="icon-xs"></i> Copy
+          </button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Raw API Key (backup — for /mxSetup &lt;key&gt;)</label>
+        <div style="display: flex; gap: var(--gap-sm)">
+          <input type="text" id="invite-result-key" class="form-input" readonly style="flex: 1; font-family: monospace">
+          <button type="button" class="btn" onclick="App.copyInviteField('invite-result-key')">
+            <i data-lucide="copy" class="icon-xs"></i> Copy
+          </button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Email Template (ready to paste)</label>
+        <textarea id="invite-result-email" class="form-input" readonly rows="8"
+                  style="font-family: monospace; font-size: 0.85rem"></textarea>
+        <div style="display: flex; justify-content: flex-end; margin-top: var(--gap-xs)">
+          <button type="button" class="btn btn--small" onclick="App.copyInviteField('invite-result-email')">
+            <i data-lucide="copy" class="icon-xs"></i> Copy as Email
+          </button>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: var(--gap-sm); margin-top: var(--gap-md)">
+        <button type="button" class="btn btn--primary modal-close">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- ===== Modal: New Project ===== -->
 <div id="modal-new-project" class="modal-overlay">
   <div class="modal">
     <div class="modal__header">
       <span class="modal__title">
-        <i data-lucide="folder-open" class="icon-sm"></i> Neues Projekt
+        <i data-lucide="folder-open" class="icon-sm"></i> New project
       </span>
       <button class="modal-close modal__close-btn">
         <i data-lucide="x" class="icon-sm"></i>
@@ -1013,17 +1301,17 @@
       <div class="modal__body">
         <div class="form-group">
           <label class="form-label" for="new-proj-name">Name *</label>
-          <input id="new-proj-name" class="form-input" type="text" placeholder="z.B. Mein Projekt" required>
+          <input id="new-proj-name" class="form-input" type="text" placeholder="e.g. My project" required>
         </div>
         <div class="form-group">
           <label class="form-label" for="new-proj-slug">Slug</label>
-          <input id="new-proj-slug" class="form-input mono" type="text" placeholder="auto-generiert">
+          <input id="new-proj-slug" class="form-input mono" type="text" placeholder="auto-generated">
         </div>
       </div>
       <div class="modal__footer">
-        <button type="button" class="btn modal-close">Abbrechen</button>
+        <button type="button" class="btn modal-close">Cancel</button>
         <button type="submit" class="btn btn--primary">
-          <i data-lucide="check-circle" class="icon-xs"></i> Erstellen
+          <i data-lucide="check-circle" class="icon-xs"></i> Create
         </button>
       </div>
     </form>
@@ -1035,7 +1323,7 @@
   <div class="modal">
     <div class="modal__header">
       <span class="modal__title">
-        <i data-lucide="git-merge" class="icon-sm"></i> Projekte zusammenfuehren
+        <i data-lucide="git-merge" class="icon-sm"></i> Merge projects
       </span>
       <button class="modal-close modal__close-btn">
         <i data-lucide="x" class="icon-sm"></i>
@@ -1045,19 +1333,19 @@
       <div class="modal__body">
         <div class="alert alert--info visible" style="margin-bottom:0">
           <i data-lucide="info" class="icon-sm"></i>
-          Alle Dokumente und Developer-Zuweisungen der Quell-Projekte werden auf das Ziel-Projekt uebertragen.
-          Quell-Projekte werden deaktiviert.
+          All documents and developer assignments from the source projects will be transferred to the target project.
+          Source projects will be deactivated.
         </div>
         <div id="proj-merge-conflicts" class="alert alert--error" style="display:none"></div>
         <div class="form-group">
-          <label class="form-label" for="proj-merge-target">Ziel-Projekt</label>
+          <label class="form-label" for="proj-merge-target">Target project</label>
           <select id="proj-merge-target" class="form-input"></select>
         </div>
       </div>
       <div class="modal__footer">
-        <button type="button" class="btn modal-close">Abbrechen</button>
+        <button type="button" class="btn modal-close">Cancel</button>
         <button type="submit" class="btn btn--primary">
-          <i data-lucide="git-merge" class="icon-xs"></i> Zusammenfuehren
+          <i data-lucide="git-merge" class="icon-xs"></i> Merge
         </button>
       </div>
     </form>
@@ -1069,7 +1357,7 @@
   <div class="modal">
     <div class="modal__header">
       <span class="modal__title">
-        <i data-lucide="folder" class="icon-sm"></i> Projekt bearbeiten
+        <i data-lucide="folder" class="icon-sm"></i> Edit project
       </span>
       <button class="modal-close modal__close-btn">
         <i data-lucide="x" class="icon-sm"></i>
@@ -1087,21 +1375,21 @@
         </div>
       </div>
       <div class="modal__footer">
-        <button type="button" class="btn modal-close">Abbrechen</button>
+        <button type="button" class="btn modal-close">Cancel</button>
         <button type="submit" class="btn btn--primary">
-          <i data-lucide="save" class="icon-xs"></i> Speichern
+          <i data-lucide="save" class="icon-xs"></i> Save
         </button>
       </div>
     </form>
   </div>
 </div>
 
-<!-- ===== Modal: New Developer ===== -->
+<!-- ===== Modal: New Team Member ===== -->
 <div id="modal-new-dev" class="modal-overlay">
   <div class="modal">
     <div class="modal__header">
       <span class="modal__title">
-        <i data-lucide="user-plus" class="icon-sm"></i> Neuer Developer
+        <i data-lucide="user-plus" class="icon-sm"></i> New team member
       </span>
       <button class="modal-close modal__close-btn">
         <i data-lucide="x" class="icon-sm"></i>
@@ -1111,17 +1399,29 @@
       <div class="modal__body">
         <div class="form-group">
           <label class="form-label" for="new-dev-name">Name *</label>
-          <input id="new-dev-name" class="form-input" type="text" placeholder="z.B. Max" required>
+          <input id="new-dev-name" class="form-input" type="text" placeholder="e.g. Max" required>
         </div>
         <div class="form-group">
           <label class="form-label" for="new-dev-email">Email</label>
           <input id="new-dev-email" class="form-input" type="email" placeholder="optional">
         </div>
+        <div class="form-group">
+          <label class="form-label" for="new-dev-role">Role</label>
+          <select id="new-dev-role" class="form-input">
+            <option value="" selected>— not set —</option>
+            <option value="Developer">Developer</option>
+            <option value="CTO">CTO</option>
+            <option value="PM">PM / Product Manager</option>
+            <option value="Designer">Designer</option>
+            <option value="QA">QA / Testing</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
       </div>
       <div class="modal__footer">
-        <button type="button" class="btn modal-close">Abbrechen</button>
+        <button type="button" class="btn modal-close">Cancel</button>
         <button type="submit" class="btn btn--primary">
-          <i data-lucide="check-circle" class="icon-xs"></i> Erstellen
+          <i data-lucide="check-circle" class="icon-xs"></i> Create
         </button>
       </div>
     </form>
@@ -1133,7 +1433,7 @@
   <div class="modal">
     <div class="modal__header">
       <span class="modal__title">
-        <i data-lucide="key" class="icon-sm"></i> Neuer API-Key
+        <i data-lucide="key" class="icon-sm"></i> New API key
       </span>
       <button class="modal-close modal__close-btn">
         <i data-lucide="x" class="icon-sm"></i>
@@ -1142,11 +1442,11 @@
     <form id="new-key-form">
       <div class="modal__body">
         <div class="form-group">
-          <label class="form-label" for="new-key-name">Bezeichnung *</label>
-          <input id="new-key-name" class="form-input" type="text" placeholder="z.B. Desktop-Buero" required>
+          <label class="form-label" for="new-key-name">Label *</label>
+          <input id="new-key-name" class="form-input" type="text" placeholder="e.g. Office desktop" required>
         </div>
         <div class="form-group">
-          <label class="form-label" for="new-key-permissions">Rolle</label>
+          <label class="form-label" for="new-key-permissions">Role</label>
           <select id="new-key-permissions" class="form-input">
             <option value="read">Read</option>
             <option value="readwrite" selected>Read/Write</option>
@@ -1154,27 +1454,27 @@
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label" for="new-key-expires">Ablaufdatum</label>
+          <label class="form-label" for="new-key-expires">Expiration date</label>
           <input id="new-key-expires" class="form-input" type="date" placeholder="optional">
         </div>
         <!-- Key reveal (one-time) -->
         <div id="key-reveal" class="key-reveal">
           <div class="key-reveal__label">
             <i data-lucide="alert-triangle" class="icon-xs"></i>
-            Key wird nur einmal angezeigt!
+            The key is shown only once!
           </div>
           <div class="key-reveal__value">
             <code id="key-reveal-value"></code>
             <button type="button" id="btn-copy-key" class="btn btn--small">
-              <i data-lucide="copy" class="icon-xs"></i> Kopieren
+              <i data-lucide="copy" class="icon-xs"></i> Copy
             </button>
           </div>
         </div>
       </div>
       <div class="modal__footer">
-        <button type="button" class="btn modal-close">Schliessen</button>
+        <button type="button" class="btn modal-close">Close</button>
         <button type="submit" class="btn btn--primary">
-          <i data-lucide="plus" class="icon-xs"></i> Key generieren
+          <i data-lucide="plus" class="icon-xs"></i> Generate key
         </button>
       </div>
     </form>
@@ -1186,7 +1486,7 @@
   <div class="modal">
     <div class="modal__header">
       <span class="modal__title">
-        <i data-lucide="git-merge" class="icon-sm"></i> Developer zusammenfuehren
+        <i data-lucide="git-merge" class="icon-sm"></i> Merge members
       </span>
       <button class="modal-close modal__close-btn">
         <i data-lucide="x" class="icon-sm"></i>
@@ -1196,18 +1496,18 @@
       <div class="modal__body">
         <div class="alert alert--info visible" style="margin-bottom:0">
           <i data-lucide="info" class="icon-sm"></i>
-          Alle Keys und Projekte der Quell-Developer werden auf den Ziel-Developer uebertragen.
-          Quell-Developer werden deaktiviert.
+          All keys and projects from the source members will be transferred to the target member.
+          Source members will be deactivated.
         </div>
         <div class="form-group">
-          <label class="form-label" for="merge-target">Ziel-Developer</label>
+          <label class="form-label" for="merge-target">Target member</label>
           <select id="merge-target" class="form-input"></select>
         </div>
       </div>
       <div class="modal__footer">
-        <button type="button" class="btn modal-close">Abbrechen</button>
+        <button type="button" class="btn modal-close">Cancel</button>
         <button type="submit" class="btn btn--primary">
-          <i data-lucide="git-merge" class="icon-xs"></i> Zusammenfuehren
+          <i data-lucide="git-merge" class="icon-xs"></i> Merge
         </button>
       </div>
     </form>

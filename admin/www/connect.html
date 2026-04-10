@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Connect to mxLore</title>
+<link rel="stylesheet" href="css/connect.css">
+</head>
+<body>
+<div class="bg-grid"></div>
+<div class="bg-glow"></div>
+
+<header class="site-header">
+  <div class="brand">
+    <span class="brand-glyph">◆</span>
+    <span class="brand-name">mx<em>Lore</em></span>
+  </div>
+  <span class="brand-tag">Team Knowledge Base</span>
+</header>
+
+<main class="container">
+
+  <!-- ========== Loading ========== -->
+  <section id="state-loading" class="state">
+    <div class="spinner"></div>
+    <p class="text-dim">Validating your invite&hellip;</p>
+  </section>
+
+  <!-- ========== Error ========== -->
+  <section id="state-error" class="state hidden">
+    <div class="icon-badge icon-badge--error">!</div>
+    <h1 id="error-title">Something went wrong</h1>
+    <p id="error-message" class="text-dim"></p>
+    <p class="text-dim" style="margin-top: 2rem; font-size: 0.85rem">
+      If you believe this is a mistake, ask your mxLore admin for a fresh invite.
+    </p>
+  </section>
+
+  <!-- ========== Success / Setup ========== -->
+  <section id="state-success" class="state hidden">
+    <div id="post-confirm-notice" class="notice hidden">
+      <strong>Already confirmed.</strong> This invite has been used. The raw API key is no longer available on the server.
+      If you need it again, ask the admin for a new invite.
+    </div>
+
+    <div class="hero">
+      <div class="icon-badge icon-badge--success">✓</div>
+      <h1>Welcome, <span id="dev-name">&hellip;</span></h1>
+      <p class="text-dim">Choose your client below to finish setup</p>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab active" role="tab" data-tab="claude-code">
+        <span class="tab-label">Claude Code</span>
+        <span class="tab-sub">for developers</span>
+      </button>
+      <button class="tab" role="tab" data-tab="claude-desktop">
+        <span class="tab-label">Claude Desktop</span>
+        <span class="tab-sub">native app</span>
+      </button>
+      <button class="tab" role="tab" data-tab="claude-web">
+        <span class="tab-label">claude.ai</span>
+        <span class="tab-sub">web chat</span>
+      </button>
+      <button class="tab" role="tab" data-tab="cursor">
+        <span class="tab-label">Cursor / Windsurf</span>
+        <span class="tab-sub">Cline, etc.</span>
+      </button>
+      <button class="tab" role="tab" data-tab="other">
+        <span class="tab-label">Other</span>
+        <span class="tab-sub">raw values</span>
+      </button>
+    </div>
+
+    <!-- ====== Claude Code ====== -->
+    <div id="tab-claude-code" class="tab-content active" role="tabpanel">
+      <p>Open a terminal in any project and run this one command:</p>
+      <div class="code-box code-box--large">
+        <code id="mxsetup-cmd">/mxSetup &hellip;</code>
+        <button class="copy-btn" data-target="mxsetup-cmd">Copy</button>
+      </div>
+      <p class="hint">
+        The skill installs the local proxy, downloads the mxLore skills from GitHub,
+        and writes <code>~/.claude/mxMCPProxy.ini</code> automatically.
+        Takes about 30 seconds.
+      </p>
+      <details class="details">
+        <summary>What if I don't have <code>/mxSetup</code>?</summary>
+        <p>
+          You haven't installed the mxLore skills yet. Run these two commands first:
+        </p>
+        <div class="code-box">
+          <code id="bootstrap-cmd">curl -L -o /tmp/mx.zip https://github.com/MicrotronX/mxLore-skills/archive/main.zip &amp;&amp; unzip -o /tmp/mx.zip -d ~/.claude/skills-tmp &amp;&amp; cp -r ~/.claude/skills-tmp/mxLore-skills-main/mx* ~/.claude/skills/ &amp;&amp; rm -rf ~/.claude/skills-tmp /tmp/mx.zip</code>
+          <button class="copy-btn" data-target="bootstrap-cmd">Copy</button>
+        </div>
+        <p>Then restart Claude Code and run <code>/mxSetup</code> with your key.</p>
+      </details>
+    </div>
+
+    <!-- ====== Claude Desktop ====== -->
+    <div id="tab-claude-desktop" class="tab-content" role="tabpanel">
+      <ol class="steps">
+        <li>
+          <strong>Open Claude Desktop</strong> → Settings → <strong>Connectors</strong> → <strong>Add custom connector</strong>
+        </li>
+        <li>
+          Use these two values:
+          <div class="field">
+            <label>Name</label>
+            <div class="code-box">
+              <code id="desktop-name">mxai-knowledge</code>
+              <button class="copy-btn" data-target="desktop-name">Copy</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Remote MCP Server URL</label>
+            <div class="code-box">
+              <code id="desktop-url">&hellip;</code>
+              <button class="copy-btn" data-target="desktop-url">Copy</button>
+            </div>
+            <p class="hint">The URL embeds your API key — treat it like a password.</p>
+          </div>
+        </li>
+        <li>
+          Save, then <strong>quit Claude Desktop completely</strong> via the tray icon (not just close the window).
+          Relaunch and open a new chat.
+        </li>
+      </ol>
+    </div>
+
+    <!-- ====== claude.ai Web ====== -->
+    <div id="tab-claude-web" class="tab-content" role="tabpanel">
+      <ol class="steps">
+        <li>
+          Go to <a href="https://claude.ai" target="_blank" rel="noopener">claude.ai</a> → Settings → <strong>Connectors</strong> → <strong>Add custom connector</strong>
+        </li>
+        <li>
+          Use these values:
+          <div class="field">
+            <label>Name</label>
+            <div class="code-box">
+              <code id="web-name">mxai-knowledge</code>
+              <button class="copy-btn" data-target="web-name">Copy</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Remote MCP Server URL</label>
+            <div class="code-box">
+              <code id="web-url">&hellip;</code>
+              <button class="copy-btn" data-target="web-url">Copy</button>
+            </div>
+          </div>
+        </li>
+        <li>Save and start a new conversation — the MCP tools will appear automatically.</li>
+      </ol>
+    </div>
+
+    <!-- ====== Cursor / Windsurf / Cline ====== -->
+    <div id="tab-cursor" class="tab-content" role="tabpanel">
+      <p>Add this block to your MCP config file (location depends on the client):</p>
+      <div class="code-box code-box--json">
+        <code id="cursor-json">&hellip;</code>
+        <button class="copy-btn" data-target="cursor-json">Copy</button>
+      </div>
+      <p class="hint">
+        <strong>Cursor:</strong> <code>~/.cursor/mcp.json</code> &nbsp;&middot;&nbsp;
+        <strong>Windsurf:</strong> <code>~/.codeium/windsurf/mcp_config.json</code> &nbsp;&middot;&nbsp;
+        <strong>Cline (VS Code):</strong> Settings → MCP Servers
+      </p>
+    </div>
+
+    <!-- ====== Other ====== -->
+    <div id="tab-other" class="tab-content" role="tabpanel">
+      <p>Raw connection values for any MCP-compatible client:</p>
+      <div class="field">
+        <label>MCP Server URL</label>
+        <div class="code-box">
+          <code id="other-url">&hellip;</code>
+          <button class="copy-btn" data-target="other-url">Copy</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>API Key (Bearer token)</label>
+        <div class="code-box">
+          <code id="other-key">&hellip;</code>
+          <button class="copy-btn" data-target="other-key">Copy</button>
+        </div>
+      </div>
+      <p class="hint">
+        Pass the key as <code>Authorization: Bearer &lt;key&gt;</code> header, or append <code>?api_key=&lt;key&gt;</code> to the URL for clients that don't support custom headers.
+      </p>
+    </div>
+
+    <!-- ====== Confirm ====== -->
+    <div id="confirm-box" class="confirm-box">
+      <h3>Done setting up?</h3>
+      <p>
+        Click the button once your client is working. This <strong>removes the raw API key from the server</strong> —
+        only the hashed key stays (which is normal and cannot be used to log in).
+        You won't see the key on this page again.
+      </p>
+      <button id="confirm-btn" class="btn btn--primary">
+        I'm connected — remove key from server
+      </button>
+    </div>
+  </section>
+
+  <!-- ========== Confirmed ========== -->
+  <section id="state-confirmed" class="state hidden">
+    <div class="icon-badge icon-badge--success">✓</div>
+    <h1>All set</h1>
+    <p class="text-dim">
+      You're connected to mxLore. The raw API key has been removed from the server.
+      You can close this page.
+    </p>
+    <p class="text-dim" style="margin-top: 2rem; font-size: 0.85rem">
+      Tip: bookmark the admin URL (ask your admin) if you want to manage your own API keys later.
+    </p>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <span class="text-dim">mxLore &middot; self-hosted MCP knowledge base</span>
+</footer>
+
+<script src="js/connect.js"></script>
+</body>
+</html>

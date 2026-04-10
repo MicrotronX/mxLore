@@ -72,8 +72,10 @@ const Api = (function () {
     return request('GET', '/developers');
   }
 
-  function createDeveloper(name, email) {
-    return request('POST', '/developers', { name: name, email: email || null });
+  function createDeveloper(name, email, role) {
+    var body = { name: name, email: email || null };
+    if (role) body.role = role;
+    return request('POST', '/developers', body);
   }
 
   function updateDeveloper(id, data) {
@@ -267,6 +269,34 @@ const Api = (function () {
     postCleanup: postCleanup,
     postBackup: postBackup,
     getDeveloperProjects: getDeveloperProjects,
-    updateDeveloperProjects: updateDeveloperProjects
+    updateDeveloperProjects: updateDeveloperProjects,
+
+    // --- Settings (v2.4.0) ---
+    getSettings: function () {
+      return request('GET', '/settings');
+    },
+    saveSettings: function (obj) {
+      return request('PUT', '/settings', obj);
+    },
+    testConnection: function (url, mode) {
+      return request('POST', '/settings/test-connection', { url: url, mode: mode || '' });
+    },
+
+    // --- Invites (v2.4.0) ---
+    listInvites: function (statusFilter) {
+      var path = '/invites';
+      if (statusFilter && statusFilter !== 'all') path += '?status=' + encodeURIComponent(statusFilter);
+      return request('GET', path);
+    },
+    createInvite: function (payload) {
+      // payload: { developer_id, key_name, permissions, expires_hours, mode }
+      return request('POST', '/invites', payload);
+    },
+    deleteInvite: function (inviteId) {
+      return request('DELETE', '/invites/' + inviteId);
+    },
+    cleanupInvites: function () {
+      return request('DELETE', '/invites/cleanup');
+    }
   };
 })();

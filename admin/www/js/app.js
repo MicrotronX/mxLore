@@ -63,7 +63,7 @@ var App = (function () {
       if (!key) return;
 
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span> Authentifiziere...';
+      btn.innerHTML = '<span class="spinner"></span> Authenticating...';
       hideAlert('login-alert');
 
       try {
@@ -72,18 +72,18 @@ var App = (function () {
         setUserUI(data.developer.name);
         $('#page-login').style.display = 'none';
         keyInput.value = '';
-        navigateTo('developers');
+        navigateTo('global');
       } catch (err) {
         if (err.message === 'not_admin') {
-          showAlert('login-alert', 'error', 'Nur Admin-Keys erlaubt.');
+          showAlert('login-alert', 'error', 'Admin keys only.');
         } else if (err.message === 'invalid_key') {
-          showAlert('login-alert', 'error', 'Ungueltiger API-Key.');
+          showAlert('login-alert', 'error', 'Invalid API key.');
         } else {
-          showAlert('login-alert', 'error', 'Verbindungsfehler. Server erreichbar?');
+          showAlert('login-alert', 'error', 'Connection error. Is the server reachable?');
         }
       } finally {
         btn.disabled = false;
-        btn.innerHTML = 'Anmelden';
+        btn.innerHTML = 'Sign in';
       }
     });
   }
@@ -108,9 +108,10 @@ var App = (function () {
     try {
       var data = await Api.getDevelopers();
       var devs = data.developers || [];
+      window._lastDevList = devs;
 
       if (devs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-state__icon">&#9881;</div>Keine Developer vorhanden</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><div class="empty-state__icon">&#9881;</div>No team members yet</div></td></tr>';
         return;
       }
 
@@ -126,17 +127,18 @@ var App = (function () {
 
       tbody.innerHTML = devs.map(function (d) {
         var statusClass = d.is_active ? 'active' : 'inactive';
-        var statusText = d.is_active ? 'Aktiv' : 'Inaktiv';
+        var statusText = d.is_active ? 'Active' : 'Inactive';
         return '<tr data-id="' + d.id + '">' +
           '<td><input type="checkbox" class="row-check merge-check" data-id="' + d.id + '" data-name="' + escHtml(d.name) + '"></td>' +
           '<td><span class="cell-link" onclick="App.openDeveloper(' + d.id + ')">' + escHtml(d.name) + '</span></td>' +
           '<td class="text-secondary">' + escHtml(d.email || '\u2014') + '</td>' +
+          '<td class="text-secondary">' + escHtml(d.role || '\u2014') + '</td>' +
           '<td class="cell-stat">' + (d.key_count || 0) + '</td>' +
           '<td class="cell-stat">' + (d.project_count || 0) + '</td>' +
           '<td><span class="badge badge--' + statusClass + '">' + statusText + '</span></td>' +
           '<td>' +
-            '<button class="btn btn--small btn--ghost" onclick="App.openDeveloper(' + d.id + ')" title="Bearbeiten">&#9998;</button>' +
-            (d.is_active ? '<button class="btn btn--small btn--danger" onclick="App.confirmDelete(' + d.id + ', \'' + escHtml(d.name) + '\', false)" title="Deaktivieren">&#10005;</button>' : '') +
+            '<button class="btn btn--small btn--ghost" onclick="App.openDeveloper(' + d.id + ')" title="Edit">&#9998;</button>' +
+            (d.is_active ? '<button class="btn btn--small btn--danger" onclick="App.confirmDelete(' + d.id + ', \'' + escHtml(d.name) + '\', false)" title="Deactivate">&#10005;</button>' : '') +
             '<button class="btn btn--small btn--danger" onclick="App.confirmDelete(' + d.id + ', \'' + escHtml(d.name) + '\', true)" title="Hard Delete" style="opacity:0.6">&#128465;</button>' +
           '</td>' +
         '</tr>';
@@ -153,7 +155,7 @@ var App = (function () {
       });
     } catch (err) {
       if (err.message !== 'session_expired') {
-        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">Fehler beim Laden</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state">Failed to load</div></td></tr>';
       }
     }
   }
@@ -162,7 +164,7 @@ var App = (function () {
     var bar = $('#merge-bar');
     if (selectedForMerge.size >= 2) {
       bar.classList.add('visible');
-      $('#merge-count').textContent = selectedForMerge.size + ' Developer ausgewaehlt';
+      $('#merge-count').textContent = selectedForMerge.size + ' members selected';
     } else {
       bar.classList.remove('visible');
     }
@@ -181,14 +183,22 @@ var App = (function () {
       e.preventDefault();
       var name = $('#new-dev-name').value.trim();
       var email = $('#new-dev-email').value.trim();
+      var role = $('#new-dev-role') ? $('#new-dev-role').value : '';
       if (!name) return;
 
       try {
-        await Api.createDeveloper(name, email);
+        var resp = await Api.createDeveloper(name, email, role);
         closeModal('modal-new-dev');
-        loadDeveloperList();
+        // Navigate to Connect Team and open invite dialog for the new member
+        await loadConnectPage();
+        var newDevId = resp && resp.id ? resp.id : 0;
+        if (newDevId) {
+          openNewInviteDialog();
+          var sel = $('#invite-developer');
+          if (sel) sel.value = String(newDevId);
+        }
       } catch (err) {
-        showAlert('list-alert', 'error', 'Fehler: ' + err.message);
+        showAlert('list-alert', 'error', 'Error: ' + err.message);
       }
     });
   }
@@ -218,24 +228,34 @@ var App = (function () {
         await Api.mergeDevelopers(sourceIds, targetId);
         closeModal('modal-merge');
         loadDeveloperList();
-        showAlert('list-alert', 'success', 'Developer erfolgreich zusammengefuehrt.');
+        showAlert('list-alert', 'success', 'Members merged successfully.');
       } catch (err) {
-        showAlert('list-alert', 'error', 'Merge fehlgeschlagen: ' + err.message);
+        showAlert('list-alert', 'error', 'Merge failed: ' + err.message);
       }
     });
   }
 
   // --- Delete / Deactivate ---
   function confirmDelete(id, name, hard) {
-    var msg = hard
-      ? 'Developer "' + name + '" ENDGUELTIG LOESCHEN?\n\nAlle Keys, Sessions und Projekt-Zuordnungen werden unwiderruflich geloescht!'
-      : 'Developer "' + name + '" wirklich deaktivieren?\n\nAlle zugehoerigen API-Keys werden ebenfalls deaktiviert.';
-    if (!confirm(msg)) return;
+    if (hard) {
+      // Find member stats for a detailed warning
+      var dev = (window._lastDevList || []).find(function (d) { return d.id === id; });
+      var details = '';
+      if (dev) {
+        var parts = [];
+        if (dev.key_count) parts.push(dev.key_count + ' API key(s)');
+        if (dev.project_count) parts.push(dev.project_count + ' project assignment(s)');
+        if (parts.length) details = '\n\nThis will also delete: ' + parts.join(', ') + '.';
+      }
+      if (!confirm('PERMANENTLY DELETE "' + name + '"?' + details + '\n\nThis action cannot be undone!')) return;
+    } else {
+      if (!confirm('Deactivate "' + name + '"?\n\nAll associated API keys will also be deactivated.')) return;
+    }
     Api.deleteDeveloper(id, hard).then(function () {
       loadDeveloperList();
-      showAlert('list-alert', 'success', hard ? 'Developer geloescht.' : 'Developer deaktiviert.');
+      showAlert('list-alert', 'success', hard ? 'Member deleted.' : 'Member deactivated.');
     }).catch(function (err) {
-      showAlert('list-alert', 'error', 'Fehler: ' + err.message);
+      showAlert('list-alert', 'error', 'Error: ' + err.message);
     });
   }
 
@@ -260,6 +280,8 @@ var App = (function () {
       $('#detail-title-name').textContent = dev.name;
       $('#detail-name').value = dev.name;
       $('#detail-email').value = dev.email || '';
+      var roleSelect = $('#detail-role');
+      if (roleSelect) roleSelect.value = dev.role || '';
       $('#detail-active').checked = dev.is_active;
     } catch (err) {
       if (err.message !== 'session_expired') loadDeveloperList();
@@ -277,15 +299,17 @@ var App = (function () {
       if (!currentDeveloper) return;
 
       try {
+        var roleVal = $('#detail-role') ? $('#detail-role').value : '';
         await Api.updateDeveloper(currentDeveloper, {
           name: $('#detail-name').value.trim(),
           email: $('#detail-email').value.trim() || null,
+          role: roleVal || null,
           is_active: $('#detail-active').checked
         });
-        showAlert('detail-alert', 'success', 'Gespeichert.');
+        showAlert('detail-alert', 'success', 'Saved.');
         $('#detail-title-name').textContent = $('#detail-name').value.trim();
       } catch (err) {
-        showAlert('detail-alert', 'error', 'Fehler: ' + err.message);
+        showAlert('detail-alert', 'error', 'Error: ' + err.message);
       }
     });
   }
@@ -314,7 +338,7 @@ var App = (function () {
       var envs = data.environments || [];
 
       if (envs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state">Keine Umgebungspfade</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state">No environment paths</div></td></tr>';
         return;
       }
 
@@ -334,14 +358,14 @@ var App = (function () {
       sortedKeys.forEach(function (proj) {
         html += '<tr><td colspan="4" style="padding:10px 16px 4px;font-weight:600;color:var(--text-bright);border-bottom:2px solid var(--border)">' +
           '<span class="badge" style="margin-right:6px">' + escHtml(proj) + '</span>' +
-          '<span class="text-secondary" style="font-weight:400;font-size:0.8rem">' + groups[proj].length + ' Eintraege</span></td></tr>';
+          '<span class="text-secondary" style="font-weight:400;font-size:0.8rem">' + groups[proj].length + ' entries</span></td></tr>';
         groups[proj].forEach(function (e) {
           html += '<tr>' +
             '<td class="mono">' + escHtml(e.env_key) + '</td>' +
             '<td>' + escHtml(e.env_value) + '</td>' +
             '<td class="text-secondary" style="font-size:0.82rem">' + escHtml(e.key_name || '\u2014') + '</td>' +
-            '<td><button class="btn btn--small btn--danger" onclick="App.deleteEnvironment(' + e.id + ',' + developerId + ')" title="Loeschen">' +
-            'Loeschen</button></td>' +
+            '<td><button class="btn btn--small btn--danger" onclick="App.deleteEnvironment(' + e.id + ',' + developerId + ')" title="Delete">' +
+            'Delete</button></td>' +
             '</tr>';
         });
       });
@@ -353,12 +377,12 @@ var App = (function () {
   }
 
   async function deleteEnvironment(envId, developerId) {
-    if (!confirm('Umgebungspfad loeschen?')) return;
+    if (!confirm('Delete environment path?')) return;
     try {
       await Api.deleteEnvironment(envId);
       loadSettings(developerId);
     } catch (err) {
-      alert('Fehler: ' + err.message);
+      alert('Error: ' + err.message);
     }
   }
 
@@ -372,29 +396,29 @@ var App = (function () {
       var keys = data.keys || [];
 
       if (keys.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">Keine API-Keys</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No API keys</div></td></tr>';
         return;
       }
 
       tbody.innerHTML = keys.map(function (k) {
         var roleClass = k.permissions === 'admin' ? 'admin' : (k.permissions === 'readwrite' ? 'write' : 'read');
         var statusClass = k.is_active ? 'active' : 'inactive';
-        var roleSelect = '<select class="form-input" style="width:auto;padding:2px 4px;font-size:0.78rem" onchange="App.changeKeyRole(' + k.id + ',this.value)">' +
+        var roleSelect = '<select class="form-input" style="width:auto;min-width:100px;padding:2px 22px 2px 6px;font-size:0.78rem" onchange="App.changeKeyRole(' + k.id + ',this.value)">' +
           '<option value="read"' + (k.permissions === 'read' ? ' selected' : '') + '>read</option>' +
           '<option value="readwrite"' + (k.permissions === 'readwrite' ? ' selected' : '') + '>readwrite</option>' +
           '<option value="admin"' + (k.permissions === 'admin' ? ' selected' : '') + '>admin</option>' +
           '</select>';
         var actions = '';
         if (k.is_active)
-          actions += '<button class="btn btn--small btn--danger" onclick="App.deactivateKey(' + k.id + ')">Deaktivieren</button> ';
-        actions += '<button class="btn btn--small btn--danger" onclick="App.hardDeleteKey(' + k.id + ')" title="Endgueltig loeschen">Loeschen</button>';
+          actions += '<button class="btn btn--small btn--danger" onclick="App.deactivateKey(' + k.id + ')">Deactivate</button> ';
+        actions += '<button class="btn btn--small btn--danger" onclick="App.hardDeleteKey(' + k.id + ')" title="Delete permanently">Delete</button>';
         return '<tr>' +
           '<td class="mono">' + escHtml(k.name) + '</td>' +
           '<td class="mono text-secondary" style="font-size:0.78rem">' + escHtml(k.key_prefix || '\u2014') + '</td>' +
           '<td>' + roleSelect + '</td>' +
           '<td class="text-secondary mono" style="font-size:0.78rem">' + formatDate(k.last_used_at) + '</td>' +
           '<td class="text-secondary mono" style="font-size:0.78rem">' + escHtml(k.last_used_ip || '\u2014') + '</td>' +
-          '<td><span class="badge badge--' + statusClass + '">' + (k.is_active ? 'Aktiv' : 'Inaktiv') + '</span></td>' +
+          '<td><span class="badge badge--' + statusClass + '">' + (k.is_active ? 'Active' : 'Inactive') + '</span></td>' +
           '<td>' + actions + '</td>' +
         '</tr>';
       }).join('');
@@ -427,7 +451,7 @@ var App = (function () {
         $('#key-reveal').classList.add('visible');
         loadKeys(currentDeveloper);
       } catch (err) {
-        showAlert('detail-alert', 'error', 'Key-Erstellung fehlgeschlagen: ' + err.message);
+        showAlert('detail-alert', 'error', 'Key creation failed: ' + err.message);
         closeModal('modal-new-key');
       }
     });
@@ -436,27 +460,27 @@ var App = (function () {
       var key = $('#key-reveal-value').textContent;
       navigator.clipboard.writeText(key).then(function () {
         $('#btn-copy-key').textContent = 'Kopiert!';
-        setTimeout(function () { $('#btn-copy-key').textContent = 'Kopieren'; }, 2000);
+        setTimeout(function () { $('#btn-copy-key').textContent = 'Copy'; }, 2000);
       });
     });
   }
 
   function deactivateKey(keyId) {
-    if (!confirm('API-Key wirklich deaktivieren?')) return;
+    if (!confirm('Deactivate this API key?')) return;
     Api.deleteKey(keyId).then(function () {
       loadKeys(currentDeveloper);
     }).catch(function (err) {
-      showAlert('detail-alert', 'error', 'Fehler: ' + err.message);
+      showAlert('detail-alert', 'error', 'Error: ' + err.message);
     });
   }
 
   function hardDeleteKey(keyId) {
-    if (!confirm('API-Key ENDGUELTIG loeschen? Alle zugehoerigen Umgebungspfade werden ebenfalls geloescht.')) return;
+    if (!confirm('PERMANENTLY delete API key? All associated environment paths will also be deleted.')) return;
     Api.deleteKey(keyId, true).then(function () {
       loadKeys(currentDeveloper);
       loadSettings(currentDeveloper);
     }).catch(function (err) {
-      showAlert('detail-alert', 'error', 'Fehler: ' + err.message);
+      showAlert('detail-alert', 'error', 'Error: ' + err.message);
     });
   }
 
@@ -464,7 +488,7 @@ var App = (function () {
     Api.updateKey(keyId, newRole).then(function () {
       showAlert('detail-alert', 'success', 'Rolle geaendert.');
     }).catch(function (err) {
-      showAlert('detail-alert', 'error', 'Fehler: ' + err.message);
+      showAlert('detail-alert', 'error', 'Error: ' + err.message);
       loadKeys(currentDeveloper);
     });
   }
@@ -487,7 +511,7 @@ var App = (function () {
       assigned.forEach(function (a) { accessMap[a.project_id] = a.access_level; });
 
       if (allProjects.length === 0) {
-        container.innerHTML = '<div class="empty-state">Keine Projekte vorhanden</div>';
+        container.innerHTML = '<div class="empty-state">No projects yet</div>';
         return;
       }
 
@@ -510,7 +534,7 @@ var App = (function () {
       if (!currentDeveloper) return;
       var btn = this;
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span> Speichern...';
+      btn.innerHTML = '<span class="spinner"></span> Saving...';
 
       var projects = [];
       $$('.access-select').forEach(function (sel) {
@@ -525,12 +549,12 @@ var App = (function () {
 
       try {
         await Api.updateDeveloperProjects(currentDeveloper, projects);
-        showAlert('detail-alert', 'success', 'Zuweisungen gespeichert.');
+        showAlert('detail-alert', 'success', 'Assignments saved.');
       } catch (err) {
-        showAlert('detail-alert', 'error', 'Fehler: ' + err.message);
+        showAlert('detail-alert', 'error', 'Error: ' + err.message);
       } finally {
         btn.disabled = false;
-        btn.innerHTML = 'Zuweisungen speichern';
+        btn.innerHTML = 'Save assignments';
       }
     });
   }
@@ -553,7 +577,499 @@ var App = (function () {
       loadGlobalPage();
     } else if (page === 'intelligence') {
       loadSkillsPage();
+    } else if (page === 'settings') {
+      loadSettingsPage();
+    } else if (page === 'connect') {
+      loadConnectPage();
     }
+  }
+
+  // ============================================================
+  //   SETTINGS PAGE (v2.4.0)
+  // ============================================================
+  async function loadSettingsPage() {
+    showPage('settings');
+    var alertEl = $('#settings-alert');
+    if (alertEl) alertEl.style.display = 'none';
+    try {
+      var resp = await Api.getSettings();
+      var map = {};
+      (resp.settings || []).forEach(function (s) { map[s.key] = s.value; });
+
+      $('#setting-internal-host').value = map['connect.internal_host'] || '';
+      $('#setting-external-mcp-url').value = map['connect.external_mcp_url'] || '';
+      $('#setting-external-admin-url').value = map['connect.external_admin_url'] || '';
+      $('#setting-trusted-proxies').value = map['connect.trusted_proxies'] || '';
+
+      var hint = $('#setting-internal-host-hint');
+      if (hint) {
+        if (!map['connect.internal_host']) {
+          hint.textContent = '\u26A0 Not configured \u2014 auto-detect will be used at runtime';
+          hint.style.color = 'var(--amber)';
+        } else {
+          hint.textContent = '';
+          hint.style.color = '';
+        }
+      }
+    } catch (e) {
+      showSettingsAlert('error', 'Failed to load settings: ' + (e.message || e));
+    }
+  }
+
+  async function saveSettings(ev) {
+    if (ev) ev.preventDefault();
+    var payload = {
+      'connect.internal_host': $('#setting-internal-host').value.trim(),
+      'connect.external_mcp_url': $('#setting-external-mcp-url').value.trim(),
+      'connect.external_admin_url': $('#setting-external-admin-url').value.trim(),
+      'connect.trusted_proxies': $('#setting-trusted-proxies').value.trim()
+    };
+    try {
+      await Api.saveSettings(payload);
+      showSettingsAlert('success', 'Settings saved successfully.');
+      loadSettingsPage();
+    } catch (e) {
+      showSettingsAlert('error', 'Save failed: ' + (e.message || e));
+    }
+  }
+
+  async function testConnection(which) {
+    var url = '';
+    var mode = '';
+    if (which === 'internal') {
+      var host = $('#setting-internal-host').value.trim();
+      if (!host) {
+        showSettingsAlert('warning', 'Enter an Internal Host first, or leave empty for auto-detect.');
+        return;
+      }
+      var mcpPort = (parseInt(window.location.port, 10) || 8081) - 1;
+      url = 'http://' + host + ':' + mcpPort + '/mcp';
+      mode = 'mcp';
+    } else if (which === 'external-mcp') {
+      url = $('#setting-external-mcp-url').value.trim();
+      mode = 'mcp';
+    } else if (which === 'external-admin') {
+      url = $('#setting-external-admin-url').value.trim();
+      mode = 'http';
+    }
+    if (!url) {
+      showSettingsAlert('warning', 'No URL configured for this test.');
+      return;
+    }
+    showSettingsAlert('info', 'Testing ' + url + ' ...');
+    try {
+      var resp = await Api.testConnection(url, mode);
+      var kindLabel = (resp.kind === 'mcp') ? 'MCP' : 'HTTP';
+      var info = 'HTTP ' + resp.status_code + ', ' + resp.latency_ms + 'ms';
+      if (resp.ok) {
+        var extra = '';
+        if (resp.server_name) {
+          extra = ' — ' + resp.server_name;
+          if (resp.server_version) extra += ' v' + resp.server_version;
+        }
+        if (resp.error) extra += ' (' + resp.error + ')';
+        showSettingsAlert('success',
+          '\u2713 ' + kindLabel + ' endpoint reachable (' + info + ')' + extra);
+      } else {
+        showSettingsAlert('error',
+          '\u2717 ' + kindLabel + ' test failed: ' + (resp.error || info));
+      }
+    } catch (e) {
+      showSettingsAlert('error', 'Test failed: ' + (e.message || e));
+    }
+  }
+
+  function showSettingsAlert(level, text) {
+    var el = $('#settings-alert');
+    if (!el) return;
+    el.className = 'alert alert--' + level;
+    el.textContent = text;
+    el.style.display = 'block';
+  }
+
+  // ============================================================
+  //   CONNECT TEAM PAGE (v2.4.0)
+  // ============================================================
+  var connectDevelopers = [];  // cached for dropdown + lookup
+
+  async function loadConnectPage() {
+    showPage('connect');
+    var alertEl = $('#connect-alert');
+    if (alertEl) alertEl.style.display = 'none';
+
+    // Fetch developers (for dropdown + name lookup) and invite list in parallel
+    try {
+      var devsResp = await Api.getDevelopers();
+      connectDevelopers = (devsResp.developers || []).filter(function (d) {
+        return d.is_active;  // only active devs
+      });
+    } catch (e) {
+      connectDevelopers = [];
+      showConnectAlert('error', 'Failed to load developers: ' + (e.message || e));
+    }
+
+    await refreshInviteLists();
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  async function refreshInviteLists() {
+    try {
+      var resp = await Api.listInvites('all');
+      var invites = resp.invites || [];
+      var devMap = {};
+      connectDevelopers.forEach(function (d) { devMap[d.id] = d.name; });
+
+      var activeStream = $('#connect-active-stream');
+      var historyBody = $('#connect-history-body');
+      var activeCards = [];
+      var historyRows = [];
+
+      invites.forEach(function (inv) {
+        var devName = devMap[inv.developer_id] || ('Dev #' + inv.developer_id);
+        if (inv.status === 'active') {
+          activeCards.push(renderActiveInviteCard(inv, devName, activeCards.length));
+        } else {
+          historyRows.push(renderHistoryInviteRow(inv, devName));
+        }
+      });
+
+      activeStream.innerHTML = activeCards.length
+        ? activeCards.join('')
+        : renderEmptyActiveState();
+
+      historyBody.innerHTML = historyRows.length
+        ? historyRows.join('')
+        : '<tr><td colspan="6" class="table-empty">No expired or revoked invites yet</td></tr>';
+
+      // Re-initialize lucide icons in case we injected any data-lucide attrs
+      if (window.lucide && typeof window.lucide.createIcons === 'function') {
+        window.lucide.createIcons();
+      }
+    } catch (e) {
+      showConnectAlert('error', 'Failed to load invites: ' + (e.message || e));
+    }
+  }
+
+  function renderActiveInviteCard(inv, devName, index) {
+    var viewed    = !!inv.first_viewed_at;
+    var confirmed = !!inv.confirmed_at;
+    var expiry    = computeExpiryInfo(inv.expires_at);
+    var delay     = (index * 50) + 'ms';
+
+    // Lifecycle strip: 3 steps, each with done/pending state
+    var lifecycle =
+      '<div class="lifecycle-track">' +
+        '<div class="lifecycle-step lifecycle-step--done">' +
+          '<span class="lifecycle-dot"></span>' +
+          '<span class="lifecycle-label">invited</span>' +
+        '</div>' +
+        '<div class="lifecycle-link' + (viewed ? ' lifecycle-link--done' : '') + '"></div>' +
+        '<div class="lifecycle-step' + (viewed ? ' lifecycle-step--done' : '') + '">' +
+          '<span class="lifecycle-dot"></span>' +
+          '<span class="lifecycle-label">viewed</span>' +
+        '</div>' +
+        '<div class="lifecycle-link' + (confirmed ? ' lifecycle-link--done' : '') + '"></div>' +
+        '<div class="lifecycle-step' + (confirmed ? ' lifecycle-step--done' : '') + '">' +
+          '<span class="lifecycle-dot"></span>' +
+          '<span class="lifecycle-label">confirmed</span>' +
+        '</div>' +
+      '</div>';
+
+    var ipBlock = inv.consumer_ip
+      ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>' +
+        '<span class="mono">' + escapeHtml(inv.consumer_ip) + '</span>'
+      : '<span class="invite-card__ip--none">no one opened this yet</span>';
+
+    return (
+      '<article class="invite-card" style="animation-delay:' + delay + '">' +
+        '<header class="invite-card__top">' +
+          '<div class="invite-card__identity">' +
+            '<div class="invite-card__name">' + escapeHtml(devName) + '</div>' +
+            '<div class="invite-card__mode">' +
+              '<span class="mode-pill mode-pill--' + escapeHtml(inv.mode) + '">' + escapeHtml(inv.mode) + '</span>' +
+              '<span class="invite-card__created">invited ' + formatRelativeTime(inv.created_at) + '</span>' +
+            '</div>' +
+          '</div>' +
+          '<button type="button" class="invite-card__revoke" onclick="App.revokeInvite(' + inv.id + ')" title="Revoke this invite" aria-label="Revoke">' +
+            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+          '</button>' +
+        '</header>' +
+
+        '<div class="invite-card__lifecycle">' + lifecycle + '</div>' +
+
+        '<footer class="invite-card__foot">' +
+          '<div class="invite-card__expiry invite-card__expiry--' + expiry.urgency + '">' +
+            '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+            '<span class="invite-card__expiry-label">expires in ' + expiry.label + '</span>' +
+            '<div class="invite-card__expiry-bar"><div class="invite-card__expiry-fill" style="width:' + expiry.percent + '%"></div></div>' +
+          '</div>' +
+          '<div class="invite-card__ip">' + ipBlock + '</div>' +
+        '</footer>' +
+      '</article>'
+    );
+  }
+
+  function renderHistoryInviteRow(inv, devName) {
+    return (
+      '<tr>' +
+      '<td><span class="history-name">' + escapeHtml(devName) + '</span></td>' +
+      '<td><span class="mode-pill mode-pill--' + escapeHtml(inv.mode) + '">' + escapeHtml(inv.mode) + '</span></td>' +
+      '<td><span class="history-status history-status--' + escapeHtml(inv.status) + '">' + escapeHtml(inv.status) + '</span></td>' +
+      '<td class="history-time">' + formatRelativeTime(inv.created_at) + '</td>' +
+      '<td class="mono muted">' + (inv.consumer_ip ? escapeHtml(inv.consumer_ip) : '\u2014') + '</td>' +
+      '<td><button type="button" class="btn btn--ghost btn--xs" onclick="App.deleteInvite(' + inv.id + ')" title="Delete">' +
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>' +
+      '</button></td>' +
+      '</tr>'
+    );
+  }
+
+  function renderEmptyActiveState() {
+    return (
+      '<div class="invite-empty">' +
+        '<div class="invite-empty__glyph">' +
+          '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>' +
+        '</div>' +
+        '<h4>No active invites</h4>' +
+        '<p>Generate an invite link to onboard a team member. The recipient picks their client and connects in under a minute — no manual config.</p>' +
+        '<button type="button" class="btn btn--primary" onclick="App.openNewInviteDialog()">' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+          'New Invite' +
+        '</button>' +
+      '</div>'
+    );
+  }
+
+  // --- Time / expiry helpers for the invite stream ---
+
+  function formatRelativeTime(iso) {
+    if (!iso) return '—';
+    var t;
+    try { t = new Date(iso).getTime(); } catch (e) { return iso; }
+    if (isNaN(t)) return iso;
+    var diff = Date.now() - t;
+    var past = diff >= 0;
+    var abs = Math.abs(diff);
+
+    var sec = Math.floor(abs / 1000);
+    if (sec < 60)   return past ? 'just now'    : 'in a moment';
+    var min = Math.floor(sec / 60);
+    if (min < 60)   return past ? min + 'm ago' : 'in ' + min + 'm';
+    var hr = Math.floor(min / 60);
+    if (hr < 24)    return past ? hr + 'h ago'  : 'in ' + hr + 'h';
+    var day = Math.floor(hr / 24);
+    if (day < 30)   return past ? day + 'd ago' : 'in ' + day + 'd';
+    var mo = Math.floor(day / 30);
+    return past ? mo + 'mo ago' : 'in ' + mo + 'mo';
+  }
+
+  function computeExpiryInfo(iso) {
+    if (!iso) return { label: 'unknown', urgency: 'unknown', percent: 0 };
+    var t;
+    try { t = new Date(iso).getTime(); } catch (e) { return { label: iso, urgency: 'unknown', percent: 0 }; }
+    if (isNaN(t)) return { label: 'unknown', urgency: 'unknown', percent: 0 };
+
+    var diffMs = t - Date.now();
+    if (diffMs <= 0) return { label: 'now', urgency: 'urgent', percent: 0 };
+
+    var totalHours = Math.floor(diffMs / 3600000);
+    var days = Math.floor(totalHours / 24);
+    var label;
+    if (days > 0) {
+      var remHr = totalHours % 24;
+      label = days + 'd' + (remHr > 0 ? ' ' + remHr + 'h' : '');
+    } else if (totalHours > 0) {
+      label = totalHours + 'h';
+    } else {
+      label = Math.max(1, Math.floor(diffMs / 60000)) + 'm';
+    }
+
+    var urgency;
+    if (totalHours < 1)       urgency = 'urgent';
+    else if (totalHours < 24) urgency = 'soon';
+    else                      urgency = 'comfortable';
+
+    // Percent of the bar: 48h = full (typical invite window)
+    var percent = Math.min(100, Math.max(4, (totalHours / 48) * 100));
+    return { label: label, urgency: urgency, percent: Math.round(percent) };
+  }
+
+  function openNewInviteDialog() {
+    // Populate developer dropdown from cache
+    var select = $('#invite-developer');
+    select.innerHTML = connectDevelopers.length
+      ? connectDevelopers.map(function (d) {
+          return '<option value="' + d.id + '">' + escapeHtml(d.name) + '</option>';
+        }).join('')
+      : '<option value="">No developers available</option>';
+
+    // Reset form
+    $('#invite-key-name').value = '';
+    $('#invite-permissions').value = 'readwrite';
+    $('#invite-expires').value = '48';
+    var extRadio = document.querySelector('input[name="invite-mode"][value="external"]');
+    if (extRadio) extRadio.checked = true;
+
+    // Hide any leftover error from previous attempt
+    var alert = $('#new-invite-alert');
+    if (alert) alert.style.display = 'none';
+
+    $('#modal-new-invite').classList.add('visible');
+  }
+
+  function showNewInviteAlert(level, text) {
+    var el = $('#new-invite-alert');
+    if (!el) return;
+    el.className = 'alert alert--' + level;
+    el.textContent = text;
+    el.style.display = 'block';
+  }
+
+  async function onNewInviteSubmit(ev) {
+    ev.preventDefault();
+    var devId = parseInt($('#invite-developer').value, 10);
+    if (!devId) {
+      showNewInviteAlert('error', 'Please select a developer');
+      return;
+    }
+    var payload = {
+      developer_id: devId,
+      key_name: $('#invite-key-name').value.trim() || ('invite-' + new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')),
+      permissions: $('#invite-permissions').value,
+      expires_hours: parseInt($('#invite-expires').value, 10),
+      mode: (document.querySelector('input[name="invite-mode"]:checked') || {}).value || 'external'
+    };
+    try {
+      var resp = await Api.createInvite(payload);
+      $('#modal-new-invite').classList.remove('visible');
+      showInviteResultDialog(resp, payload);
+      await refreshInviteLists();
+    } catch (e) {
+      // Show the error IN the modal so it stays visible while the user fixes it.
+      showNewInviteAlert('error', 'Failed to create invite: ' + (e.message || e));
+    }
+  }
+
+  function showInviteResultDialog(resp, payload) {
+    // Backend now builds the invite URL from connect.external_admin_url
+    // (mode=external) or the request host (mode=internal / fallback).
+    // We only use resp.invite_url directly — no more window.location guessing.
+    var inviteUrl = resp.invite_url || '(backend did not return invite_url)';
+
+    $('#invite-result-link').value = inviteUrl;
+    $('#invite-result-key').value = resp.api_key;
+
+    // Show warning alert if backend flagged a URL fallback (e.g. mode=external
+    // but external_admin_url not configured → uses local host, which the
+    // recipient probably cannot reach).
+    var alertEl = $('#invite-result-alert');
+    if (resp.url_warning) {
+      if (alertEl) {
+        alertEl.className = 'alert alert--warning';
+        alertEl.innerHTML = '&#9888; ' + escapeHtml(resp.url_warning);
+        alertEl.style.display = 'block';
+      }
+    } else if (alertEl) {
+      alertEl.style.display = 'none';
+    }
+
+    var devName = 'team member';
+    connectDevelopers.forEach(function (d) {
+      if (d.id === payload.developer_id) devName = d.name;
+    });
+    var hours = payload.expires_hours;
+    var expiryStr = hours >= 24 ? (Math.floor(hours / 24) + ' day' + (hours >= 48 ? 's' : '')) : (hours + ' hours');
+
+    var modeNote = payload.mode === 'internal'
+      ? '\n\nNote: this is an internal (LAN) link — you must be on the same network as the server.'
+      : '';
+    $('#invite-result-email').value =
+      'Subject: Connect to mxLore — Your AI Knowledge Base\n\n' +
+      'Hi ' + devName + ',\n\n' +
+      'You\'ve been invited to connect to our mxLore MCP server.\n' +
+      'Click this link to see setup instructions for your client:\n\n' +
+      '  ' + inviteUrl + '\n\n' +
+      'Works with Claude Desktop, Claude Code, Cursor, Windsurf, and any MCP client.\n' +
+      'Setup takes less than a minute.\n\n' +
+      'This link expires in ' + expiryStr + '.' + modeNote;
+
+    $('#modal-invite-result').classList.add('visible');
+  }
+
+  function copyInviteField(elementId) {
+    var el = $('#' + elementId);
+    if (!el) return;
+    el.select();
+    el.setSelectionRange(0, 999999);
+    try {
+      document.execCommand('copy');
+      el.blur();
+      // Visual feedback
+      var original = el.style.background;
+      el.style.background = 'rgba(0, 255, 136, 0.15)';
+      setTimeout(function () { el.style.background = original; }, 400);
+    } catch (e) { /* ignore */ }
+  }
+
+  async function revokeInvite(inviteId) {
+    if (!confirm('Revoke this invite? The link will stop working immediately.')) return;
+    try {
+      await Api.deleteInvite(inviteId);
+      showConnectAlert('success', 'Invite revoked.');
+      await refreshInviteLists();
+    } catch (e) {
+      showConnectAlert('error', 'Failed to revoke: ' + (e.message || e));
+    }
+  }
+
+  async function deleteInvite(inviteId) {
+    if (!confirm('Permanently delete this invite record?')) return;
+    try {
+      await Api.deleteInvite(inviteId);
+      showConnectAlert('success', 'Invite deleted.');
+      await refreshInviteLists();
+    } catch (e) {
+      showConnectAlert('error', 'Failed to delete: ' + (e.message || e));
+    }
+  }
+
+  async function cleanupInvites() {
+    if (!confirm('Delete all expired and revoked invites?')) return;
+    try {
+      var resp = await Api.cleanupInvites();
+      showConnectAlert('success', (resp.deleted_count || 0) + ' inactive invites removed.');
+      await refreshInviteLists();
+    } catch (e) {
+      showConnectAlert('error', 'Cleanup failed: ' + (e.message || e));
+    }
+  }
+
+  function showConnectAlert(level, text) {
+    var el = $('#connect-alert');
+    if (!el) return;
+    el.className = 'alert alert--' + level;
+    el.textContent = text;
+    el.style.display = 'block';
+  }
+
+  function formatIsoDate(iso) {
+    if (!iso) return '—';
+    try {
+      var d = new Date(iso);
+      return d.toLocaleString();
+    } catch (e) {
+      return iso;
+    }
+  }
+
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   // --- Back to List ---
@@ -610,7 +1126,7 @@ var App = (function () {
 
     tbody.innerHTML = sorted.map(function (p) {
       var statusClass = p.is_active ? 'active' : 'inactive';
-      var statusText = p.is_active ? 'Aktiv' : 'Inaktiv';
+      var statusText = p.is_active ? 'Active' : 'Inactive';
       var lastAct = p.last_activity ? formatDate(p.last_activity) : '\u2014';
       return '<tr data-id="' + p.id + '" data-creator="' + escHtml(p.created_by_name || '') + '">' +
         '<td><input type="checkbox" class="row-check proj-merge-check" data-id="' + p.id + '" data-name="' + escHtml(p.name) + '"' + (p.is_active ? '' : ' disabled') + '></td>' +
@@ -623,7 +1139,7 @@ var App = (function () {
         '<td><span class="badge badge--' + statusClass + '">' + statusText + '</span></td>' +
         '<td>' +
           '<button class="btn btn--small btn--ghost" onclick="App.openProject(' + p.id + ')" title="Details">&#9998;</button>' +
-          (p.is_active ? '<button class="btn btn--small btn--danger" onclick="App.confirmDeleteProject(' + p.id + ', \'' + escJsStr(p.name) + '\', false)" title="Deaktivieren">&#10005;</button>' : '') +
+          (p.is_active ? '<button class="btn btn--small btn--danger" onclick="App.confirmDeleteProject(' + p.id + ', \'' + escJsStr(p.name) + '\', false)" title="Deactivate">&#10005;</button>' : '') +
           '<button class="btn btn--small btn--danger" onclick="App.confirmDeleteProject(' + p.id + ', \'' + escJsStr(p.name) + '\', true)" title="Hard Delete" style="opacity:0.6">&#128465;</button>' +
         '</td>' +
       '</tr>';
@@ -675,7 +1191,7 @@ var App = (function () {
       var projects = data.projects || [];
 
       if (projects.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="empty-state__icon">&#128193;</div>Keine Projekte vorhanden</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="empty-state__icon">&#128193;</div>No projects yet</div></td></tr>';
         return;
       }
 
@@ -710,7 +1226,7 @@ var App = (function () {
       initProjectSortHeaders();
     } catch (err) {
       if (err.message !== 'session_expired') {
-        tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">Fehler beim Laden</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">Failed to load</div></td></tr>';
       }
     }
   }
@@ -719,7 +1235,7 @@ var App = (function () {
     var bar = $('#proj-merge-bar');
     if (selectedProjectsForMerge.size >= 2) {
       bar.classList.add('visible');
-      $('#proj-merge-count').textContent = selectedProjectsForMerge.size + ' Projekte ausgewaehlt';
+      $('#proj-merge-count').textContent = selectedProjectsForMerge.size + ' projects selected';
     } else {
       bar.classList.remove('visible');
     }
@@ -760,7 +1276,7 @@ var App = (function () {
         if (err.message === 'slug_exists') {
           showAlert('proj-list-alert', 'error', 'Slug "' + slug + '" existiert bereits.');
         } else {
-          showAlert('proj-list-alert', 'error', 'Fehler: ' + err.message);
+          showAlert('proj-list-alert', 'error', 'Error: ' + err.message);
         }
       }
     });
@@ -790,7 +1306,7 @@ var App = (function () {
     $('#proj-detail-slug').value = proj.slug;
 
     var statusClass = proj.is_active ? 'active' : 'inactive';
-    var statusText = proj.is_active ? 'Aktiv' : 'Inaktiv';
+    var statusText = proj.is_active ? 'Active' : 'Inactive';
     var badge = $('#proj-detail-status');
     badge.className = 'badge badge--' + statusClass;
     badge.textContent = statusText;
@@ -825,7 +1341,7 @@ var App = (function () {
 
       try {
         await Api.updateProject(currentProjectId, updateData);
-        showAlert('proj-detail-alert', 'success', 'Gespeichert.');
+        showAlert('proj-detail-alert', 'success', 'Saved.');
         $('#proj-detail-title').textContent = name;
         var proj = projectCache.find(function (p) { return p.id === currentProjectId; });
         if (proj) {
@@ -836,7 +1352,7 @@ var App = (function () {
         // Reload dashboard to reflect creator change
         if (proj) loadProjectDashboard(currentProjectId, proj);
       } catch (err) {
-        showAlert('proj-detail-alert', 'error', 'Fehler: ' + err.message);
+        showAlert('proj-detail-alert', 'error', 'Error: ' + err.message);
       }
     });
   }
@@ -844,14 +1360,14 @@ var App = (function () {
   // --- Delete Project (Soft-Delete) ---
   function confirmDeleteProject(id, name, hard) {
     var msg = hard
-      ? 'Projekt "' + name + '" ENDGUELTIG LOESCHEN?\n\nAlle Dokumente, Tags, Relations, Sessions und Revisions werden unwiderruflich geloescht!'
-      : 'Projekt "' + name + '" wirklich deaktivieren?\n\nDas Projekt wird soft-deleted und kann spaeter reaktiviert werden.';
+      ? 'PERMANENTLY DELETE project "' + name + '"?\n\nAll documents, tags, relations, sessions and revisions will be deleted irreversibly!'
+      : 'Really deactivate project "' + name + '"?\n\nThe project will be soft-deleted and can be reactivated later.';
     if (!confirm(msg)) return;
     Api.deleteProject(id, hard).then(function () {
       loadProjectList();
-      showAlert('proj-list-alert', 'success', hard ? 'Projekt geloescht.' : 'Projekt deaktiviert.');
+      showAlert('proj-list-alert', 'success', hard ? 'Project deleted.' : 'Project deactivated.');
     }).catch(function (err) {
-      showAlert('proj-list-alert', 'error', 'Fehler: ' + err.message);
+      showAlert('proj-list-alert', 'error', 'Error: ' + err.message);
     });
   }
 
@@ -884,7 +1400,7 @@ var App = (function () {
         await Api.mergeProjects(sourceIds, targetId);
         closeModal('modal-proj-merge');
         loadProjectList();
-        showAlert('proj-list-alert', 'success', 'Projekte erfolgreich zusammengefuehrt.');
+        showAlert('proj-list-alert', 'success', 'Projects merged successfully.');
       } catch (err) {
         if (err.message === 'merge_conflict') {
           // Try to parse conflict details from error
@@ -1017,7 +1533,7 @@ var App = (function () {
       });
 
       if (typeEntries.length === 0) {
-        dtBody.innerHTML = '<tr><td colspan="3"><div class="empty-state">Keine Dokumente</div></td></tr>';
+        dtBody.innerHTML = '<tr><td colspan="3"><div class="empty-state">No documents</div></td></tr>';
       } else {
         dtBody.innerHTML = typeEntries.map(function (t) {
           var count = docTypes[t];
@@ -1053,7 +1569,7 @@ var App = (function () {
       loadSessionsCard();
     } catch (err) {
       if (err.message !== 'session_expired') {
-        showAlert('global-alert', 'error', 'Fehler beim Laden: ' + err.message);
+        showAlert('global-alert', 'error', 'Failed to load: ' + err.message);
       }
     }
   }
@@ -1077,7 +1593,7 @@ var App = (function () {
 
       // Headline stats
       html += '<div class="card-stats-row">' +
-        '<div class="card-stat"><span class="card-stat__value">' + (summary.total_entries || 0) + '</span><span class="card-stat__label">Eintraege</span></div>' +
+        '<div class="card-stat"><span class="card-stat__value">' + (summary.total_entries || 0) + '</span><span class="card-stat__label">Entries</span></div>' +
         '<div class="card-stat"><span class="card-stat__value">' + (summary.unique_sessions || 0) + '</span><span class="card-stat__label">Sessions</span></div>' +
         '<div class="card-stat"><span class="card-stat__value">' + (summary.days_span || 0) + '</span><span class="card-stat__label">Tage</span></div>' +
       '</div>';
@@ -1097,7 +1613,7 @@ var App = (function () {
         byDay.forEach(function (d) {
           var pct = maxEntries > 0 ? Math.round((d.entries / maxEntries) * 100) : 0;
           var dayLabel = d.date ? d.date.substring(0, 5) : '';
-          html += '<div class="access-chart__col" title="' + escHtml(d.date || '') + ': ' + d.entries + ' Eintraege, ' + d.sessions + ' Sessions">' +
+          html += '<div class="access-chart__col" title="' + escHtml(d.date || '') + ': ' + d.entries + ' entries, ' + d.sessions + ' sessions">' +
             '<div class="access-chart__bar" style="height:' + pct + '%"></div>' +
             '<span class="access-chart__label">' + escHtml(dayLabel) + '</span>' +
           '</div>';
@@ -1121,7 +1637,7 @@ var App = (function () {
       container.innerHTML = html;
       Icons.render();
     } catch (err) {
-      container.innerHTML = '<div class="empty-state">Fehler: ' + escHtml(err.message) + '</div>';
+      container.innerHTML = '<div class="empty-state">Error: ' + escHtml(err.message) + '</div>';
     }
   }
 
@@ -1166,13 +1682,13 @@ var App = (function () {
           }
         });
       } else {
-        html += '<div class="empty-state">Keine Prefetch-Kandidaten</div>';
+        html += '<div class="empty-state">No prefetch candidates</div>';
       }
 
       container.innerHTML = html;
       Icons.render();
     } catch (err) {
-      container.innerHTML = '<div class="empty-state">Fehler: ' + escHtml(err.message) + '</div>';
+      container.innerHTML = '<div class="empty-state">Error: ' + escHtml(err.message) + '</div>';
     }
   }
 
@@ -1234,11 +1750,11 @@ var App = (function () {
       container.innerHTML = html;
       Icons.render();
     } catch (err) {
-      container.innerHTML = '<div class="empty-state">Fehler: ' + escHtml(err.message) + '</div>';
+      container.innerHTML = '<div class="empty-state">Error: ' + escHtml(err.message) + '</div>';
     }
   }
 
-  // ---- Card 4: Aktive Sessions ----
+  // ---- Card 4: Active sessions ----
   async function loadSessionsCard() {
     var container = $('#global-sessions-body');
     if (!container) return;
@@ -1256,7 +1772,7 @@ var App = (function () {
       '</div>';
 
       if (sessions.length === 0) {
-        html += '<div class="empty-state">Keine aktiven Sessions</div>';
+        html += '<div class="empty-state">No active sessions</div>';
       } else {
         var serverVersion = data.setup_version || null;
         html += '<div class="data-table-wrap"><table class="data-table"><thead><tr>' +
@@ -1281,7 +1797,7 @@ var App = (function () {
       container.innerHTML = html;
       Icons.render();
     } catch (err) {
-      container.innerHTML = '<div class="empty-state">Fehler: ' + escHtml(err.message) + '</div>';
+      container.innerHTML = '<div class="empty-state">Error: ' + escHtml(err.message) + '</div>';
     }
   }
 
@@ -1317,7 +1833,7 @@ var App = (function () {
       var html = '';
 
       if (total === 0) {
-        container.innerHTML = '<div class="empty-state">Keine Recall-Daten (letzte 30 Tage)</div>';
+        container.innerHTML = '<div class="empty-state">No recall data (last 30 days)</div>';
         return;
       }
 
@@ -1355,7 +1871,7 @@ var App = (function () {
       if (outcomes.length > 0) {
         html += '<div style="flex:1;min-width:200px">';
         html += '<div class="card-section-title" style="margin-bottom:8px">Outcomes</div>';
-        html += '<div class="data-table-wrap"><table class="data-table"><thead><tr><th>Outcome</th><th>Anzahl</th></tr></thead><tbody>';
+        html += '<div class="data-table-wrap"><table class="data-table"><thead><tr><th>Outcome</th><th>Count</th></tr></thead><tbody>';
         outcomes.forEach(function (o) {
           html += '<tr><td><span class="badge badge--small">' + escHtml(o.outcome) + '</span></td>' +
             '<td class="cell-stat">' + o.count + '</td></tr>';
@@ -1388,7 +1904,7 @@ var App = (function () {
       container.innerHTML = html;
       Icons.render();
     } catch (err) {
-      container.innerHTML = '<div class="empty-state">Fehler: ' + escHtml(err.message) + '</div>';
+      container.innerHTML = '<div class="empty-state">Error: ' + escHtml(err.message) + '</div>';
     }
   }
 
@@ -1407,7 +1923,7 @@ var App = (function () {
 
       // Skill stats
       if (bySkill.length === 0) {
-        html += '<div class="empty-state">Keine Findings</div>';
+        html += '<div class="empty-state">No findings</div>';
       } else {
         html += '<div class="card-stats-row">';
         var totalAll = 0, pendingAll = 0;
@@ -1438,7 +1954,7 @@ var App = (function () {
 
       // Recent findings
       if (recent.length > 0) {
-        html += '<div class="card-section-title">Letzte Findings (7d)</div>';
+        html += '<div class="card-section-title">Recent findings (7d)</div>';
         html += '<div class="card-list">';
         recent.slice(0, 8).forEach(function (f) {
           var sevClass = f.severity === 'error' || f.severity === 'critical' ? 'badge--inactive' :
@@ -1472,7 +1988,7 @@ var App = (function () {
       container.innerHTML = html;
       Icons.render();
     } catch (err) {
-      container.innerHTML = '<div class="empty-state">Fehler: ' + err.message + '</div>';
+      container.innerHTML = '<div class="empty-state">Error: ' + escapeHtml(err.message) + '</div>';
     }
   }
 
@@ -1611,7 +2127,7 @@ var App = (function () {
       Icons.render();
     } catch (err) {
       if (err.message !== 'session_expired') {
-        showAlert('skills-alert', 'error', 'Fehler beim Laden: ' + err.message);
+        showAlert('skills-alert', 'error', 'Failed to load: ' + err.message);
       }
     }
   }
@@ -1621,7 +2137,7 @@ var App = (function () {
     if (!grid) return;
 
     if (features.length === 0) {
-      grid.innerHTML = '<div style="grid-column: span 3; text-align: center; padding: 16px; color: var(--text-tertiary)">Keine Feature-Daten verfuegbar</div>';
+      grid.innerHTML = '<div style="grid-column: span 3; text-align: center; padding: 16px; color: var(--text-tertiary)">No feature data available</div>';
       return;
     }
 
@@ -1643,7 +2159,7 @@ var App = (function () {
       }
       // Pad to 3 columns if needed
       if (metrics.length < 3 && f.last_activity) {
-        metrics.push({ value: f.last_activity.split(' ')[0], label: 'Letzte' });
+        metrics.push({ value: f.last_activity.split(' ')[0], label: 'Last' });
       }
       while (metrics.length < 3) {
         metrics.push({ value: '—', label: '' });
@@ -1657,7 +2173,7 @@ var App = (function () {
           '</div>' +
           '<div style="flex:1">' +
             '<div class="skill-card__name">' + escHtml(f.name) + '</div>' +
-            '<div class="skill-card__meta">' + (f.last_activity ? 'Letzte Aktivitaet: ' + f.last_activity : 'Aktiv') + '</div>' +
+            '<div class="skill-card__meta">' + (f.last_activity ? 'Last activity: ' + f.last_activity : 'Active') + '</div>' +
           '</div>' +
         '</div>' +
         '<div class="skill-card__metrics">';
@@ -1682,7 +2198,7 @@ var App = (function () {
     if (countEl) countEl.textContent = installed.length;
 
     if (installed.length === 0) {
-      body.innerHTML = '<div class="empty-state">Keine Skills in claude-setup/ gefunden</div>';
+      body.innerHTML = '<div class="empty-state">No skills found in claude-setup/</div>';
       return;
     }
 
@@ -1744,8 +2260,8 @@ var App = (function () {
           '</div>' +
           '<div>' +
             '<div class="skill-card__name">' + escHtml(s.name) + '</div>' +
-            '<div class="skill-card__meta">' + s.rules + ' Regeln &middot; ' +
-              s.projects + ' Projekte</div>' +
+            '<div class="skill-card__meta">' + s.rules + ' rules &middot; ' +
+              s.projects + ' projects</div>' +
           '</div>' +
           '<div class="precision-ring" style="--ring-pct: ' + precPct + '; --ring-color: ' + ringColor + '">' +
             '<div style="text-align:center; line-height: 1.2">' +
@@ -1816,8 +2332,8 @@ var App = (function () {
       filterBar.innerHTML =
         '<button class="findings-filter-btn active" data-filter="pending" onclick="App.setFindingsFilter(\'pending\')">Pending (' + pendingCount + ')</button>' +
         '<button class="findings-filter-btn" data-filter="all" onclick="App.setFindingsFilter(\'all\')">Alle (' + findings.length + ')</button>' +
-        '<button class="findings-filter-btn" data-filter="confirmed" onclick="App.setFindingsFilter(\'confirmed\')">Bestaetigt (' + confirmedCount + ')</button>' +
-        '<button class="findings-filter-btn" data-filter="dismissed" onclick="App.setFindingsFilter(\'dismissed\')">Abgelehnt (' + dismissedCount + ')</button>' +
+        '<button class="findings-filter-btn" data-filter="confirmed" onclick="App.setFindingsFilter(\'confirmed\')">Confirmed (' + confirmedCount + ')</button>' +
+        '<button class="findings-filter-btn" data-filter="dismissed" onclick="App.setFindingsFilter(\'dismissed\')">Dismissed (' + dismissedCount + ')</button>' +
         '<button class="findings-filter-btn" data-filter="false_positive" onclick="App.setFindingsFilter(\'false_positive\')">FP (' + fpCount + ')</button>' +
         '<span id="findings-filter-count" class="text-secondary" style="margin-left:auto;font-size:0.75rem"></span>';
     }
@@ -1829,7 +2345,7 @@ var App = (function () {
     if (!body) return;
 
     if (findings.length === 0) {
-      body.innerHTML = '<tr><td colspan="8"><div class="empty-state">Keine Findings in dieser Ansicht</div></td></tr>';
+      body.innerHTML = '<tr><td colspan="8"><div class="empty-state">No findings in this view</div></td></tr>';
       return;
     }
 
@@ -1887,7 +2403,7 @@ var App = (function () {
     if (!body) return;
 
     if (rules.length === 0) {
-      body.innerHTML = '<tr><td colspan="8"><div class="empty-state">Keine Regeln</div></td></tr>';
+      body.innerHTML = '<tr><td colspan="8"><div class="empty-state">No rules</div></td></tr>';
       return;
     }
 
@@ -1943,7 +2459,7 @@ var App = (function () {
     if (!body) return;
 
     if (params.length === 0) {
-      body.innerHTML = '<tr><td colspan="8"><div class="empty-state">Keine Tuning-Parameter</div></td></tr>';
+      body.innerHTML = '<tr><td colspan="8"><div class="empty-state">No tuning parameters</div></td></tr>';
       return;
     }
 
@@ -1977,8 +2493,8 @@ var App = (function () {
       '<div class="mono" style="font-size:1.1rem;font-weight:600">' + jobCount + '</div></div>' +
     '</div>';
     html += '<div class="table-scroll"><table class="data-table"><thead><tr>' +
-      '<th>Job-Typ</th><th>Total</th><th>Erfolg</th><th>Fehler</th>' +
-      '<th>Letzter Run</th>' +
+      '<th>Job type</th><th>Total</th><th>Success</th><th>Errors</th>' +
+      '<th>Last run</th>' +
       '</tr></thead><tbody>';
     aiBatch.jobs.forEach(function (j) {
       var errCls = j.errors > 0 ? 'color:var(--status-inactive);font-weight:600' : '';
@@ -2008,11 +2524,11 @@ var App = (function () {
   async function skillFeedback(findingUid, reaction) {
     try {
       await Api.postSkillFeedback(findingUid, reaction);
-      showAlert('skills-alert', 'success', 'Feedback gespeichert: ' + reaction);
+      showAlert('skills-alert', 'success', 'Feedback saved: ' + reaction);
       // Reload data
       loadSkillsPage();
     } catch (err) {
-      showAlert('skills-alert', 'error', 'Fehler: ' + err.message);
+      showAlert('skills-alert', 'error', 'Error: ' + err.message);
     }
   }
 
@@ -2045,7 +2561,7 @@ var App = (function () {
       // Doc types
       var typeKeys = Object.keys(docTypes).sort(function (a, b) { return docTypes[b] - docTypes[a]; });
       if (typeKeys.length === 0) {
-        dtBody.innerHTML = '<tr><td colspan="2"><div class="empty-state">Keine Dokumente</div></td></tr>';
+        dtBody.innerHTML = '<tr><td colspan="2"><div class="empty-state">No documents</div></td></tr>';
       } else {
         dtBody.innerHTML = typeKeys.map(function (t) {
           var label = docTypeLabels[t] || t;
@@ -2056,7 +2572,7 @@ var App = (function () {
 
       // Recent changes
       if (changes.length === 0) {
-        actBody.innerHTML = '<div class="empty-state">Keine Aenderungen</div>';
+        actBody.innerHTML = '<div class="empty-state">No changes</div>';
       } else {
         actBody.innerHTML = changes.map(function (c) {
           var typeLabel = docTypeLabels[c.doc_type] || c.doc_type;
@@ -2071,7 +2587,7 @@ var App = (function () {
 
       // Developers
       if (devs.length === 0) {
-        devBody.innerHTML = '<tr><td colspan="2"><div class="empty-state">Keine Zuweisungen</div></td></tr>';
+        devBody.innerHTML = '<tr><td colspan="2"><div class="empty-state">No assignments</div></td></tr>';
       } else {
         devBody.innerHTML = devs.map(function (d) {
           var lvlClass = d.access_level === 'write' ? 'badge--write' : 'badge--read';
@@ -2084,7 +2600,7 @@ var App = (function () {
       var rels = dash.related_projects || [];
       if (relBody) {
         if (rels.length === 0) {
-          relBody.innerHTML = '<tr><td colspan="3"><div class="empty-state">Keine Verknuepfungen</div></td></tr>';
+          relBody.innerHTML = '<tr><td colspan="3"><div class="empty-state">No relations</div></td></tr>';
         } else {
           var relLabels = { depends_on: 'abhaengig von', related_to: 'verwandt', extends: 'erweitert' };
           var dirLabels = { outgoing: 'ausgehend', incoming: 'eingehend' };
@@ -2113,7 +2629,7 @@ var App = (function () {
 
       Icons.render();
     } catch (err) {
-      dtBody.innerHTML = '<tr><td colspan="2"><div class="empty-state">Fehler</div></td></tr>';
+      dtBody.innerHTML = '<tr><td colspan="2"><div class="empty-state">Error</div></td></tr>';
     }
   }
 
@@ -2146,10 +2662,10 @@ var App = (function () {
       var count = data.archived_count || 0;
       result.textContent = count > 0
         ? count + ' Notes archiviert.'
-        : 'Keine alten Notes gefunden.';
+        : 'No old notes found.';
       if (count > 0) loadGlobalPage(); // Refresh stats
     } catch (err) {
-      result.textContent = 'Fehler: ' + err.message;
+      result.textContent = 'Error: ' + err.message;
     } finally {
       btn.disabled = false;
       btn.innerHTML = 'Alte Notes archivieren';
@@ -2168,7 +2684,7 @@ var App = (function () {
       var sizeKB = Math.round((data.size_bytes || 0) / 1024);
       result.textContent = 'Backup OK (' + sizeKB + ' KB)';
     } catch (err) {
-      result.textContent = 'Fehler: ' + err.message;
+      result.textContent = 'Error: ' + err.message;
     } finally {
       btn.disabled = false;
       btn.innerHTML = '<i data-lucide="database-backup" class="icon-xs"></i> DB Backup';
@@ -2195,6 +2711,18 @@ var App = (function () {
     initProjectMerge();
     initModalCloses();
 
+    // Settings form (v2.4.0)
+    var settingsForm = $('#settings-form');
+    if (settingsForm) {
+      settingsForm.addEventListener('submit', saveSettings);
+    }
+
+    // New invite form (v2.4.0)
+    var newInviteForm = $('#new-invite-form');
+    if (newInviteForm) {
+      newInviteForm.addEventListener('submit', onNewInviteSubmit);
+    }
+
     // Try to restore existing session (cookie still valid after refresh)
     try {
       var data = await Api.checkSession();
@@ -2219,7 +2747,7 @@ var App = (function () {
         var projId = parseInt(restoreHash.split('/')[1]);
         if (projId) { openProject(projId); return; }
       }
-      if (restoreHash !== 'global' && restoreHash !== 'intelligence' && restoreHash !== 'developers' && restoreHash !== 'projects') restoreHash = 'global';
+      if (restoreHash !== 'global' && restoreHash !== 'intelligence' && restoreHash !== 'developers' && restoreHash !== 'projects' && restoreHash !== 'settings' && restoreHash !== 'connect') restoreHash = 'global';
       navigateTo(restoreHash);
     } catch (e) {
       showLogin();
@@ -2250,6 +2778,19 @@ var App = (function () {
     runCleanup: runCleanup,
     runBackup: runBackup,
     filterProjectsByDev: filterProjectsByDev,
-    setFindingsFilter: setFindingsFilter
+    setFindingsFilter: setFindingsFilter,
+
+    // Settings (v2.4.0)
+    loadSettingsPage: loadSettingsPage,
+    saveSettings: saveSettings,
+    testConnection: testConnection,
+
+    // Connect Team (v2.4.0)
+    loadConnectPage: loadConnectPage,
+    openNewInviteDialog: openNewInviteDialog,
+    copyInviteField: copyInviteField,
+    revokeInvite: revokeInvite,
+    deleteInvite: deleteInvite,
+    cleanupInvites: cleanupInvites
   };
 })();

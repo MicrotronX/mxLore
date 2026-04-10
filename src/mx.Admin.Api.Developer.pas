@@ -33,7 +33,7 @@ var
 begin
   Ctx := APool.AcquireContext;
   Qry := Ctx.CreateQuery(
-    'SELECT d.id, d.name, d.email, d.is_active, ' +
+    'SELECT d.id, d.name, d.email, d.role, d.is_active, ' +
     '  (SELECT COUNT(*) FROM client_keys ck ' +
     '   WHERE ck.developer_id = d.id AND ck.is_active = TRUE) AS key_count, ' +
     '  (SELECT COUNT(*) FROM developer_project_access dpa ' +
@@ -51,6 +51,10 @@ begin
         Obj.AddPair('email', Qry.FieldByName('email').AsString)
       else
         Obj.AddPair('email', TJSONNull.Create);
+      if not Qry.FieldByName('role').IsNull then
+        Obj.AddPair('role', Qry.FieldByName('role').AsString)
+      else
+        Obj.AddPair('role', TJSONNull.Create);
       Obj.AddPair('is_active', TJSONBool.Create(Qry.FieldByName('is_active').AsBoolean));
       Obj.AddPair('key_count', TJSONNumber.Create(Qry.FieldByName('key_count').AsInteger));
       Obj.AddPair('project_count', TJSONNumber.Create(Qry.FieldByName('project_count').AsInteger));
@@ -76,7 +80,7 @@ var
   Body, Json: TJSONObject;
   Ctx: IMxDbContext;
   Qry: TFDQuery;
-  Name, Email: string;
+  Name, Email, Role: string;
   NewId: Integer;
 begin
   Body := MxParseBody(C);
@@ -95,10 +99,11 @@ begin
     end;
 
     Email := Body.GetValue<string>('email', '');
+    Role := Body.GetValue<string>('role', '');
 
     Ctx := APool.AcquireContext;
     Qry := Ctx.CreateQuery(
-      'INSERT INTO developers (name, email) VALUES (:name, :email)');
+      'INSERT INTO developers (name, email, role) VALUES (:name, :email, :role)');
     try
       Qry.ParamByName('name').AsString := Name;
       if Email <> '' then
@@ -107,6 +112,13 @@ begin
       begin
         Qry.ParamByName('email').DataType := ftString;
         Qry.ParamByName('email').Clear;
+      end;
+      if Role <> '' then
+        Qry.ParamByName('role').AsString := Role
+      else
+      begin
+        Qry.ParamByName('role').DataType := ftString;
+        Qry.ParamByName('role').Clear;
       end;
       Qry.ExecSQL;
     finally
@@ -143,10 +155,10 @@ var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
   Json: TJSONObject;
-  Name, Email, SQL, Sep: string;
+  Name, Email, Role, SQL, Sep: string;
   IsActive: Boolean;
-  HasName, HasEmail, HasActive: Boolean;
-  EmailVal: TJSONValue;
+  HasName, HasEmail, HasActive, HasRole: Boolean;
+  EmailVal, RoleVal: TJSONValue;
 begin
   Body := MxParseBody(C);
   if Body = nil then
@@ -166,9 +178,18 @@ begin
       else
         Email := EmailVal.Value;
     end;
+    RoleVal := Body.FindValue('role');
+    HasRole := RoleVal <> nil;
+    if HasRole then
+    begin
+      if RoleVal is TJSONNull then
+        Role := ''
+      else
+        Role := RoleVal.Value;
+    end;
     HasActive := Body.TryGetValue<Boolean>('is_active', IsActive);
 
-    if not (HasName or HasEmail or HasActive) then
+    if not (HasName or HasEmail or HasActive or HasRole) then
     begin
       MxSendError(C, 400, 'no_fields');
       Exit;
@@ -179,6 +200,7 @@ begin
     Sep := '';
     if HasName then   begin SQL := SQL + Sep + 'name = :name';       Sep := ', '; end;
     if HasEmail then  begin SQL := SQL + Sep + 'email = :email';     Sep := ', '; end;
+    if HasRole then   begin SQL := SQL + Sep + 'role = :role';       Sep := ', '; end;
     if HasActive then begin SQL := SQL + Sep + 'is_active = :active'; Sep := ', '; end;
     SQL := SQL + ' WHERE id = :id';
 
@@ -197,6 +219,16 @@ begin
           begin
             Qry.ParamByName('email').DataType := ftString;
             Qry.ParamByName('email').Clear;
+          end;
+        end;
+        if HasRole then
+        begin
+          if Role <> '' then
+            Qry.ParamByName('role').AsString := Role
+          else
+          begin
+            Qry.ParamByName('role').DataType := ftString;
+            Qry.ParamByName('role').Clear;
           end;
         end;
         if HasActive then
@@ -271,6 +303,15 @@ begin
 
       Qry := Ctx.CreateQuery(
         'DELETE FROM developer_project_access WHERE developer_id = :id');
+      try
+        Qry.ParamByName('id').AsInteger := ADevId;
+        Qry.ExecSQL;
+      finally
+        Qry.Free;
+      end;
+
+      Qry := Ctx.CreateQuery(
+        'DELETE FROM invite_links WHERE developer_id = :id');
       try
         Qry.ParamByName('id').AsInteger := ADevId;
         Qry.ExecSQL;

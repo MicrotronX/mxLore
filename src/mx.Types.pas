@@ -105,8 +105,8 @@ procedure MxSetThreadAuth(const AResult: TMxAuthResult);
 function MxGetThreadAuth: TMxAuthResult;
 
 const
-  MXAI_VERSION = '2.3.0';
-  MXAI_BUILD   = 79;  // Tool-Call-Log, proxy_download_path Fix, Checker-Findings
+  MXAI_VERSION = '2.4.0';
+  MXAI_BUILD   = 80;  // Team Connect System, Invite Links, Settings UI
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';

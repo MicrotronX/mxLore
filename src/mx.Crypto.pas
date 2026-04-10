@@ -2,6 +2,9 @@ unit mx.Crypto;
 
 interface
 
+uses
+  System.SysUtils;
+
 /// <summary>
 ///   PBKDF2-HMAC-SHA256 key derivation and verification.
 ///   Hash format: pbkdf2:iterations:salt_hex:hash_hex
@@ -16,10 +19,38 @@ function MxVerifyKey(const ARawKey, AStoredHash: string): Boolean;
 /// <summary>Returns True if hash uses PBKDF2 format</summary>
 function MxIsPBKDF2(const AHash: string): Boolean;
 
+/// <summary>
+///   Constant-time byte comparison. Always iterates over all bytes to avoid
+///   revealing information via timing side-channel. Returns False immediately
+///   if lengths differ (length disclosure is acceptable for fixed-size tokens).
+/// </summary>
+function ConstantTimeEqualBytes(const A, B: TBytes): Boolean;
+
+/// <summary>
+///   Constant-time string comparison (UTF-8 bytes). Use for invite tokens,
+///   API keys, HMACs — any secret where timing leaks must be prevented.
+/// </summary>
+function ConstantTimeEqualStrings(const A, B: string): Boolean;
+
+/// <summary>
+///   Generates AByteCount cryptographically secure random bytes and returns
+///   them as a lowercase hex string (length = AByteCount * 2). Uses Windows
+///   BCryptGenRandom (BCRYPT_USE_SYSTEM_PREFERRED_RNG). Raises on failure —
+///   callers must not fall back to non-CSPRNG.
+/// </summary>
+function MxGenerateRandomHex(AByteCount: Integer): string;
+
 implementation
 
 uses
-  System.SysUtils, System.Hash, System.NetEncoding;
+  System.Hash, System.NetEncoding, Winapi.Windows;
+
+const
+  BCRYPT_USE_SYSTEM_PREFERRED_RNG = $00000002;
+
+function BCryptGenRandom(hAlgorithm: Pointer; pbBuffer: PByte;
+  cbBuffer: ULONG; dwFlags: ULONG): Integer;
+  stdcall; external 'bcrypt.dll';
 
 const
   PBKDF2_ITERATIONS = 100000;
@@ -48,11 +79,14 @@ end;
 
 function RandomSalt(ALen: Integer): TBytes;
 var
-  I: Integer;
+  Status: Integer;
 begin
   SetLength(Result, ALen);
-  for I := 0 to ALen - 1 do
-    Result[I] := Random(256);
+  Status := BCryptGenRandom(nil, @Result[0], ALen,
+    BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+  if Status <> 0 then
+    raise Exception.CreateFmt(
+      'RandomSalt: BCryptGenRandom failed (NTSTATUS 0x%.8x)', [Status]);
 end;
 
 function XorBytes(const A, B: TBytes): TBytes;
@@ -112,7 +146,6 @@ function MxHashKey(const ARawKey: string): string;
 var
   Salt, DerivedKey, KeyBytes: TBytes;
 begin
-  Randomize;
   Salt := RandomSalt(PBKDF2_SALT_LEN);
   KeyBytes := TEncoding.UTF8.GetBytes(ARawKey);
   DerivedKey := PBKDF2_SHA256(KeyBytes, Salt, PBKDF2_ITERATIONS, PBKDF2_KEY_LEN);
@@ -143,19 +176,54 @@ begin
     KeyBytes := TEncoding.UTF8.GetBytes(ARawKey);
     ComputedKey := PBKDF2_SHA256(KeyBytes, Salt, Iterations, Length(StoredKey));
 
-    // Constant-time comparison
-    Result := (Length(ComputedKey) = Length(StoredKey));
-    if Result then
-      for var I := 0 to High(StoredKey) do
-        if ComputedKey[I] <> StoredKey[I] then
-          Result := False;
+    Result := ConstantTimeEqualBytes(ComputedKey, StoredKey);
   end
   else
   begin
-    // Legacy: plain SHA256
-    ComputedSHA256 := THashSHA2.GetHashString(ARawKey, SHA256);
-    Result := SameText(ComputedSHA256, AStoredHash);
+    // Legacy: plain SHA256. Normalize both sides to lowercase hex, then
+    // compare in constant time to prevent timing side-channel on login.
+    ComputedSHA256 := LowerCase(THashSHA2.GetHashString(ARawKey, SHA256));
+    Result := ConstantTimeEqualStrings(ComputedSHA256, LowerCase(AStoredHash));
   end;
+end;
+
+function ConstantTimeEqualBytes(const A, B: TBytes): Boolean;
+var
+  I: Integer;
+  Diff: Byte;
+begin
+  // Length disclosure is acceptable — token lengths are fixed or public.
+  if Length(A) <> Length(B) then
+    Exit(False);
+  Diff := 0;
+  for I := 0 to High(A) do
+    Diff := Diff or (A[I] xor B[I]);
+  Result := (Diff = 0);
+end;
+
+function ConstantTimeEqualStrings(const A, B: string): Boolean;
+var
+  BytesA, BytesB: TBytes;
+begin
+  BytesA := TEncoding.UTF8.GetBytes(A);
+  BytesB := TEncoding.UTF8.GetBytes(B);
+  Result := ConstantTimeEqualBytes(BytesA, BytesB);
+end;
+
+function MxGenerateRandomHex(AByteCount: Integer): string;
+var
+  Buf: TBytes;
+  Status: Integer;
+begin
+  if AByteCount <= 0 then
+    raise EArgumentException.Create('MxGenerateRandomHex: byte count must be > 0');
+  SetLength(Buf, AByteCount);
+  Status := BCryptGenRandom(nil, @Buf[0], AByteCount,
+    BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+  if Status <> 0 then
+    raise Exception.CreateFmt(
+      'MxGenerateRandomHex: BCryptGenRandom failed (NTSTATUS 0x%.8x)', [Status]);
+  Result := BytesToHex(Buf);
 end;
 
 end.

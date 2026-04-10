@@ -3,14 +3,15 @@ unit mx.Admin.Server;
 interface
 
 uses
-  System.SysUtils, System.Classes, System.JSON, Data.DB,
+  System.SysUtils, System.Classes, System.IOUtils, System.JSON, Data.DB,
   FireDAC.Comp.Client,
   Sparkle.HttpSys.Server,
   Sparkle.HttpServer.Module,
   Sparkle.HttpServer.Context,
   Sparkle.HttpServer.Request,
   Sparkle.Module.Static,
-  mx.Types, mx.Config, mx.Log, mx.Data.Pool, mx.Data.Context, mx.Admin.Auth;
+  mx.Types, mx.Config, mx.Log, mx.Data.Pool, mx.Data.Context, mx.Admin.Auth,
+  mx.Logic.Settings, mx.Logic.RateLimit;
 
 type
   TMxAdminApiModule = class(THttpServerModule)
@@ -19,6 +20,8 @@ type
     FAuth: TMxAdminAuth;
     FLogger: IMxLogger;
     FConfig: TMxConfig;
+    FSettingsCache: TMxSettingsCache;
+    FInviteRateLimit: TMxRateLimit;
     procedure RouteRequest(const C: THttpServerContext;
       const ASegments: TArray<string>; const ASession: TMxAdminSession);
     procedure HandleProxyDownload(const C: THttpServerContext);
@@ -28,6 +31,17 @@ type
   public
     constructor Create(const ABaseUri: string; APool: TMxConnectionPool;
       AAuth: TMxAdminAuth; AConfig: TMxConfig; ALogger: IMxLogger); reintroduce;
+    destructor Destroy; override;
+  end;
+
+  // Serves connect.html for clean /connect URL (invite landing page)
+  TMxConnectPageModule = class(THttpServerModule)
+  private
+    FFilePath: string;
+  protected
+    procedure ProcessRequest(const C: THttpServerContext); override;
+  public
+    constructor Create(const ABaseUri, AWwwPath: string); reintroduce;
   end;
 
   TMxAdminServer = class
@@ -56,13 +70,27 @@ procedure MxSetSessionCookie(const C: THttpServerContext;
 procedure MxClearSessionCookie(const C: THttpServerContext);
 function MxDateStr(AField: TField): string;
 
+/// <summary>
+///   Returns the real client IP address. If the direct RemoteIp is listed in
+///   ATrustedProxies (comma/semicolon/space-separated), honors the first
+///   X-Forwarded-For entry. Otherwise returns RemoteIp unchanged.
+/// </summary>
+/// <remarks>
+///   NEVER trust X-Forwarded-For without a trusted-proxy allow-list — any
+///   client can spoof the header. Use settings key 'connect.trusted_proxies'
+///   which defaults to '127.0.0.1'.
+/// </remarks>
+function MxGetClientIp(const C: THttpServerContext;
+  const ATrustedProxies: string): string;
+
 implementation
 
 uses
   System.DateUtils,
   mx.Admin.Api.Auth, mx.Admin.Api.Developer,
   mx.Admin.Api.Keys, mx.Admin.Api.Projects,
-  mx.Admin.Api.Global, mx.Admin.Api.Skills;
+  mx.Admin.Api.Global, mx.Admin.Api.Skills,
+  mx.Admin.Api.Settings, mx.Admin.Api.Invite;
 
 { Shared helpers }
 
@@ -129,6 +157,41 @@ begin
     'mxadmin_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
 end;
 
+function MxGetClientIp(const C: THttpServerContext;
+  const ATrustedProxies: string): string;
+var
+  RemoteIp, ForwardedFor: string;
+  ProxyList: TArray<string>;
+  I, CommaPos: Integer;
+  IsTrusted: Boolean;
+begin
+  Result := C.Request.RemoteIp;
+  if (Result = '') or (ATrustedProxies = '') then Exit;
+
+  // Is the direct peer in the trusted-proxy allow-list?
+  IsTrusted := False;
+  ProxyList := ATrustedProxies.Split([',', ';', ' '],
+    TStringSplitOptions.ExcludeEmpty);
+  RemoteIp := Result;
+  for I := 0 to High(ProxyList) do
+    if SameText(Trim(ProxyList[I]), RemoteIp) then
+    begin
+      IsTrusted := True;
+      Break;
+    end;
+  if not IsTrusted then Exit;
+
+  // Trusted peer — honor X-Forwarded-For (take first entry = original client)
+  if not C.Request.Headers.GetIfExists('X-Forwarded-For', ForwardedFor) then
+    Exit;
+  CommaPos := Pos(',', ForwardedFor);
+  if CommaPos > 0 then
+    ForwardedFor := Copy(ForwardedFor, 1, CommaPos - 1);
+  ForwardedFor := Trim(ForwardedFor);
+  if ForwardedFor <> '' then
+    Result := ForwardedFor;
+end;
+
 { TMxAdminApiModule }
 
 constructor TMxAdminApiModule.Create(const ABaseUri: string;
@@ -140,6 +203,16 @@ begin
   FAuth := AAuth;
   FConfig := AConfig;
   FLogger := ALogger;
+  FSettingsCache := TMxSettingsCache.Create(APool);
+  // 20 requests / 5 min (300 sec) rolling window — ADR#1755 + R3 Phase 2.7
+  FInviteRateLimit := TMxRateLimit.Create(20, 300);
+end;
+
+destructor TMxAdminApiModule.Destroy;
+begin
+  FInviteRateLimit.Free;
+  FSettingsCache.Free;
+  inherited;
 end;
 
 function TMxAdminApiModule.HasNoDevelopers: Boolean;
@@ -207,7 +280,7 @@ var
   Path, CookieHeader, Token, CsrfHeader: string;
   Segments: TArray<string>;
   Session: TMxAdminSession;
-  IsLogin: Boolean;
+  IsLogin, IsPublic: Boolean;
 begin
   try
     // Use Uri.AbsolutePath (RawUri contains full URL including scheme+host)
@@ -234,9 +307,15 @@ begin
       Exit;
     end;
 
-    // Auth middleware (skip for login + setup mode when 0 developers)
+    // Public invite endpoints: /api/invite/<token> (GET = view, POST = accept)
+    // These bypass session + CSRF because the future team member has no login
+    // yet — the invite token itself is the credential. Rate-limiting and
+    // constant-time token compare are enforced inside the handler.
+    IsPublic := (Length(Segments) >= 1) and SameText(Segments[0], 'invite');
+
+    // Auth middleware (skip for login + public endpoints + setup mode)
     Session.Valid := False;
-    if not IsLogin then
+    if (not IsLogin) and (not IsPublic) then
     begin
       // Setup mode: skip auth when no developers exist (fresh install)
       if HasNoDevelopers then
@@ -620,7 +699,138 @@ begin
     Exit;
   end;
 
+  // /settings/* — v2.4.0 runtime settings
+  if SameText(ASegments[0], 'settings') then
+  begin
+    // GET /settings — list all
+    if (Len = 1) and (C.Request.MethodType = THttpMethod.Get) then
+    begin
+      mx.Admin.Api.Settings.HandleGetSettings(C, FSettingsCache, FLogger);
+      Exit;
+    end;
+
+    // PUT /settings — batch update
+    if (Len = 1) and (C.Request.MethodType = THttpMethod.Put) then
+    begin
+      mx.Admin.Api.Settings.HandlePutSettings(C, FSettingsCache,
+        ASession.DeveloperId, FLogger);
+      Exit;
+    end;
+
+    // POST /settings/test-connection
+    if (Len = 2) and SameText(ASegments[1], 'test-connection') and
+       (C.Request.MethodType = THttpMethod.Post) then
+    begin
+      mx.Admin.Api.Settings.HandleTestConnection(C, FLogger);
+      Exit;
+    end;
+
+    MxSendError(C, 404, 'not_found');
+    Exit;
+  end;
+
+  // --- Invites (admin + public) ---
+  // /invites[/:id]       (admin, auth required)  — list/create/revoke
+  // /invite/:token[/...] (public, rate-limited)  — resolve, confirm
+  if SameText(ASegments[0], 'invites') then
+  begin
+    if (Len = 1) and (C.Request.MethodType = THttpMethod.Get) then
+    begin
+      mx.Admin.Api.Invite.HandleListInvites(C, FPool, FLogger);
+      Exit;
+    end;
+    if (Len = 1) and (C.Request.MethodType = THttpMethod.Post) then
+    begin
+      mx.Admin.Api.Invite.HandleCreateInvite(C, FPool, FSettingsCache,
+        ASession.DeveloperId, FLogger);
+      Exit;
+    end;
+    // DELETE /api/invites/cleanup — bulk remove all revoked+expired
+    if (Len = 2) and SameText(ASegments[1], 'cleanup') and
+       (C.Request.MethodType = THttpMethod.Delete) then
+    begin
+      mx.Admin.Api.Invite.HandleCleanupInvites(C, FPool, FLogger);
+      Exit;
+    end;
+    // DELETE /api/invites/{id} — revoke (active) or hard-delete (inactive)
+    if (Len = 2) and (C.Request.MethodType = THttpMethod.Delete) then
+    begin
+      var InviteId := StrToIntDef(ASegments[1], 0);
+      if InviteId <= 0 then
+      begin
+        MxSendError(C, 400, 'invalid_invite_id');
+        Exit;
+      end;
+      mx.Admin.Api.Invite.HandleDeleteInvite(C, FPool, InviteId,
+        ASession.DeveloperId, FLogger);
+      Exit;
+    end;
+    MxSendError(C, 404, 'not_found');
+    Exit;
+  end;
+
+  if SameText(ASegments[0], 'invite') then
+  begin
+    // Public endpoints — IsPublic flag in ProcessRequest bypassed auth+CSRF.
+    // Token format: 'inv_' + 64 lowercase hex chars = 68 chars total.
+    // Reject anything else BEFORE touching the DB (defense against absurdly
+    // long tokens reaching the WHERE clause).
+    if Len < 2 then
+    begin
+      MxSendError(C, 400, 'missing_token');
+      Exit;
+    end;
+    if (Length(ASegments[1]) <> 68) or (not ASegments[1].StartsWith('inv_')) then
+    begin
+      MxSendError(C, 404, 'invite_not_found');
+      Exit;
+    end;
+    // GET /invite/:token
+    if (Len = 2) and (C.Request.MethodType = THttpMethod.Get) then
+    begin
+      mx.Admin.Api.Invite.HandleResolveInvite(C, FPool, FInviteRateLimit,
+        FSettingsCache, ASegments[1], FLogger);
+      Exit;
+    end;
+    // POST /invite/:token/confirm
+    if (Len = 3) and SameText(ASegments[2], 'confirm') and
+       (C.Request.MethodType = THttpMethod.Post) then
+    begin
+      mx.Admin.Api.Invite.HandleConfirmInvite(C, FPool, FInviteRateLimit,
+        FSettingsCache, ASegments[1], FLogger);
+      Exit;
+    end;
+    MxSendError(C, 404, 'not_found');
+    Exit;
+  end;
+
   MxSendError(C, 404, 'not_found');
+end;
+
+{ TMxConnectPageModule }
+
+constructor TMxConnectPageModule.Create(const ABaseUri, AWwwPath: string);
+begin
+  inherited Create(ABaseUri);
+  FFilePath := IncludeTrailingPathDelimiter(AWwwPath) + 'connect.html';
+end;
+
+procedure TMxConnectPageModule.ProcessRequest(const C: THttpServerContext);
+var
+  Bytes: TBytes;
+begin
+  if not FileExists(FFilePath) then
+  begin
+    C.Response.StatusCode := 404;
+    C.Response.ContentType := 'text/plain';
+    C.Response.Close(TEncoding.UTF8.GetBytes('connect.html not found'));
+    Exit;
+  end;
+  Bytes := TFile.ReadAllBytes(FFilePath);
+  C.Response.StatusCode := 200;
+  C.Response.ContentType := 'text/html; charset=utf-8';
+  C.Response.Headers.SetValue('Cache-Control', 'no-cache');
+  C.Response.Close(Bytes);
 end;
 
 { TMxAdminServer }
@@ -647,6 +857,9 @@ begin
   // API module (more specific prefix, register first)
   FServer.AddModule(
     TMxAdminApiModule.Create(BaseUrl + 'api/', FPool, FAuth, AConfig, ALogger));
+
+  // /connect clean URL for invite landing page (before static module)
+  FServer.AddModule(TMxConnectPageModule.Create(BaseUrl + 'connect', WwwPath));
 
   // Static file module for admin/www/
   FServer.AddModule(TStaticModule.Create(BaseUrl, WwwPath));

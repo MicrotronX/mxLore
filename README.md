@@ -12,6 +12,7 @@ Self-hosted MCP server for AI-assisted software development. Stores architectura
 - **Institutional Memory** — lessons learned with recall, gate levels, graph-based knowledge links
 - **Multi-Agent** — agents communicate across projects via message bus
 - **Admin UI** — web dashboard for developers, keys, projects, intelligence metrics
+- **Team Connect** — invite links with rate-limited landing page, one-click setup for Claude Code, claude.ai, Cursor, and more
 - **AI Batch** — automatic summaries, tagging, stale detection at boot time
 - **Works in claude.ai** — CTOs and PMs use mxLore from a chat window, developers from Claude Code — same server, same knowledge
 
@@ -86,6 +87,10 @@ Then in Claude Code, run:
 
 Enter your server URL (`http://localhost:8080/mcp`) and API key when prompted. mxSetup installs all remaining skills, hooks, proxy, and configures the MCP connection automatically.
 
+### 5. Invite Team Members
+
+Open the Admin UI (`http://localhost:8081`), go to **Connect Team**, and generate an invite link. Send the link to your team — the landing page shows copy-paste instructions for their client (Claude Code, claude.ai, Cursor, etc.).
+
 ## Network Security
 
 | Scenario | Setup |
@@ -108,7 +113,7 @@ The INI file supports two formats for database and API passwords:
 - **Stack:** Delphi (RAD Studio) + TMS Sparkle + FireDAC + MariaDB
 - **Protocol:** MCP 2024-11-05 (JSON-RPC 2.0 over HTTP+SSE)
 - **Auth:** PBKDF2-HMAC-SHA256 API keys, per-project ACL
-- **Units:** 43 Delphi units, dot-notation (`mx.*.pas`), 5 layers
+- **Units:** 53 Delphi units, dot-notation (`mx.*.pas`), 5 layers
 
 ## Directory Structure
 

@@ -277,6 +277,153 @@ begin
       finally
         MigQry.Free;
       end;
+
+      // v2.4.0: app_settings table (runtime-editable config via Admin-UI)
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.tables ' +
+        'WHERE table_schema = :db AND table_name = ''app_settings''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: creating app_settings table (v2.4.0)');
+          var DdlQry := MigCtx.CreateQuery(
+            'CREATE TABLE IF NOT EXISTS app_settings (' +
+            '  setting_key VARCHAR(64) NOT NULL PRIMARY KEY, ' +
+            '  setting_value TEXT, ' +
+            '  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, ' +
+            '  updated_by INT DEFAULT NULL, ' +
+            '  CONSTRAINT fk_app_settings_updated_by FOREIGN KEY (updated_by) ' +
+            '    REFERENCES developers(id) ON DELETE SET NULL' +
+            ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+
+          // Seed default keys (empty values, admin configures via UI)
+          var SeedQry := MigCtx.CreateQuery(
+            'INSERT IGNORE INTO app_settings (setting_key, setting_value) VALUES ' +
+            '(''connect.internal_host'', ''''), ' +
+            '(''connect.external_mcp_url'', ''''), ' +
+            '(''connect.external_admin_url'', ''''), ' +
+            '(''connect.trusted_proxies'', ''127.0.0.1'')');
+          try SeedQry.ExecSQL; finally SeedQry.Free; end;
+
+          FLogger.Log(mlInfo, 'Auto-migrate: app_settings created + seeded');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // v2.4.0: invite_links table (team onboarding via time-limited tokens)
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.tables ' +
+        'WHERE table_schema = :db AND table_name = ''invite_links''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: creating invite_links table (v2.4.0)');
+          var DdlQry := MigCtx.CreateQuery(
+            'CREATE TABLE IF NOT EXISTS invite_links (' +
+            '  id INT NOT NULL AUTO_INCREMENT, ' +
+            '  token VARCHAR(128) NOT NULL, ' +
+            '  developer_id INT NOT NULL, ' +
+            '  client_key_id INT NOT NULL, ' +
+            '  mode VARCHAR(16) NOT NULL, ' +
+            '  expires_at DATETIME NOT NULL, ' +
+            '  first_viewed_at DATETIME DEFAULT NULL, ' +
+            '  revoked_at DATETIME DEFAULT NULL, ' +
+            '  revoked_by INT DEFAULT NULL, ' +
+            '  consumer_ip VARCHAR(45) DEFAULT NULL, ' +
+            '  created_by INT NOT NULL, ' +
+            '  created_at DATETIME DEFAULT CURRENT_TIMESTAMP, ' +
+            '  PRIMARY KEY (id), ' +
+            '  UNIQUE KEY uq_invite_token (token), ' +
+            '  KEY idx_invite_expires (expires_at), ' +
+            '  KEY idx_invite_developer (developer_id), ' +
+            '  CONSTRAINT fk_invite_developer FOREIGN KEY (developer_id) ' +
+            '    REFERENCES developers(id) ON DELETE CASCADE, ' +
+            '  CONSTRAINT fk_invite_client_key FOREIGN KEY (client_key_id) ' +
+            '    REFERENCES client_keys(id) ON DELETE CASCADE, ' +
+            '  CONSTRAINT fk_invite_created_by FOREIGN KEY (created_by) ' +
+            '    REFERENCES developers(id), ' +
+            '  CONSTRAINT fk_invite_revoked_by FOREIGN KEY (revoked_by) ' +
+            '    REFERENCES developers(id) ON DELETE SET NULL' +
+            ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: invite_links created');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // v2.4.0 R4: Add columns for raw_api_key storage (Security Review ADR#1767)
+      //   - raw_api_key_obfuscated: XOR-obfuscated via mxEncryptStaticString
+      //   - confirmed_at: set by consumer via POST /api/invite/{token}/confirm
+      // Idempotent: only ADD if missing (checked via information_schema)
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''invite_links'' ' +
+        '  AND column_name = ''raw_api_key_obfuscated''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: adding raw_api_key_obfuscated + confirmed_at to invite_links');
+          var AlterQry := MigCtx.CreateQuery(
+            'ALTER TABLE invite_links ' +
+            '  ADD COLUMN raw_api_key_obfuscated VARCHAR(256) DEFAULT NULL, ' +
+            '  ADD COLUMN confirmed_at DATETIME DEFAULT NULL');
+          try AlterQry.ExecSQL; finally AlterQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: invite_links columns added');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // v2.4.0 R5 (Bugfix): token column was VARCHAR(64), but the security
+      // review (ADR#1767) raised token entropy to 256 bits → 'inv_' + 64 hex
+      // chars = 68 chars total. Idempotent widen to 128 to leave headroom.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT character_maximum_length FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''invite_links'' ' +
+        '  AND column_name = ''token''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if (not MigQry.IsEmpty) and
+           (MigQry.FieldByName('character_maximum_length').AsInteger < 128) then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: widening invite_links.token to VARCHAR(128)');
+          var AlterQry := MigCtx.CreateQuery(
+            'ALTER TABLE invite_links MODIFY COLUMN token VARCHAR(128) NOT NULL');
+          try AlterQry.ExecSQL; finally AlterQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: invite_links.token widened');
+        end;
+      finally
+        MigQry.Free;
+      end;
+      // v2.4.0: developers.role column (team member role label)
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''developers'' ' +
+        '  AND column_name = ''role''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: adding role column to developers');
+          var AlterQry := MigCtx.CreateQuery(
+            'ALTER TABLE developers ADD COLUMN role VARCHAR(50) DEFAULT NULL AFTER email');
+          try AlterQry.ExecSQL; finally AlterQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: developers.role added');
+        end;
+      finally
+        MigQry.Free;
+      end;
     finally
       MigCtx := nil;
     end;
