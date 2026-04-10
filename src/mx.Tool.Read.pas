@@ -64,6 +64,34 @@ begin
     begin
       Data.AddPair('admin_port', TJSONNumber.Create(MXAI_ADMIN_PORT));
       Data.AddPair('proxy_download_path', '/api/download/proxy');
+      // Build full proxy_download_url from settings (external) or localhost (fallback)
+      var ExtAdminUrl := '';
+      try
+        var SQry := AContext.CreateQuery(
+          'SELECT setting_value FROM app_settings ' +
+          'WHERE setting_key = ''connect.external_admin_url''');
+        try
+          SQry.Open;
+          if not SQry.IsEmpty then
+            ExtAdminUrl := Trim(SQry.FieldByName('setting_value').AsString);
+        finally
+          SQry.Free;
+        end;
+      except
+        // app_settings may not exist on old schema — ignore
+      end;
+      // Always provide internal URL (works for local installs)
+      var InternalUrl := 'http://localhost:' + IntToStr(MXAI_ADMIN_PORT) + '/api/download/proxy';
+      Data.AddPair('proxy_download_url_internal', InternalUrl);
+      // External URL from settings (for remote devs behind reverse proxy)
+      if ExtAdminUrl <> '' then
+      begin
+        if ExtAdminUrl.EndsWith('/') then
+          ExtAdminUrl := Copy(ExtAdminUrl, 1, Length(ExtAdminUrl) - 1);
+        Data.AddPair('proxy_download_url', ExtAdminUrl + '/api/download/proxy');
+      end
+      else
+        Data.AddPair('proxy_download_url', InternalUrl);
     end;
     Data.AddPair('timestamp', FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', Now));
 
