@@ -703,7 +703,12 @@ begin
         CREATE_NO_WINDOW, nil, nil, SI, PI) then
         raise Exception.Create('CreateProcess error ' + IntToStr(GetLastError));
 
-      WaitForSingleObject(PI.hProcess, 120000); // max 2 min
+      var WaitResult := WaitForSingleObject(PI.hProcess, 120000); // max 2 min
+      if WaitResult = WAIT_TIMEOUT then
+      begin
+        TerminateProcess(PI.hProcess, 1);
+        FLogger.Log(mlError, 'mysql process timed out after 120s — terminated');
+      end;
       GetExitCodeProcess(PI.hProcess, ExitCode);
       CloseHandle(PI.hProcess);
       CloseHandle(PI.hThread);

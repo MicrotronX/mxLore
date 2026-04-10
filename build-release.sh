@@ -43,6 +43,7 @@ cp "${SRCDIR}/admin/www/js/connect.js" "${OUTDIR}/admin/www/js/"
 # claude-setup (skills, hooks, reference — served by mx_onboard_developer)
 cp -r "${SRCDIR}/claude-setup/skills" "${OUTDIR}/claude-setup/skills"
 cp -r "${SRCDIR}/claude-setup/hooks" "${OUTDIR}/claude-setup/hooks"
+cp -r "${SRCDIR}/claude-setup/commands" "${OUTDIR}/claude-setup/commands"
 cp -r "${SRCDIR}/claude-setup/reference" "${OUTDIR}/claude-setup/reference"
 cp "${SRCDIR}/claude-setup/proxy/mxMCPProxy.ini" "${OUTDIR}/claude-setup/proxy/mxMCPProxy.ini"
 cp "${SRCDIR}/claude-setup/CLAUDE.md" "${OUTDIR}/claude-setup/CLAUDE.md"

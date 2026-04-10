@@ -137,6 +137,48 @@ CREATE TABLE IF NOT EXISTS `admin_sessions` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
+-- Runtime Settings & Invite Links (v2.4.0)
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS `app_settings` (
+  `setting_key` varchar(100) NOT NULL,
+  `setting_value` text DEFAULT NULL,
+  `updated_by` int(11) DEFAULT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `app_settings` (`setting_key`, `setting_value`) VALUES
+  ('connect.internal_host', ''),
+  ('connect.external_mcp_url', ''),
+  ('connect.external_admin_url', ''),
+  ('connect.trusted_proxies', '127.0.0.1');
+
+CREATE TABLE IF NOT EXISTS `invite_links` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `token` varchar(128) NOT NULL,
+  `developer_id` int(11) NOT NULL,
+  `client_key_id` int(11) NOT NULL,
+  `mode` varchar(30) NOT NULL DEFAULT 'external',
+  `expires_at` datetime NOT NULL,
+  `first_viewed_at` datetime DEFAULT NULL,
+  `consumer_ip` varchar(45) DEFAULT NULL,
+  `revoked_at` datetime DEFAULT NULL,
+  `revoked_by` int(11) DEFAULT NULL,
+  `raw_api_key_obfuscated` varchar(256) DEFAULT NULL,
+  `confirmed_at` datetime DEFAULT NULL,
+  `created_by` int(11) NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_invite_token` (`token`),
+  KEY `idx_invite_expires` (`expires_at`),
+  KEY `fk_invite_developer` (`developer_id`),
+  KEY `fk_invite_key` (`client_key_id`),
+  CONSTRAINT `fk_invite_developer` FOREIGN KEY (`developer_id`) REFERENCES `developers` (`id`),
+  CONSTRAINT `fk_invite_key` FOREIGN KEY (`client_key_id`) REFERENCES `client_keys` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
 -- Documents (core knowledge store)
 -- Central table: all specs, plans, decisions, findings, lessons, notes etc.
 -- doc_type and status are VARCHAR(30) — server validates, no ALTER TABLE needed.

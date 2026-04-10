@@ -277,7 +277,7 @@ begin
   if SameText(AStatusFilter, 'active') then
     Sql := Sql + ' WHERE revoked_at IS NULL AND confirmed_at IS NULL AND expires_at > NOW()'
   else if SameText(AStatusFilter, 'expired') then
-    Sql := Sql + ' WHERE revoked_at IS NULL AND expires_at <= NOW()'
+    Sql := Sql + ' WHERE revoked_at IS NULL AND confirmed_at IS NULL AND expires_at <= NOW()'
   else if SameText(AStatusFilter, 'revoked') then
     Sql := Sql + ' WHERE revoked_at IS NOT NULL'
   else if SameText(AStatusFilter, 'confirmed') then

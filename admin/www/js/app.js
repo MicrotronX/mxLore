@@ -372,7 +372,7 @@ var App = (function () {
       tbody.innerHTML = html;
     } catch (err) {
       if (err.message !== 'session_expired')
-        tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state">Fehler: ' + escHtml(err.message) + '</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state">Error: ' + escHtml(err.message) + '</div></td></tr>';
     }
   }
 
@@ -966,7 +966,7 @@ var App = (function () {
     if (resp.url_warning) {
       if (alertEl) {
         alertEl.className = 'alert alert--warning';
-        alertEl.innerHTML = '&#9888; ' + escapeHtml(resp.url_warning);
+        alertEl.textContent = '\u26A0 ' + resp.url_warning;
         alertEl.style.display = 'block';
       }
     } else if (alertEl) {
@@ -1436,9 +1436,13 @@ var App = (function () {
 
   // --- Helpers ---
   function escHtml(str) {
-    var div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    if (str == null) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function animateStat(elementId, targetValue) {

@@ -35,7 +35,7 @@ const Api = (function () {
     // Session expired — redirect to login
     if (res.status === 401) {
       csrfToken = '';
-      App.showLogin('Sitzung abgelaufen. Bitte erneut anmelden.');
+      App.showLogin('Session expired. Please sign in again.');
       throw new Error('session_expired');
     }
 

@@ -23,6 +23,13 @@ procedure HandlePutSettings(const C: THttpServerContext;
 //   mode="mcp"  (default if URL ends with /mcp): POST JSON-RPC initialize
 //   mode="http" (for admin URLs): HEAD request
 // Response: { "ok": true/false, "status_code": 200, "error": "...", "latency_ms": 42, "kind": "mcp"|"http" }
+//
+// SECURITY NOTE (SSRF): This endpoint makes HTTP requests to arbitrary URLs
+// provided by the admin. It is authenticated (admin session + CSRF required)
+// and intentional for self-hosted deployments where admins need to verify
+// connectivity to their own infrastructure. No private-IP blocking is applied
+// because admins legitimately need to test internal/LAN URLs. Accepted risk
+// for admin-only functionality in self-hosted context.
 procedure HandleTestConnection(const C: THttpServerContext;
   ALogger: IMxLogger);
 
