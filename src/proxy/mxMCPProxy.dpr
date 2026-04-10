@@ -10,7 +10,7 @@ uses
   mx.Proxy.Core in 'mx.Proxy.Core.pas';
 
 const
-  PROXY_VERSION = '1.0.2';
+  PROXY_VERSION = '1.0.3';
 
 function GetExeDir: string;
 var
@@ -27,6 +27,12 @@ var
 begin
   SetConsoleCP(CP_UTF8);
   SetConsoleOutputCP(CP_UTF8);
+
+  // Fix Delphi RTL: ReadLn/WriteLn use TextRec.CodePage, not Console CP.
+  // Without this, piped stdin (from Claude Code) is read as Windows-1252.
+  TTextRec(Input).CodePage := CP_UTF8;
+  TTextRec(Output).CodePage := CP_UTF8;
+  TTextRec(ErrOutput).CodePage := CP_UTF8;
 
   try
     if ParamCount >= 1 then
