@@ -21,16 +21,23 @@ Self-hosted MCP server for AI-assisted software development. Stores architectura
 ### Prerequisites
 
 - Windows x64
-- MariaDB 10.6+ (recommended: 11.x)
+- MariaDB 10.6+ (recommended: 11.x with vector support for semantic search)
 - Claude Code CLI, claude.ai, or any MCP client
 
 ### 1. Install MariaDB
 
-Download from [mariadb.org](https://mariadb.org/download/) and create an empty database:
+Download the Windows MSI installer from [mariadb.org/download](https://mariadb.org/download/) (choose "MariaDB Server" for Windows x86_64). During installation:
+- Set a **root password** — you'll need this in step 2
+- Keep the default port (3306) and service name
+- Select "Enable access from remote machines" only if you plan to run mxLore on a different machine
 
-```sql
-CREATE DATABASE mxai_knowledge CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+After installation, open a command prompt and create the database:
+
+```bash
+mysql -u root -p -e "CREATE DATABASE mxai_knowledge CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 ```
+
+Enter the root password you set during installation.
 
 ### 2. Configure
 
@@ -40,14 +47,14 @@ Copy and edit the config template:
 copy mxLoreMCP.ini.example mxLoreMCP.ini
 ```
 
-Set your database password in `mxLoreMCP.ini`:
+Set your MariaDB root password (the one from step 1) in `mxLoreMCP.ini`:
 
 ```ini
 [Database]
-Password=your_db_password
+Password=your_mariadb_root_password
 ```
 
-That's the only required change. MariaDB is auto-detected from your installation.
+That's the only required change. MariaDB client library (`libmariadb.dll`) is auto-detected from your installation.
 
 ### 3. Start
 
@@ -61,13 +68,25 @@ The server will:
 - Start the MCP server on port 8080
 - Start the Admin UI on port 8081
 
-### 4. First Setup
+### 4. Verify
 
-Open `http://localhost:8081` in your browser. The Admin UI is open without login on first start (no developers yet). Create your first developer and API key.
+Open `http://localhost:8081` in your browser. You should see the Admin UI login page (or the dashboard directly on first start with no developers).
 
-### 5. Connect Claude Code
+Quick API test from command line:
 
-First, download the setup skill:
+```bash
+curl http://localhost:8080/mcp -X POST -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"1\"}},\"id\":1}"
+```
+
+You should see a JSON response with `"name":"mxLore"` — the server is running.
+
+### 5. First Setup
+
+The Admin UI is open without login on first start (no team members yet). Create your first team member and API key. Copy the API key — you'll need it to connect AI clients.
+
+### 6. Connect Claude Code
+
+Download the setup skill (one-time):
 
 ```bash
 # Windows (PowerShell)
@@ -87,7 +106,7 @@ Then in Claude Code, run:
 
 Enter your server URL (`http://localhost:8080/mcp`) and API key when prompted. mxSetup installs all remaining skills, hooks, proxy, and configures the MCP connection automatically.
 
-### 5. Invite Team Members
+### 7. Invite Team Members
 
 Open the Admin UI (`http://localhost:8081`), go to **Connect Team**, and generate an invite link. Send the link to your team — the landing page shows copy-paste instructions for their client (Claude Code, claude.ai, Cursor, etc.).
 
@@ -106,7 +125,18 @@ The INI file supports two formats for database and API passwords:
 - **Plain text** (default, simplest): `Password=mypassword`
 - **XOR obfuscation** (optional): `PasswordEnc=<hex>` — generate with `mxLoreMCP.exe --encrypt "mypassword"`
 
-> **Note:** XOR obfuscation prevents casual reading of passwords in the INI file. It is NOT encryption. For real security, restrict file system access to `mxLoreMCP.ini`.
+> **Note:** XOR obfuscation prevents casual reading of passwords in the INI file. It is NOT encryption. For real security, restrict file system access to `mxLoreMCP.ini`. Plain text passwords in the INI are automatically XOR-obfuscated on first boot.
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| **"libmariadb.dll not found"** | The server auto-detects it from your MariaDB installation (registry, `C:\Program Files\MariaDB*`). If auto-detection fails, copy `libmariadb.dll` from your MariaDB `lib/` directory into the mxLore `lib/` folder. |
+| **"Connection refused" on port 8080/8081** | Check Windows Firewall: allow inbound TCP for ports 8080 and 8081. For LAN access, set `BindAddress=0.0.0.0` in the INI. |
+| **Schema creation fails on first boot** | Ensure the database `mxai_knowledge` exists (step 1). Check the MariaDB password in the INI matches your root password. Check `logs/` for detailed error messages. |
+| **Admin UI shows blank page** | Ensure `admin/www/` folder with all HTML/CSS/JS files is next to the EXE. The server serves these files directly. |
+| **"Port 8080 already in use"** | Another application uses port 8080. Change `Port=8080` in the INI `[Server]` section to a free port (e.g. 9080). Admin port is always Server port + 1. |
+| **MariaDB auto-detect picks wrong version** | Set `VendorHome=C:\Program Files\MariaDB 11.6` explicitly in the INI `[Database]` section. |
 
 ## Architecture
 

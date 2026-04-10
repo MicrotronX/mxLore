@@ -3,7 +3,7 @@
 # Usage: bash build-release.sh [version]
 # Example: bash build-release.sh 2.2.1
 
-VERSION=${1:-"2.2.1"}
+VERSION=${1:-"2.4.0"}
 BASENAME="mxLore-v${VERSION}-win64"
 OUTDIR="release/${BASENAME}"
 ZIPFILE="release/${BASENAME}.zip"
@@ -27,16 +27,18 @@ cp "${SRCDIR}/mxLoreMCP.ini.example" "${OUTDIR}/"
 
 # SQL
 cp "${SRCDIR}/sql/setup.sql" "${OUTDIR}/sql/"
-cp "${SRCDIR}/sql/042-graph-tables.sql" "${OUTDIR}/sql/"
 cp "${SRCDIR}/sql/043-embedding-vector.sql" "${OUTDIR}/sql/"
 cp "${SRCDIR}/sql/044-tool-call-log.sql" "${OUTDIR}/sql/"
 
 # Admin UI
 cp "${SRCDIR}/admin/www/index.html"    "${OUTDIR}/admin/www/"
-cp "${SRCDIR}/admin/www/css/style.css" "${OUTDIR}/admin/www/css/"
+cp "${SRCDIR}/admin/www/connect.html"  "${OUTDIR}/admin/www/"
+cp "${SRCDIR}/admin/www/css/style.css"   "${OUTDIR}/admin/www/css/"
+cp "${SRCDIR}/admin/www/css/connect.css" "${OUTDIR}/admin/www/css/"
 cp "${SRCDIR}/admin/www/js/app.js"     "${OUTDIR}/admin/www/js/"
 cp "${SRCDIR}/admin/www/js/api.js"     "${OUTDIR}/admin/www/js/"
 cp "${SRCDIR}/admin/www/js/icons.js"   "${OUTDIR}/admin/www/js/"
+cp "${SRCDIR}/admin/www/js/connect.js" "${OUTDIR}/admin/www/js/"
 
 # claude-setup (skills, hooks, reference — served by mx_onboard_developer)
 cp -r "${SRCDIR}/claude-setup/skills" "${OUTDIR}/claude-setup/skills"
