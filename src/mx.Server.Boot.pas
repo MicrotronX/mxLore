@@ -608,7 +608,7 @@ procedure TMxServerBoot.RunAutoSchema;
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
-  SetupPath, MysqlExe, CmdLine, BatFile: string;
+  SetupPath, MysqlExe, CmdLine, BatFile, CredFile: string;
   NeedSetup: Boolean;
   {$IFDEF MSWINDOWS}
   SI: TStartupInfo;
@@ -661,16 +661,28 @@ begin
     end;
     FLogger.Log(mlDebug, 'MySQL client: ' + MysqlExe);
 
+    // Use --defaults-extra-file to avoid password on command line / in batch file.
+    // Same pattern as backup (mx.Admin.Api.Global.pas).
+    CredFile := TPath.Combine(ExtractFilePath(ParamStr(0)), '.setup_creds.cnf');
+    BatFile := TPath.Combine(ExtractFilePath(ParamStr(0)), '.setup_import.bat');
     try
-      // Write a batch file to avoid cmd /c quoting issues
-      BatFile := TPath.Combine(ExtractFilePath(ParamStr(0)), '.setup_import.bat');
+      // Write temp credentials file (no password on CLI, no batch escaping issues)
+      var Creds := TStringList.Create;
+      try
+        Creds.Add('[client]');
+        Creds.Add('password=' + FConfig.DBPassword);
+        Creds.SaveToFile(CredFile, TEncoding.ANSI);
+      finally
+        Creds.Free;
+      end;
+
+      // Write batch file with < redirect (mysql needs shell for stdin redirect)
       var BatLines := TStringList.Create;
       try
         BatLines.Add('@echo off');
-        BatLines.Add(Format('"%s" --host=%s --port=%d -u %s -p%s %s < "%s"',
-          [MysqlExe, FConfig.DBHost, FConfig.DBPort,
-           FConfig.DBUsername, FConfig.DBPassword,
-           FConfig.DBDatabase, SetupPath]));
+        BatLines.Add(Format('"%s" --defaults-extra-file="%s" --host=%s --port=%d -u %s %s < "%s"',
+          [MysqlExe, CredFile, FConfig.DBHost, FConfig.DBPort,
+           FConfig.DBUsername, FConfig.DBDatabase, SetupPath]));
         BatLines.SaveToFile(BatFile, TEncoding.ANSI);
       finally
         BatLines.Free;
@@ -706,7 +718,9 @@ begin
 
       FLogger.Log(mlInfo, 'Auto-schema: setup.sql imported successfully via mysql CLI');
     finally
-      // Clean up temp files (bat contains password)
+      // Clean up temp files (creds file contains password)
+      if FileExists(CredFile) then
+        System.SysUtils.DeleteFile(CredFile);
       if FileExists(BatFile) then
         System.SysUtils.DeleteFile(BatFile);
     end;
