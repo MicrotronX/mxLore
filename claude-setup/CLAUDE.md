@@ -2,7 +2,7 @@
 # IMPORTANT: Content between mx-rules markers is managed by /mxSetup --update.
 # Place your own additions ABOVE or BELOW the marker block. Do NOT edit inside markers.
 
-<!-- mx-rules-start v2026-03-20 -->
+<!-- mx-rules-start v2026-04-12 -->
 # mx* Rules (AI-Steno: !=forbidden →=use/instead ⚡=critical ?=ask)
 
 ## Persist ⚡
@@ -17,6 +17,14 @@ mxDesignChecker/mxBugChecker/mxHealth→Agent !main-ctx
 grep-first→read(offset/limit) !>200lines !speculative
 !repeat-user !explain-intent →just-do-it. results>explanations
 ⚡ !Bash for MCP-calls. !`claude --print`. !`claude -p`. ALWAYS MCP-tools direct (mx_search, mx_detail, mx_update_doc etc.)
+
+## Tokens ⚡
+mx_create_doc/mx_update_doc with long content→Background-Subagent !main-ctx (body stays out of history)
+mx_detail max_content_tokens=600 default !full-text-read unless editing
+mx_search include_content=false limit=3-5. mx_briefing token_budget=1000-1500
+Edit surgical 1-5L. multi-line→Write or background-subagent
+tail -15 default for logs. wider only on need
+status.md max10L pointer-only(MCP IDs) !duplicate-content
 
 ## Security ⚡
 !secrets(keys/pw/tokens/logins) in code or external →envvar
