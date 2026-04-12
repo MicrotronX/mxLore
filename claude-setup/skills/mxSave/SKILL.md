@@ -10,6 +10,7 @@ argument-hint: "[optional-notes] [--loop]"
 # /mxSave — Persist Project State (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
 > **Context:** Hybrid mode. MCP work→Subagent(Background). `.claude/` files→Main context (Subagents lack write permission for `.claude/`). Result: max 20 lines.
+> **Tokens ⚡:** mx_create_doc/mx_update_doc body >300 words → background subagent (already enforced in Steps 3+5+6). mx_detail server default = 600 tokens.
 
 Save agent. Persists project state for seamless session continuation.
 **Hybrid:** CLAUDE.md+status.md=local. Session notes=MCP-DB.

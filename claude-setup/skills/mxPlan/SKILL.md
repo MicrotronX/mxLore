@@ -10,6 +10,7 @@ argument-hint: "<slug e.g. edi-parser-refactor>"
 # /mxPlan — Create/update plan (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
 > **Context:** ALWAYS as subagent(Agent-Tool) !main-context. Result: max 20 lines.
+> **Tokens ⚡:** mx_create_doc/mx_update_doc body >300 words → assemble in this subagent, !echo to parent. mx_detail server default = 600 tokens.
 
 Plan agent. Creates/updates plans in Knowledge-DB via MCP.
 

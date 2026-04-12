@@ -117,7 +117,7 @@ var
   HasSince: Boolean;
 begin
   ProjectSlug := AParams.GetValue<string>('project', '');
-  TokenBudget := AParams.GetValue<Integer>('token_budget', 2000);
+  TokenBudget := AParams.GetValue<Integer>('token_budget', 1500);
   FilterDocType := AParams.GetValue<string>('doc_type', '');
   FilterStatus := AParams.GetValue<string>('status', '');
   Since := AParams.GetValue<string>('since', '');
@@ -886,7 +886,7 @@ begin
   DocId := AParams.GetValue<Integer>('doc_id', 0);
   if DocId = 0 then
     raise EMxValidation.Create('Parameter "doc_id" is required');
-  MaxContentTokens := AParams.GetValue<Integer>('max_content_tokens', 0);
+  MaxContentTokens := AParams.GetValue<Integer>('max_content_tokens', 600);
 
   // Query 1: Document
   Qry := AContext.CreateQuery(

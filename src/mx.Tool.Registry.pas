@@ -241,7 +241,7 @@ begin
     .Add('mx_briefing', HandleBriefing)
     .Desc('Project briefing with relevance-scored documents')
     .Param('project', mptString, True, 'Project slug')
-    .Param('token_budget', mptInteger, False, 'Max tokens (def 2000)')
+    .Param('token_budget', mptInteger, False, 'Max tokens (def 1500)')
     .Param('doc_type', mptString, False, 'Filter by type')
     .Param('status', mptString, False, 'Filter by status')
     .Param('since', mptString, False, 'ISO timestamp — filter to changes after')
@@ -266,7 +266,7 @@ begin
     .Add('mx_detail', HandleDetail)
     .Desc('Full document content (L3) with tags and relations')
     .Param('doc_id', mptInteger, True, 'Document ID')
-    .Param('max_content_tokens', mptInteger, False, 'Truncate content at N tokens (0=unlimited)')
+    .Param('max_content_tokens', mptInteger, False, 'Truncate content at N tokens (def 600, 0=unlimited)')
     .Param('session_id', mptInteger, False, 'Session ID');
 
   ARegistry

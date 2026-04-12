@@ -10,6 +10,7 @@ argument-hint: "<Decision title>"
 # /mxDecision — Create ADR (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
 > **Context:** ALWAYS as subagent(Agent-Tool) !main-context. Result: max 20 lines.
+> **Tokens ⚡:** mx_create_doc/mx_update_doc body >300 words → assemble in this subagent, !echo to parent. mx_detail server default = 600 tokens.
 
 ADR-Agent. Creates decisions as ADR in Knowledge-DB via MCP.
 

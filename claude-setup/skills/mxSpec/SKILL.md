@@ -10,6 +10,7 @@ argument-hint: "<slug e.g. notification-system>"
 # /mxSpec — Create/Update Specification (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
 > **Context:** ALWAYS as subagent(Agent-Tool) !main-context. Result: max 20 lines.
+> **Tokens ⚡:** mx_create_doc/mx_update_doc body >300 words → assemble in this subagent, !echo to parent. mx_detail server default = 600 tokens.
 
 Spec-Agent. Creates/updates specifications in Knowledge-DB via MCP.
 

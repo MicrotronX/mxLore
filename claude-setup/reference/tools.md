@@ -53,6 +53,6 @@
 
 - **Parameter name:** Consistently `project` (not `project_slug`)
 - **mx_search:** No wildcard-only query (`*` alone does not work)
-- **mx_briefing:** `token_budget` default 2000, call at session start
+- **mx_briefing:** `token_budget` default 1500, call at session start
 - **mx_get_env fallback:** Key→Developer→_global (with `source` field in response)
 - **Notes vs. Docs:** `mx_create_note` for notes/bugreports/feature requests, `mx_create_doc` for specs/plans/decisions

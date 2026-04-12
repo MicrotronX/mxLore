@@ -10,6 +10,7 @@ argument-hint: "init | start <type> | track <note> | park [reason] | resume [id]
 # /mxOrchestrate — Persistent Session Orchestrator (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
 > **Context:** ALWAYS run as subagent(Agent-Tool) !main-context. Result: max 20 lines.
+> **Tokens ⚡:** mx_create_doc/mx_update_doc body >300 words → assemble in this subagent, !echo to parent. mx_detail server default = 600 tokens.
 
 Central session manager. Manages workflow stack, ad-hoc tasks, team agents.
 Skills **auto-execute fully**. Only ask user for **optional steps**.

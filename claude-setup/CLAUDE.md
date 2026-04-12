@@ -20,11 +20,13 @@ grep-first→read(offset/limit) !>200lines !speculative
 
 ## Tokens ⚡
 mx_create_doc/mx_update_doc with long content→Background-Subagent !main-ctx (body stays out of history)
-mx_detail max_content_tokens=600 default !full-text-read unless editing
+mx_detail max_content_tokens=600 default !full-text-read unless editing. mx_recall/mx_decision_trace return full content—use sparingly
 mx_search include_content=false limit=3-5. mx_briefing token_budget=1000-1500
+mx_skill_findings_list paginate(limit=10) !full-list
 Edit surgical 1-5L. multi-line→Write or background-subagent
 tail -15 default for logs. wider only on need
 status.md max10L pointer-only(MCP IDs) !duplicate-content
+N mirrored files→edit canonical 1x + cp, !N Edit calls
 
 ## Security ⚡
 !secrets(keys/pw/tokens/logins) in code or external →envvar
