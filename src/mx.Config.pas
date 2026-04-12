@@ -64,6 +64,8 @@ type
     FEmbeddingBatchSize: Integer;
     // Identity
     FSelfSlug: string;
+    // Fetch (mx_fetch tool — Build 85, ADR #2078)
+    FFetchAllowedHosts: TArray<string>;
   public
     constructor Create(const AIniPath: string);
 
@@ -122,6 +124,8 @@ type
     property EmbeddingBatchSize: Integer read FEmbeddingBatchSize;
     // Identity
     property SelfSlug: string read FSelfSlug;
+    // Fetch (mx_fetch tool — Build 85, ADR #2078)
+    property FetchAllowedHosts: TArray<string> read FFetchAllowedHosts;
   end;
 
 function mxEncryptStaticString(const APlainText: string): string;
@@ -377,6 +381,23 @@ begin
       Ini.ReadString('AI', 'KeywordWeight', '0.6'), 0.6);
     FBatchIntervalMinutes := Ini.ReadInteger('AI', 'BatchIntervalMinutes', 15);
     FEmbeddingBatchSize := Ini.ReadInteger('AI', 'EmbeddingBatchSize', 50);
+
+    // Fetch (mx_fetch tool — Build 85, ADR #2078)
+    // Comma-separated host list, lowercase + trimmed. Default localhost-only
+    var LFetchHosts := Ini.ReadString('Fetch', 'AllowedHosts', 'localhost,127.0.0.1');
+    var LRawList := TArray<string>(LFetchHosts.Split([',']));
+    SetLength(FFetchAllowedHosts, Length(LRawList));
+    var LIdx := 0;
+    for var LHost in LRawList do
+    begin
+      var LTrimmed := LHost.Trim.ToLower;
+      if LTrimmed <> '' then
+      begin
+        FFetchAllowedHosts[LIdx] := LTrimmed;
+        Inc(LIdx);
+      end;
+    end;
+    SetLength(FFetchAllowedHosts, LIdx);
 
     // Auto-encrypt: plaintext keys → encrypted, clear plaintext from INI
     AutoEncryptKey(Ini, 'Database', 'Password', 'PasswordEnc');

@@ -109,3 +109,13 @@ MaxTokensPerBoot=50000
 
 [SkillEvolution]
 MinFindingsForTuning=10
+
+; =============================================================================
+; mx_fetch — outbound HTTP fetch tool for MCP clients (Build 85, ADR #2078)
+; Comma-separated host allowlist. Default = localhost only.
+; Add additional hosts (e.g. api.example.com, your LAN backend) explicitly.
+; Hosts are matched case-insensitive against the URL host component.
+; Schemes: http and https only. Body cap: 50 KB. Rate limit: 1 req/sec/session.
+; =============================================================================
+[Fetch]
+AllowedHosts=localhost,127.0.0.1

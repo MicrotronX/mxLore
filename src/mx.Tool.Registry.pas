@@ -28,7 +28,8 @@ uses
   mx.Tool.Trace, mx.Tool.ProjectRelation, mx.Tool.Agent,
   mx.Tool.SkillEvolution,
   mx.Tool.Recall,
-  mx.Tool.Graph;
+  mx.Tool.Graph,
+  mx.Tool.Fetch;
 
 { SafeExecute }
 
@@ -376,6 +377,17 @@ begin
     .Param('session_id', mptInteger, False, 'Caller session ID — uses its started_at as cutoff')
     .Param('since', mptString, False, 'Explicit ISO 8601 cutoff (overrides session_id)')
     .Param('limit', mptInteger, False, 'Max rows 1-200 (def 50)');
+
+  ARegistry
+    .Add('mx_fetch', HandleFetch)
+    .Desc('HTTP GET/POST against [Fetch] AllowedHosts. Body capped at 50 KB. Header whitelist enforced.')
+    .Param('url', mptString, True, 'Full URL (http/https only)')
+    .Param('method', mptString, False, 'GET (def) or POST')
+    .Param('body', mptString, False, 'JSON-encoded body string for POST')
+    .Param('headers', mptString, False, 'JSON-encoded headers dict. Whitelist: Authorization, X-MXSA-Key, X-API-Key, Content-Type, Accept')
+    .Param('timeout_ms', mptInteger, False, 'Request timeout 1000-60000 (def 10000)')
+    .Param('follow_redirects', mptBoolean, False, 'Follow same-host 3xx, max 3 hops (def true)')
+    .Param('session_id', mptInteger, False, 'Session ID for rate-limit bucket');
 
   // mx_create_note removed (B6.1) — use mx_create_doc with tags/lesson_data
   // mx_list_notes removed (B6.2) — use mx_search with doc_type+tag filter

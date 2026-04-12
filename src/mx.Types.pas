@@ -106,7 +106,7 @@ function MxGetThreadAuth: TMxAuthResult;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 84;  // mx_session_delta refactor: cutoff via session_id, metadata-only response, LIMIT (Bug-fix for 200KB bloat)
+  MXAI_BUILD   = 85;  // mx_fetch tool: HTTP GET/POST with INI host allowlist, 50KB body cap, header whitelist, rate limit (ADR #2078)
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';

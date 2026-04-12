@@ -46,7 +46,7 @@ implementation
 uses
   System.IOUtils, System.DateUtils, System.Types,
   FireDAC.Comp.Client, FireDAC.Phys.MySQL,
-  mx.Admin.Api.Global;
+  mx.Admin.Api.Global, mx.Tool.Fetch;
 
 var
   GShutdownEvent: TEvent = nil;
@@ -171,6 +171,8 @@ begin
   FConfig := TMxConfig.Create(AConfigPath);
   MXAI_SETUP_VERSION := FConfig.SetupVersion;
   MXAI_ADMIN_PORT := FConfig.AdminPort;
+  // mx_fetch tool: cache allowlist from [Fetch] section (Build 85, ADR #2078)
+  mx.Tool.Fetch.InitFetchConfig(FConfig);
 
   // 2. Logger (ConsoleOutput=False im GUI-Modus — kein Console-Handle)
   FLogger := TStructuredLogger.Create(FConfig.LogFile, FConfig.LogLevel,
