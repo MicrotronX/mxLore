@@ -431,6 +431,84 @@ begin
       finally
         MigQry.Free;
       end;
+
+      // sql/045: agent_messages.target_developer_id (Spec #1964, Feature #1875)
+      // Adds per-developer targeting: NULL = broadcast, set = direct to dev.
+      // Three independent guards (column / FK / index) for partial-migration
+      // recovery — if one step fails, others still apply on next boot.
+
+      // 1a. Column
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''agent_messages'' ' +
+        '  AND column_name = ''target_developer_id''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/045 step 1 — ADD target_developer_id');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE agent_messages ' +
+            'ADD COLUMN target_developer_id INT DEFAULT NULL AFTER target_project_id, ' +
+            'ALGORITHM=INSTANT');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // 1b. Foreign key (LOCK=NONE is NOT supported by MariaDB for
+      //     ON DELETE SET NULL — use default locking; agent_messages is
+      //     small, brief metadata lock is acceptable).
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.table_constraints ' +
+        'WHERE table_schema = :db AND table_name = ''agent_messages'' ' +
+        '  AND constraint_name = ''fk_am_target_dev''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/045 step 2 — ADD fk_am_target_dev');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE agent_messages ' +
+            'ADD CONSTRAINT fk_am_target_dev FOREIGN KEY (target_developer_id) ' +
+            '  REFERENCES developers(id) ON DELETE SET NULL');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // 1c. Replace idx_am_inbox — detect via column count: old index has
+      //     3 columns (target_project_id, status, created_at), new has 4
+      //     (with target_developer_id added).
+      MigQry := MigCtx.CreateQuery(
+        'SELECT COUNT(*) AS col_count FROM information_schema.statistics ' +
+        'WHERE table_schema = :db AND table_name = ''agent_messages'' ' +
+        '  AND index_name = ''idx_am_inbox''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if (not MigQry.IsEmpty) and
+           (MigQry.FieldByName('col_count').AsInteger <> 4) then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/045 step 3 — REPLACE idx_am_inbox');
+          // Combined DROP+ADD in one ALTER: MariaDB needs to see both
+          // operations atomically so the new index satisfies the FK
+          // requirement on target_project_id (fk_am_target_project).
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE agent_messages ' +
+            'DROP INDEX idx_am_inbox, ' +
+            'ADD INDEX idx_am_inbox ' +
+            '  (target_project_id, target_developer_id, status, created_at)');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/045 step 3 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
     finally
       MigCtx := nil;
     end;

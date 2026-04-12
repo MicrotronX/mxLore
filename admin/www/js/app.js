@@ -103,7 +103,7 @@ var App = (function () {
     updateMergeBar();
 
     var tbody = $('#dev-table-body');
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px"><span class="spinner"></span></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px"><span class="spinner"></span></td></tr>';
 
     try {
       var data = await Api.getDevelopers();
@@ -111,7 +111,7 @@ var App = (function () {
       window._lastDevList = devs;
 
       if (devs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><div class="empty-state__icon">&#9881;</div>No team members yet</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="empty-state__icon">&#9881;</div>No team members yet</div></td></tr>';
         return;
       }
 
@@ -130,6 +130,7 @@ var App = (function () {
         var statusText = d.is_active ? 'Active' : 'Inactive';
         return '<tr data-id="' + d.id + '">' +
           '<td><input type="checkbox" class="row-check merge-check" data-id="' + d.id + '" data-name="' + escHtml(d.name) + '"></td>' +
+          '<td class="text-secondary" style="font-family:monospace;font-size:12px">#' + d.id + '</td>' +
           '<td><span class="cell-link" onclick="App.openDeveloper(' + d.id + ')">' + escHtml(d.name) + '</span></td>' +
           '<td class="text-secondary">' + escHtml(d.email || '\u2014') + '</td>' +
           '<td class="text-secondary">' + escHtml(d.role || '\u2014') + '</td>' +
@@ -155,7 +156,7 @@ var App = (function () {
       });
     } catch (err) {
       if (err.message !== 'session_expired') {
-        tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state">Failed to load</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">Failed to load</div></td></tr>';
       }
     }
   }
@@ -2400,7 +2401,7 @@ var App = (function () {
     if (!body) return;
 
     if (findings.length === 0) {
-      body.innerHTML = '<tr><td colspan="8"><div class="empty-state">No findings in this view</div></td></tr>';
+      body.innerHTML = '<tr><td colspan="9"><div class="empty-state">No findings in this view</div></td></tr>';
       return;
     }
 
@@ -2458,7 +2459,7 @@ var App = (function () {
     if (!body) return;
 
     if (rules.length === 0) {
-      body.innerHTML = '<tr><td colspan="8"><div class="empty-state">No rules</div></td></tr>';
+      body.innerHTML = '<tr><td colspan="9"><div class="empty-state">No rules</div></td></tr>';
       return;
     }
 
@@ -2514,7 +2515,7 @@ var App = (function () {
     if (!body) return;
 
     if (params.length === 0) {
-      body.innerHTML = '<tr><td colspan="8"><div class="empty-state">No tuning parameters</div></td></tr>';
+      body.innerHTML = '<tr><td colspan="9"><div class="empty-state">No tuning parameters</div></td></tr>';
       return;
     }
 

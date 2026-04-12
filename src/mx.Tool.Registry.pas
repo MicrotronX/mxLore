@@ -438,18 +438,19 @@ begin
   // ---- AGENT COMMUNICATION TOOLS ----
   ARegistry
     .Add('mx_agent_send', HandleAgentSend)
-    .Desc('Send message to a related project agent')
+    .Desc('Send message to another project agent or a specific developer in the same project')
     .Param('project', mptString, True, 'Sender project slug')
     .Param('target_project', mptString, True, 'Target project slug')
-    .Param('message_type', mptString, True, 'join, leave, task, info, question, response, status')
+    .Param('message_type', mptString, True, 'task, info, question, response, status, setup_report')
     .Param('payload', mptString, True, 'Message payload (JSON string, max 16KB)')
+    .Param('target_developer_id', mptInteger, False, 'Target developer ID (intra-project direct message; empty = broadcast to all devs)')
     .Param('ref_doc_id', mptInteger, False, 'Referenced document ID')
     .Param('priority', mptString, False, 'normal (def) or urgent')
     .Param('ttl_days', mptInteger, False, 'TTL in days (1-30, default 1)');
 
   ARegistry
     .Add('mx_agent_inbox', HandleAgentInbox)
-    .Desc('Get pending messages for a project')
+    .Desc('Get pending messages for a project (filtered by current developer)')
     .Param('project', mptString, True, 'Project slug')
     .Param('limit', mptInteger, False, 'Max messages (def 20, max 50)');
 
@@ -462,8 +463,11 @@ begin
 
   ARegistry
     .Add('mx_agent_peers', HandleAgentPeers)
-    .Desc('Active sessions on related projects')
-    .Param('project', mptString, True, 'Project slug');
+    .Desc('Active peer sessions: cross-project (via relations), same-project (multi-dev), or all')
+    .Param('project', mptString, True, 'Project slug')
+    .Param('scope', mptString, False, 'cross (def, related projects) | same (same project) | all')
+    .Param('recent_hours', mptInteger, False, 'Heartbeat window in hours (0=def=legacy 5min, 1..168=h)')
+    .Param('session_id', mptInteger, False, 'Own session ID for file-overlap detection (optional)');
 
   // ---- SKILL EVOLUTION TOOLS ----
   ARegistry
