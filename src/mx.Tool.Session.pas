@@ -568,16 +568,25 @@ begin
 end;
 
 // ---------------------------------------------------------------------------
-// mx_session_delta — Changes since last completed session for a project
+// mx_session_delta — Changes since a session boundary for a project
 // ---------------------------------------------------------------------------
+// Cutoff resolution (in priority order):
+//   1. Explicit `since` ISO timestamp param
+//   2. `started_at` of session passed via `session_id`
+//   3. `started_at` of the most recent OTHER session for this project
+//   4. NOW() - 24h fallback
+//
+// Response is metadata-only (id, doc_type, slug, title, status, updated_at)
+// — no summary_l1 / content. Use mx_detail/mx_search for body retrieval.
+// LIMIT defaults to 50, max 200.
 function HandleSessionDelta(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
 var
   Qry: TFDQuery;
-  ProjectSlug: string;
-  ProjectId: Integer;
-  LastEnded: TDateTime;
-  HasPrior: Boolean;
+  ProjectSlug, SinceStr: string;
+  ProjectId, SessionId, MaxLimit: Integer;
+  Cutoff: TDateTime;
+  HasCutoff: Boolean;
   Data: TJSONObject;
   Changes: TJSONArray;
   Row: TJSONObject;
@@ -585,6 +594,11 @@ begin
   ProjectSlug := AParams.GetValue<string>('project', '');
   if ProjectSlug = '' then
     raise EMxValidation.Create('Parameter "project" is required');
+  SessionId := AParams.GetValue<Integer>('session_id', 0);
+  SinceStr := AParams.GetValue<string>('since', '');
+  MaxLimit := AParams.GetValue<Integer>('limit', 50);
+  if MaxLimit < 1 then MaxLimit := 1;
+  if MaxLimit > 200 then MaxLimit := 200;
 
   // Look up project
   Qry := AContext.CreateQuery(
@@ -603,57 +617,98 @@ begin
   if not AContext.AccessControl.CheckProject(ProjectId, alRead) then
     raise EMxAccessDenied.Create(ProjectSlug, alRead);
 
-  // Find last completed session for this project
-  HasPrior := False;
-  LastEnded := 0;
-  Qry := AContext.CreateQuery(
-    'SELECT ended_at FROM sessions ' +
-    'WHERE project_id = :proj_id AND ended_at IS NOT NULL ' +
-    'ORDER BY ended_at DESC LIMIT 1');
-  try
-    Qry.ParamByName('proj_id').AsInteger := ProjectId;
-    Qry.Open;
-    if not Qry.IsEmpty then
-    begin
-      HasPrior := True;
-      LastEnded := Qry.FieldByName('ended_at').AsDateTime;
+  // Resolve cutoff
+  HasCutoff := False;
+  Cutoff := 0;
+
+  // 1. Explicit since param wins
+  if SinceStr <> '' then
+  begin
+    try
+      Cutoff := ISO8601ToDate(SinceStr, False);
+      HasCutoff := True;
+    except
+      raise EMxValidation.Create('Invalid "since" timestamp (expected ISO 8601)');
     end;
-  finally
-    Qry.Free;
   end;
 
-  // Get documents changed since last session (or all if no prior session)
-  if HasPrior then
+  // 2. session_id given: use its started_at — but only if it belongs to the
+  //    same project (ACL: prevent leaking foreign session timestamps)
+  if (not HasCutoff) and (SessionId > 0) then
+  begin
     Qry := AContext.CreateQuery(
-      'SELECT d.id, d.doc_type, d.slug, d.title, d.status, ' +
-      '  d.summary_l1, d.updated_at ' +
-      'FROM documents d ' +
-      'WHERE d.project_id = :proj_id ' +
-      '  AND d.status <> ''deleted'' ' +
-      '  AND d.updated_at > :since ' +
-      'ORDER BY d.updated_at DESC')
-  else
-    Qry := AContext.CreateQuery(
-      'SELECT d.id, d.doc_type, d.slug, d.title, d.status, ' +
-      '  d.summary_l1, d.updated_at ' +
-      'FROM documents d ' +
-      'WHERE d.project_id = :proj_id ' +
-      '  AND d.status <> ''deleted'' ' +
-      'ORDER BY d.updated_at DESC');
+      'SELECT started_at FROM sessions ' +
+      'WHERE id = :sid AND project_id = :pid');
+    try
+      Qry.ParamByName('sid').AsInteger := SessionId;
+      Qry.ParamByName('pid').AsInteger := ProjectId;
+      Qry.Open;
+      if not Qry.IsEmpty then
+      begin
+        Cutoff := Qry.FieldByName('started_at').AsDateTime;
+        HasCutoff := True;
+      end;
+    finally
+      Qry.Free;
+    end;
+  end;
+
+  // 3. Fallback: most recent OTHER session for this project (excludes the
+  //    one passed via session_id, if any). Robust against unset ended_at.
+  if not HasCutoff then
+  begin
+    if SessionId > 0 then
+      Qry := AContext.CreateQuery(
+        'SELECT started_at FROM sessions ' +
+        'WHERE project_id = :pid AND id <> :sid ' +
+        'ORDER BY started_at DESC LIMIT 1')
+    else
+      Qry := AContext.CreateQuery(
+        'SELECT started_at FROM sessions ' +
+        'WHERE project_id = :pid ' +
+        'ORDER BY started_at DESC LIMIT 1');
+    try
+      Qry.ParamByName('pid').AsInteger := ProjectId;
+      if SessionId > 0 then
+        Qry.ParamByName('sid').AsInteger := SessionId;
+      Qry.Open;
+      if not Qry.IsEmpty then
+      begin
+        Cutoff := Qry.FieldByName('started_at').AsDateTime;
+        HasCutoff := True;
+      end;
+    finally
+      Qry.Free;
+    end;
+  end;
+
+  // 4. Final fallback: no prior session for this project (bootstrap/onboarding).
+  //    Use distant past so all project docs are returned (capped by LIMIT).
+  //    Mirrors legacy "no prior session → all docs" behavior.
+  if not HasCutoff then
+    Cutoff := EncodeDate(2000, 1, 1);
+
+  // Fetch changes (metadata only — no summary_l1 / content)
+  Qry := AContext.CreateQuery(
+    'SELECT d.id, d.doc_type, d.slug, d.title, d.status, d.updated_at ' +
+    'FROM documents d ' +
+    'WHERE d.project_id = :proj_id ' +
+    '  AND d.status <> ''deleted'' ' +
+    '  AND d.updated_at > :since ' +
+    'ORDER BY d.updated_at DESC ' +
+    'LIMIT :max_rows');
   try
     Qry.ParamByName('proj_id').AsInteger := ProjectId;
-    if HasPrior then
-      Qry.ParamByName('since').AsDateTime := LastEnded;
+    Qry.ParamByName('since').AsDateTime := Cutoff;
+    Qry.ParamByName('max_rows').AsInteger := MaxLimit;
     Qry.Open;
 
     Data := TJSONObject.Create;
     try
       Data.AddPair('project', ProjectSlug);
-      if HasPrior then
-        Data.AddPair('since',
-          FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', LastEnded))
-      else
-        Data.AddPair('since', TJSONNull.Create);
+      Data.AddPair('since',
+        FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', Cutoff));
+      Data.AddPair('limit', TJSONNumber.Create(MaxLimit));
       Data.AddPair('total_changes',
         TJSONNumber.Create(Qry.RecordCount));
 
@@ -666,7 +721,6 @@ begin
         Row.AddPair('slug', Qry.FieldByName('slug').AsString);
         Row.AddPair('title', Qry.FieldByName('title').AsString);
         Row.AddPair('status', Qry.FieldByName('status').AsString);
-        Row.AddPair('summary_l1', Qry.FieldByName('summary_l1').AsString);
         Row.AddPair('updated_at', Qry.FieldByName('updated_at').AsString);
         Changes.Add(Row);
         Qry.Next;

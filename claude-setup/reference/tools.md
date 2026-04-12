@@ -54,5 +54,7 @@
 - **Parameter name:** Consistently `project` (not `project_slug`)
 - **mx_search:** No wildcard-only query (`*` alone does not work)
 - **mx_briefing:** `token_budget` default 1500, call at session start
+- **mx_detail:** `max_content_tokens` default 600 (server-side, since Build 84). Pass `0` for full content
+- **mx_session_delta:** Pass `session_id` from orchestrate-state.json so the cutoff is your session's `started_at`. `limit` default 50, max 200. Response is metadata-only (id, doc_type, slug, title, status, updated_at) — no `summary_l1`. Use mx_detail for bodies
 - **mx_get_env fallback:** Key→Developer→_global (with `source` field in response)
 - **Notes vs. Docs:** `mx_create_note` for notes/bugreports/feature requests, `mx_create_doc` for specs/plans/decisions

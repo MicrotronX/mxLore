@@ -136,7 +136,7 @@
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
         <BT_BuildType>Debug</BT_BuildType>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
-        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server;FileVersion=2.4.0.83;InternalName=mxLoreMCP;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCP.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server;FileVersion=2.4.0.84;InternalName=mxLoreMCP;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCP.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
         <VerInfo_Locale>1033</VerInfo_Locale>
         <VerInfo_MajorVer>2</VerInfo_MajorVer>
         <VerInfo_MinorVer>4</VerInfo_MinorVer>
@@ -160,7 +160,7 @@
         <VerInfo_MinorVer>4</VerInfo_MinorVer>
         <VerInfo_Release>0</VerInfo_Release>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server;FileVersion=2.4.0.83;InternalName=mxLoreMCP;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCP.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server;FileVersion=2.4.0.84;InternalName=mxLoreMCP;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCP.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
         <Icon_MainIcon>mxLoreMCPGui.ico</Icon_MainIcon>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
@@ -182,7 +182,7 @@
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2_Win64)'!=''">
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (Debug);FileVersion=2.4.0.83;InternalName=mxLoreMCP;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCP.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (Debug);FileVersion=2.4.0.84;InternalName=mxLoreMCP;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCP.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
         <Manifest_File>(Ohne)</Manifest_File>
         <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>

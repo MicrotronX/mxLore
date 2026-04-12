@@ -126,14 +126,14 @@ mx_create_doc(project, doc_type='session_note', title='Session Notes YYYY-MM-DD[
 **MCP error→** Fallback local `docs/plans/session-notes-YYYY-MM-DD.md`+warning
 
 ### 6) Peer Notify (MCP, only if delta > 0)
-`mx_session_delta(project)`→delta==0→skip.
+`mx_session_delta(project, session_id=<state.session_id>, limit=1)`→total_changes==0→skip.
 `mx_agent_peers(project)`→∅peers→skip.
 1 call: `mx_agent_send(project, target_project=<peer_slug>, message_type='status', ttl_days=7, payload=<summary>)`
 - Payload: `{"type":"session_summary","summary":"<1-2 sentences>","changed_files":<count>,"project":"<slug>"}`
 - Error→log, don't abort
 
 ## Loop Mode (--loop or /loop context)
-- **Idempotency:** check mx_session_delta(project)→∅changes since last save→single line `mxSave: No changes` + skip
+- **Idempotency:** check `mx_session_delta(project, session_id=<state.session_id>, limit=1)`→total_changes==0→single line `mxSave: No changes` + skip
 - Changes present→normal save, but compact output (1 line per step)
 - !settings.local.json cleanup in loop (only on manual invocation)
 - !Prompts, !interactive steps

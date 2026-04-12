@@ -106,7 +106,7 @@ function MxGetThreadAuth: TMxAuthResult;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 83;  // Token discipline (ADR #2036 A1): mx_detail max_content_tokens=600 default, mx_briefing token_budget=1500 default
+  MXAI_BUILD   = 84;  // mx_session_delta refactor: cutoff via session_id, metadata-only response, LIMIT (Bug-fix for 200KB bloat)
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';

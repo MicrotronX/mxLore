@@ -371,8 +371,11 @@ begin
 
   ARegistry
     .Add('mx_session_delta', HandleSessionDelta)
-    .Desc('Docs changed since last session')
-    .Param('project', mptString, True, 'Project slug');
+    .Desc('Docs changed since session boundary (metadata only — no summary/content)')
+    .Param('project', mptString, True, 'Project slug')
+    .Param('session_id', mptInteger, False, 'Caller session ID — uses its started_at as cutoff')
+    .Param('since', mptString, False, 'Explicit ISO 8601 cutoff (overrides session_id)')
+    .Param('limit', mptInteger, False, 'Max rows 1-200 (def 50)');
 
   // mx_create_note removed (B6.1) — use mx_create_doc with tags/lesson_data
   // mx_list_notes removed (B6.2) — use mx_search with doc_type+tag filter
