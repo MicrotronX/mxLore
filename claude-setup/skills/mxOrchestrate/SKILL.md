@@ -87,7 +87,7 @@ Runs in pre-routing after session setup. ⚡ 0 extra MCP calls — uses mx_sessi
 - Pre-reset Snapshot des `state_deltas`-Werts direkt vor dem Reset in mxSave Step 4
 - Default `0` wenn Feld fehlt (alte State-Files sind abwaertskompatibel)
 - **Single Source of Truth:** Nur mxSave Step 4 schreibt dieses Feld
-- Konsumenten: mxSave Final-Block (2-Stufen-Threshold-Logik), PostCompact-Hook (Re-Brief-Last-Save-Zeile)
+- Konsumenten: mxSave Final-Block (2-Stufen-Threshold-Logik), PostCompact-Hook (Re-Brief-Last-Save-Zeile, currently **DORMANT** — see `~/.claude/hooks/dormant-pre-post-compact.md`)
 
 **Stack rules:**
 - workflow_stack[0] = active workflow

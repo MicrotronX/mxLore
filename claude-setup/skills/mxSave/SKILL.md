@@ -148,7 +148,7 @@ Then, based on `N`:
   Session umfangreich (<N> deltas persistiert). /compact + Re-Brief jetzt sinnvoll.
   Ausfuehren? (1=ja /compact / 2=nein, weiterarbeiten)
   ```
-  Wait for user. On `1`: print `Naechster Schritt: druecke /compact — PostCompact-Hook laedt mx_briefing automatisch.` On `2`: continue silently.
+  Wait for user. On `1`: print `Next step: press /compact — then call mx_briefing manually (PostCompact hook DORMANT, see ~/.claude/hooks/dormant-pre-post-compact.md).` On `2`: continue silently.
 
 - **`N >= 10`** (and `< 15`) → **Info-Tipp** (1 line):
   ```
@@ -157,14 +157,14 @@ Then, based on `N`:
 
 - **`N >= 1`** (and `< 10`) → **Marketing-Zeile only** (1 line, honest, no token estimates):
   ```
-  Compact-Cycle: <N> deltas persistiert. /compact + PostCompact-Hook bereit.
+  Compact-Cycle: <N> deltas persisted. /compact ready (PostCompact hook DORMANT, mx_briefing manually).
   ```
 
 - **`N == 0`** → **No output** (no noise for trivial saves).
 
 ⚡ **Honesty-Regel:** Keine Token-Multiplikator-Zahlen — `state_deltas` zaehlt DB-Events, nicht Transcript-Tokens. Marketing-Zeile signalisiert nur Bereitschaft.
 
-⚡ **Why this matters:** `/compact` selbst ist nicht programmatisch triggerbar — User muss druecken oder Auto-Compaction uebernimmt. Der `PostCompact`-Hook in `~/.claude/settings.json` ruft danach automatisch `mx_briefing` auf und stellt einen schlanken, strukturierten State-Overview wieder her. So bleibt der Main-Context schlank ohne dass Details verloren gehen — die volle Detail-Historie liegt persistent in der MCP-DB.
+⚡ **Why this matters:** `/compact` itself cannot be triggered programmatically — the user must press it or auto-compaction takes over. The `PostCompact` hook is currently **DORMANT** (prompt-type hooks blocked upstream in Claude Code, see `~/.claude/hooks/dormant-pre-post-compact.md`); until Anthropic catches up, `mx_briefing` must be called **manually** after `/compact`. The main context stays lean without losing detail — full detail history persists in the MCP-DB.
 
 ## Loop Mode (--loop or /loop context)
 - **Idempotency:** check `mx_session_delta(project, session_id=<state.session_id>, limit=1)`→total_changes==0→single line `mxSave: No changes` + skip

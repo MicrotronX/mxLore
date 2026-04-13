@@ -103,7 +103,7 @@ node --version 2>/dev/null
 ```
 If `node` not found: show warning:
 > "Node.js not found. 5 of 8 hooks (Orchestrate, Recall-Gate, Recall-Outcome) will not work without Node.js. Session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/"
-→ Only install Bash hooks and PreCompact prompt, skip JS hooks.
+→ Only install Bash hooks, skip JS hooks (PreCompact/PostCompact prompts are DORMANT — see Section 5b below).
 
 | Event | Hooks (in order) | Requires |
 |-------|-----------------|----------|
@@ -112,8 +112,6 @@ If `node` not found: show warning:
 | `Stop` | `node ~/.claude/hooks/orchestrate-step-check.js` (3000ms) | Node.js |
 | `PreToolUse` (matcher: `Edit\|Write`) | `node ~/.claude/hooks/recall-gate.js` (2000ms) | Node.js |
 | `PostToolUse` (matcher: `Edit\|Write`) | `node ~/.claude/hooks/recall-outcome-hook.js` (2000ms) | Node.js |
-| `PreCompact` | prompt: (Auto-ADR + /mxSave, see below) | — |
-| `PostCompact` | prompt: (Silent-by-default Re-Brief via mx_briefing + Last-save info, see below) | — |
 
 **5b-StatusLine** — Add `statusLine` block at top level of settings.json (NOT inside `hooks`):
 ```json
@@ -124,35 +122,13 @@ If `node` not found: show warning:
 ```
 Shows: `<slug> | <model> | <context%> | <$cost> | <tasks>`. Reads slug from `CLAUDE.md` (`**Slug:**` line, accepts both backticked and plain format). ⚡ Legacy path `~/.claude/statusline-command.sh` (pre-2026-04): delete it and ensure command points to `~/.claude/hooks/statusline-command.sh` — all hooks live under `~/.claude/hooks/` for consistency.
 
-**PreCompact prompt** (adopt verbatim):
-```
-CONTEXT COMPACTING IS IMMINENT! Execute these 2 steps IMMEDIATELY:
+**PreCompact / PostCompact prompts** — **DORMANT, do NOT install.**
 
-1. AUTO-ADR EXTRACT (BEFORE mxSave!): Analyze chat history for significant decisions (signal dictionary: ~/.claude/reference/auto-adr.md). Per detected decision (level 1+2): mx_create_doc(project, doc_type='note', title='ADR-Candidate: <summary>', content=<template from auto-adr.md>, tags='adr-candidate'). Deduplicate first via mx_search(tag='adr-candidate') + mx_search(doc_type='decision'). No user prompts. Output: 'Auto-ADR: N candidates extracted'.
+Both `type: "prompt"` hooks for `PreCompact` and `PostCompact` are not executed by the current Claude Code version (Anthropic-side limitation). They would only sleep silently and reintroduce the marketing/reality mismatch. Therefore:
 
-2. Run /mxSave to persist the current project state.
-
-No prompts, no explanations — just execute and then allow compacting to proceed.
-```
-
-**PostCompact prompt** (adopt verbatim, Silent-by-default + Last-save info, Compact-Cycle):
-```
-STEP 1: Check 2 mandatory conditions:
-  - CLAUDE.md in current Working Dir exists AND contains **Slug:** entry
-  - mx_ping() successful
-  If EITHER condition fails → SILENT (no output, nothing at all). On next user prompt just continue normally.
-
-STEP 2: (only if both conditions OK) mx_briefing(project='<slug>', include_content=false, token_budget=1500)
-
-STEP 3: (optional, soft-fail) Check if .claude/projects/<project>/.claude/orchestrate-state.json exists. If yes: Read and parse last_save_deltas (default 0 if field missing). If no: skip, no error.
-
-STEP 4: Output max 3 lines:
-  Project: <slug> | Session: #<id> | <N> active WFs
-  Open items: <X>
-  Last save: <last_save_deltas> deltas processed   ← ONLY if STEP 3 successful AND last_save_deltas > 0
-
-No explanations, no prompts — execute and continue working.
-```
+- The `PreCompact`/`PostCompact` rows in the hooks table above are **not** installed in Step 5b.
+- The original prompts are archived in `~/.claude/hooks/dormant-pre-post-compact.md` as a copy-ready re-activation backup. Once Anthropic supports prompt-type hooks for Pre/PostCompact, paste the JSON blocks from there back into `~/.claude/settings.json`.
+- Manual workaround until then: user calls `/mxSave` **before** `/compact` and `mx_briefing` **after** `/compact` themselves. The `last_save_deltas` mechanism in mxSave Step 4 + `orchestrate-state.json` remains fully functional code-side; only the trigger is manual.
 
 **5c. CLAUDE.md** — Use `/tmp/mxLore-skills-CLAUDE.md` (saved in Phase 2):
    - If `~/.claude/CLAUDE.md` does not exist: copy it
