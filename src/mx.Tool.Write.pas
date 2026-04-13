@@ -694,12 +694,6 @@ begin
   NewProject := AParams.GetValue<string>('project', '');
   NewProjectId := 0;
 
-  // Auto-Summary: generate from content if not explicitly provided
-  if (Content <> '') and (Summary1 = '') then
-    Summary1 := ExtractFirstSentence(Content);
-  if (Content <> '') and (Summary2 = '') then
-    Summary2 := ExtractFirstSentences(Content, 3);
-
   // Validate status if provided
   if (Status <> '') and not MatchStr(Status, ['draft', 'active', 'completed',
       'superseded', 'archived', 'reported', 'confirmed', 'fixed', 'rejected', 'accepted',

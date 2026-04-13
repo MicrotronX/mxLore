@@ -248,7 +248,7 @@ var
   ItemVal: TJSONValue;
   I: Integer;
   DocId, NextRevision: Integer;
-  Content, Status, ChangeReason, ChangedBy, Summary2: string;
+  Content, Status, ChangeReason, ChangedBy, Summary1, Summary2: string;
   SetParts: string;
   ResultArr: TJSONArray;
   ResultItem: TJSONObject;
@@ -289,6 +289,8 @@ begin
           Status := ItemObj.GetValue<string>('status', '');
           ChangeReason := ItemObj.GetValue<string>('change_reason', '');
           ChangedBy := ItemObj.GetValue<string>('changed_by', 'mcp');
+          Summary1 := ItemObj.GetValue<string>('summary_l1', '');
+          Summary2 := ItemObj.GetValue<string>('summary_l2', '');
 
           // Validate status if provided
           if (Status <> '') and not MatchStr(Status, ['draft', 'active', 'completed',
@@ -304,14 +306,13 @@ begin
           if Status <> '' then
             SetParts := SetParts + 'status = :status, ';
 
-          // Auto-Summary for content changes
-          Summary2 := '';
-          if Content <> '' then
-          begin
+          // Optional summaries: only update if explicitly provided by caller.
+          // Without explicit summaries, existing DB values are preserved.
+          // FTS index covers content directly, so search remains functional.
+          if Summary1 <> '' then
             SetParts := SetParts + 'summary_l1 = :summary_l1, ';
+          if Summary2 <> '' then
             SetParts := SetParts + 'summary_l2 = :summary_l2, ';
-            Summary2 := ExtractFirstSentences(Content, 3);
-          end;
 
           if SetParts = '' then
             raise EMxValidation.CreateFmt('Item %d: no fields to update', [I]);
@@ -348,9 +349,11 @@ begin
             begin
               Qry.ParamByName('content').DataType := ftWideMemo;
               Qry.ParamByName('content').AsString := Content;
-              Qry.ParamByName('summary_l1').AsString := ExtractFirstSentence(Content);
-              Qry.ParamByName('summary_l2').AsString := Summary2;
             end;
+            if Summary1 <> '' then
+              Qry.ParamByName('summary_l1').AsString := Summary1;
+            if Summary2 <> '' then
+              Qry.ParamByName('summary_l2').AsString := Summary2;
             if Status <> '' then
               Qry.ParamByName('status').AsString := Status;
             Qry.ExecSQL;

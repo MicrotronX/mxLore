@@ -355,7 +355,7 @@ begin
 
   ARegistry
     .Add('mx_batch_update', HandleBatchUpdate)
-    .Desc('Batch-update documents (single transaction)')
+    .Desc('Batch-update documents (single transaction). Item fields: doc_id (req), content, status, summary_l1, summary_l2, change_reason, changed_by. Summaries are preserved if not given.')
     .Param('items', mptString, True, 'JSON array of update objects');
 
   // ---- SESSION TOOLS ----
