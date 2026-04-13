@@ -111,6 +111,7 @@ Batch-dismiss all pending findings (not reviewed in session context):
 Read `.claude/orchestrate-state.json`. If present+not empty:
 
 - **Push unsynced:** WFs with `unsynced=true`→`mx_update_doc`→`unsynced=false`. Events with `synced=false`→session note→`synced=true`
+- **Snapshot (Compact-Cycle):** `last_save_deltas = state_deltas` — MUST be set BEFORE reset below. Single Source of Truth for this field.
 - **Finalize:** `state_deltas`→0, `last_save`→now, `last_reconciliation`→now
 - ⚡ Do NOT archive workflows. Only sync+reset.
 - Write state file back
@@ -131,6 +132,39 @@ mx_create_doc(project, doc_type='session_note', title='Session Notes YYYY-MM-DD[
 1 call: `mx_agent_send(project, target_project=<peer_slug>, message_type='status', ttl_days=7, payload=<summary>)`
 - Payload: `{"type":"session_summary","summary":"<1-2 sentences>","changed_files":<count>,"project":"<slug>"}`
 - Error→log, don't abort
+
+## Final Block — Compact-Cycle Recommendation
+
+After all 6 steps complete, read `last_save_deltas` from `.claude/orchestrate-state.json` (NOT `state_deltas` — that one has been reset to 0 in Step 4). Step 4 has already snapshotted the pre-reset value into `last_save_deltas`.
+
+**⚡ Fallback:** If `.claude/orchestrate-state.json` does not exist OR workflow_stack is empty → **skip Final-Block completely** (no output, no tip, no marketing line). Analog zum ∅file-Skip in Step 4.
+
+**Read `N = state.last_save_deltas` (default 0 if field missing for backwards-compat).**
+
+Then, based on `N`:
+
+- **`N >= 15`** → **Active Question:**
+  ```
+  Session umfangreich (<N> deltas persistiert). /compact + Re-Brief jetzt sinnvoll.
+  Ausfuehren? (1=ja /compact / 2=nein, weiterarbeiten)
+  ```
+  Wait for user. On `1`: print `Naechster Schritt: druecke /compact — PostCompact-Hook laedt mx_briefing automatisch.` On `2`: continue silently.
+
+- **`N >= 10`** (and `< 15`) → **Info-Tipp** (1 line):
+  ```
+  Tipp: <N> deltas persistiert. /compact + Re-Brief sinnvoll, sobald passend.
+  ```
+
+- **`N >= 1`** (and `< 10`) → **Marketing-Zeile only** (1 line, honest, no token estimates):
+  ```
+  Compact-Cycle: <N> deltas persistiert. /compact + PostCompact-Hook bereit.
+  ```
+
+- **`N == 0`** → **No output** (no noise for trivial saves).
+
+⚡ **Honesty-Regel:** Keine Token-Multiplikator-Zahlen — `state_deltas` zaehlt DB-Events, nicht Transcript-Tokens. Marketing-Zeile signalisiert nur Bereitschaft.
+
+⚡ **Why this matters:** `/compact` selbst ist nicht programmatisch triggerbar — User muss druecken oder Auto-Compaction uebernimmt. Der `PostCompact`-Hook in `~/.claude/settings.json` ruft danach automatisch `mx_briefing` auf und stellt einen schlanken, strukturierten State-Overview wieder her. So bleibt der Main-Context schlank ohne dass Details verloren gehen — die volle Detail-Historie liegt persistent in der MCP-DB.
 
 ## Loop Mode (--loop or /loop context)
 - **Idempotency:** check `mx_session_delta(project, session_id=<state.session_id>, limit=1)`→total_changes==0→single line `mxSave: No changes` + skip

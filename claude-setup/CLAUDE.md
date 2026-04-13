@@ -8,7 +8,9 @@
 ## Persist ⚡
 chat!=storage →docs/. decisions→/mxDecision plans→/mxPlan specs→/mxSpec session-end→/mxSave
 proactive: persist when decision/plan/spec emerges in chat
-PreCompact-Hook→auto /mxSave. ~15-20 tool calls→proactive /mxSave
+PreCompact-Hook→auto /mxSave. PostCompact-Hook→auto mx_briefing(silent if non-mxLore WD). ~15-20 tool calls→proactive /mxSave
+Cycle: /mxSave→/compact→PostCompact-Hook→mx_briefing→schlanker Main-Context, MCP haelt Detail-Historie
+last_save_deltas≥15→mxSave aktive Compact-Frage. ≥10→Tipp-Zeile. ≥1→Marketing-Zeile. ==0→silent
 
 ## Context
 3+files→Agent(Explore) !sequential reads. codebase-search→subagent !main-ctx

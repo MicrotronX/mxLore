@@ -76,11 +76,18 @@ Runs in pre-routing after session setup. ⚡ 0 extra MCP calls — uses mx_sessi
   "adhoc_tasks": [{"note","created","origin_workflow","mcp_note_id"}],
   "team_agents": [{"id","task","origin_workflow","spawned","status","workflow_id"}],
   "state_deltas": "<int>",
+  "last_save_deltas": "<int>",
   "last_save": "<ISO|null>",
   "last_reconciliation": "<ISO|null>",
   "events_log": [{"ts","type","wf","detail","synced"}]
 }
 ```
+
+**Field `last_save_deltas` (Compact-Cycle):**
+- Pre-reset Snapshot des `state_deltas`-Werts direkt vor dem Reset in mxSave Step 4
+- Default `0` wenn Feld fehlt (alte State-Files sind abwaertskompatibel)
+- **Single Source of Truth:** Nur mxSave Step 4 schreibt dieses Feld
+- Konsumenten: mxSave Final-Block (2-Stufen-Threshold-Logik), PostCompact-Hook (Re-Brief-Last-Save-Zeile)
 
 **Stack rules:**
 - workflow_stack[0] = active workflow

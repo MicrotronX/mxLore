@@ -113,6 +113,7 @@ If `node` not found: show warning:
 | `PreToolUse` (matcher: `Edit\|Write`) | `node ~/.claude/hooks/recall-gate.js` (2000ms) | Node.js |
 | `PostToolUse` (matcher: `Edit\|Write`) | `node ~/.claude/hooks/recall-outcome-hook.js` (2000ms) | Node.js |
 | `PreCompact` | prompt: (Auto-ADR + /mxSave, see below) | — |
+| `PostCompact` | prompt: (Silent-by-default Re-Brief via mx_briefing + Last-save info, see below) | — |
 
 **5b-StatusLine** — Add `statusLine` block at top level of settings.json (NOT inside `hooks`):
 ```json
@@ -132,6 +133,25 @@ CONTEXT COMPACTING IS IMMINENT! Execute these 2 steps IMMEDIATELY:
 2. Run /mxSave to persist the current project state.
 
 No prompts, no explanations — just execute and then allow compacting to proceed.
+```
+
+**PostCompact prompt** (adopt verbatim, Silent-by-default + Last-save info, Compact-Cycle):
+```
+STEP 1: Check 2 mandatory conditions:
+  - CLAUDE.md in current Working Dir exists AND contains **Slug:** entry
+  - mx_ping() successful
+  If EITHER condition fails → SILENT (no output, nothing at all). On next user prompt just continue normally.
+
+STEP 2: (only if both conditions OK) mx_briefing(project='<slug>', include_content=false, token_budget=1500)
+
+STEP 3: (optional, soft-fail) Check if .claude/projects/<project>/.claude/orchestrate-state.json exists. If yes: Read and parse last_save_deltas (default 0 if field missing). If no: skip, no error.
+
+STEP 4: Output max 3 lines:
+  Project: <slug> | Session: #<id> | <N> active WFs
+  Open items: <X>
+  Last save: <last_save_deltas> deltas processed   ← ONLY if STEP 3 successful AND last_save_deltas > 0
+
+No explanations, no prompts — execute and continue working.
 ```
 
 **5c. CLAUDE.md** — Use `/tmp/mxLore-skills-CLAUDE.md` (saved in Phase 2):
