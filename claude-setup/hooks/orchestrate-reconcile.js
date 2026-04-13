@@ -56,6 +56,7 @@ try {
   if (!state.adhoc_tasks) { state.adhoc_tasks = []; changed = true; }
   if (!state.team_agents) { state.team_agents = []; changed = true; }
   if (state.state_deltas === undefined) { state.state_deltas = 0; changed = true; }
+  if (state.last_save_deltas === undefined) { state.last_save_deltas = 0; changed = true; }
   if (!state.events_log) { state.events_log = []; changed = true; }
   if (state.last_reconciliation === undefined) { state.last_reconciliation = null; changed = true; }
 

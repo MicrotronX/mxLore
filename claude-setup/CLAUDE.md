@@ -8,8 +8,8 @@
 ## Persist ⚡
 chat!=storage →docs/. decisions→/mxDecision plans→/mxPlan specs→/mxSpec session-end→/mxSave
 proactive: persist when decision/plan/spec emerges in chat
-PreCompact-Hook→auto /mxSave. PostCompact-Hook→auto mx_briefing(silent if non-mxLore WD). ~15-20 tool calls→proactive /mxSave
-Cycle: /mxSave→/compact→PostCompact-Hook→mx_briefing→schlanker Main-Context, MCP haelt Detail-Historie
+PreCompact/PostCompact-Hooks DORMANT (prompt-type Hooks blocked upstream in current Claude Code). Manuell /mxSave VOR /compact + mx_briefing nach /compact. Re-Activate-Backup: ~/.claude/hooks/dormant-pre-post-compact.md. ~15-20 tool calls→proactive /mxSave
+Cycle (manuell): /mxSave→/compact→neue Session→mx_briefing manuell→schlanker Main-Context, MCP haelt Detail-Historie
 last_save_deltas≥15→mxSave aktive Compact-Frage. ≥10→Tipp-Zeile. ≥1→Marketing-Zeile. ==0→silent
 
 ## Context

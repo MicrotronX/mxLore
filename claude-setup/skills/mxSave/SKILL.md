@@ -3,7 +3,7 @@ name: mxSave
 description: Use when the user says "save state", "/mxSave", or wants to persist the current project state for seamless continuation in a new session. Cleans settings, updates CLAUDE.md, docs/status.md (local), and creates session notes in DB. Loop-capable.
 user-invocable: true
 effort: medium
-allowed-tools: Read, Write, Edit, Grep, Glob, Bash
+allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task
 argument-hint: "[optional-notes] [--loop]"
 ---
 
