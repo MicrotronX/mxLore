@@ -106,7 +106,7 @@ function MxGetThreadAuth: TMxAuthResult;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 92;  // Build 92 release: eliminates --finish-update child path (C8) and skips mxMCPProxy.ini (user config). Session 242 verified 3s restart instead of 5min hang.
+  MXAI_BUILD   = 92;  // Build 92 release: Self-Update v1.1 parent-does-everything + C8 child-path elimination. Session 242 loop-test 89->build-92 verified green end-to-end.
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';
