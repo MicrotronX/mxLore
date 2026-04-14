@@ -8,8 +8,6 @@ uses
 
 procedure HandleGetProjects(const C: THttpServerContext;
   APool: TMxConnectionPool; ALogger: IMxLogger);
-procedure HandleCreateProject(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
 procedure HandleUpdateProject(const C: THttpServerContext;
   APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
 procedure HandleDeleteProject(const C: THttpServerContext;
@@ -85,63 +83,6 @@ begin
     end;
   finally
     Qry.Free;
-  end;
-end;
-
-procedure HandleCreateProject(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
-var
-  Body, Json: TJSONObject;
-  Mgr: TMxProjectManager;
-  Name, Slug: string;
-  NewId: Integer;
-begin
-  Body := MxParseBody(C);
-  if Body = nil then
-  begin
-    MxSendError(C, 400, 'invalid_body');
-    Exit;
-  end;
-
-  try
-    Name := Body.GetValue<string>('name', '');
-    Slug := Body.GetValue<string>('slug', '');
-
-    if Name.Trim.IsEmpty or Slug.Trim.IsEmpty then
-    begin
-      MxSendError(C, 400, 'name_and_slug_required');
-      Exit;
-    end;
-
-    Mgr := TMxProjectManager.Create(APool, ALogger);
-    try
-      try
-        NewId := Mgr.CreateProject(Name, Slug);
-      except
-        on E: Exception do
-        begin
-          if E.Message = 'slug_exists' then
-            MxSendError(C, 409, 'slug_exists')
-          else
-            MxSendError(C, 500, 'internal_error');
-          Exit;
-        end;
-      end;
-    finally
-      Mgr.Free;
-    end;
-
-    Json := TJSONObject.Create;
-    try
-      Json.AddPair('project', TJSONObject.Create
-        .AddPair('id', TJSONNumber.Create(NewId))
-        .AddPair('slug', Slug));
-      MxSendJson(C, 201, Json);
-    finally
-      Json.Free;
-    end;
-  finally
-    Body.Free;
   end;
 end;
 

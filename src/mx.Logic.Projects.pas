@@ -19,10 +19,8 @@ type
   private
     FPool: TMxConnectionPool;
     FLogger: IMxLogger;
-    function SlugExists(Ctx: IMxDbContext; const ASlug: string): Boolean;
   public
     constructor Create(APool: TMxConnectionPool; ALogger: IMxLogger);
-    function CreateProject(const AName, ASlug: string): Integer;
     procedure UpdateProject(AId: Integer; const AName: string;
       ACreatorId: Integer = -1);
     procedure SoftDelete(AId: Integer);
@@ -45,65 +43,6 @@ begin
   inherited Create;
   FPool := APool;
   FLogger := ALogger;
-end;
-
-function TMxProjectManager.SlugExists(Ctx: IMxDbContext;
-  const ASlug: string): Boolean;
-var
-  Qry: TFDQuery;
-begin
-  Qry := Ctx.CreateQuery(
-    'SELECT 1 FROM projects WHERE slug = :slug AND is_active = TRUE');
-  try
-    Qry.ParamByName('slug').AsString := ASlug;
-    Qry.Open;
-    Result := not Qry.Eof;
-  finally
-    Qry.Free;
-  end;
-end;
-
-function TMxProjectManager.CreateProject(const AName, ASlug: string): Integer;
-var
-  Ctx: IMxDbContext;
-  Qry: TFDQuery;
-begin
-  if AName.Trim.IsEmpty or ASlug.Trim.IsEmpty then
-    raise Exception.Create('name_and_slug_required');
-
-  Ctx := FPool.AcquireContext;
-  Ctx.StartTransaction;
-  try
-    if SlugExists(Ctx, ASlug) then
-      raise Exception.Create('slug_exists');
-
-    Qry := Ctx.CreateQuery(
-      'INSERT INTO projects (slug, name, path) VALUES (:slug, :name, :path)');
-    try
-      Qry.ParamByName('slug').AsString := ASlug;
-      Qry.ParamByName('name').AsString := AName.Trim;
-      Qry.ParamByName('path').AsString := ASlug;
-      Qry.ExecSQL;
-    finally
-      Qry.Free;
-    end;
-
-    // Get inserted ID
-    Qry := Ctx.CreateQuery('SELECT LAST_INSERT_ID() AS id');
-    try
-      Qry.Open;
-      Result := Qry.FieldByName('id').AsInteger;
-    finally
-      Qry.Free;
-    end;
-
-    Ctx.Commit;
-  except
-    Ctx.Rollback;
-    raise;
-  end;
-
-  FLogger.Log(mlInfo, 'Project created: ' + ASlug + ' (ID ' + IntToStr(Result) + ')');
 end;
 
 procedure TMxProjectManager.UpdateProject(AId: Integer; const AName: string;

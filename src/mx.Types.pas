@@ -106,7 +106,7 @@ function MxGetThreadAuth: TMxAuthResult;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 86;  // Bug#2228 Phase1: HandleInitProject ACL check on revive + _global reserved slug + auth-required + typed EFDDBEngineException.ekUKViolated race-fallback; Notes.pas retry-loop same pattern-fix (Plan#2233)
+  MXAI_BUILD   = 87;  // Bug#2228 Phase 2: retire Admin-UI project creation entirely. POST /api/projects route + HandleCreateProject + TMxProjectManager.CreateProject/SlugExists removed. Admin-UI shows info banner; mx_init_project is the single project-creation path (Plan#2233)
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';

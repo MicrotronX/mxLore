@@ -653,13 +653,6 @@ begin
       Exit;
     end;
 
-    // POST /projects
-    if (Len = 1) and (C.Request.MethodType = THttpMethod.Post) then
-    begin
-      mx.Admin.Api.Projects.HandleCreateProject(C, FPool, FLogger);
-      Exit;
-    end;
-
     // POST /projects/merge
     if (Len = 2) and SameText(ASegments[1], 'merge') and
        (C.Request.MethodType = THttpMethod.Post) then

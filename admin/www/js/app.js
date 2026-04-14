@@ -1243,7 +1243,7 @@ var App = (function () {
       var projects = data.projects || [];
 
       if (projects.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="empty-state__icon">&#128193;</div>No projects yet</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="empty-state__icon">&#128193;</div>No projects yet. Run <code>/mxInitProject</code> in your project directory to register the first one.</div></td></tr>';
         return;
       }
 
@@ -1291,47 +1291,6 @@ var App = (function () {
     } else {
       bar.classList.remove('visible');
     }
-  }
-
-  // --- Create Project ---
-  function initCreateProject() {
-    $('#btn-new-project').addEventListener('click', function () {
-      $('#modal-new-project').classList.add('visible');
-      $('#new-proj-name').value = '';
-      $('#new-proj-slug').value = '';
-      $('#new-proj-name').focus();
-    });
-
-    // Auto-generate slug from name
-    $('#new-proj-name').addEventListener('input', function () {
-      var slug = this.value.trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9\s-]/g, '')
-        .replace(/\s+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '');
-      $('#new-proj-slug').value = slug;
-    });
-
-    $('#new-project-form').addEventListener('submit', async function (e) {
-      e.preventDefault();
-      var name = $('#new-proj-name').value.trim();
-      var slug = $('#new-proj-slug').value.trim();
-      if (!name) return;
-      if (!slug) slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-
-      try {
-        await Api.createProject(name, slug);
-        closeModal('modal-new-project');
-        loadProjectList();
-      } catch (err) {
-        if (err.message === 'slug_exists') {
-          showAlert('proj-list-alert', 'error', 'Slug "' + slug + '" existiert bereits.');
-        } else {
-          showAlert('proj-list-alert', 'error', 'Error: ' + err.message);
-        }
-      }
-    });
   }
 
   // --- Project Detail ---
@@ -2762,7 +2721,6 @@ var App = (function () {
     initCreateKey();
     initSaveAccess();
     initBackButton();
-    initCreateProject();
     initProjectDetail();
     initProjectMerge();
     initModalCloses();

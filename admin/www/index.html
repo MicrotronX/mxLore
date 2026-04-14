@@ -360,11 +360,17 @@
       <h2 class="page-header__title">
         <i data-lucide="folder-open" class="icon-header"></i> Projects
       </h2>
-      <div class="page-header__actions">
-        <button id="btn-new-project" class="btn btn--primary">
-          <i data-lucide="plus" class="icon-sm"></i> New project
-        </button>
-      </div>
+    </div>
+
+    <div class="alert alert--info visible" style="margin-bottom:1rem">
+      <i data-lucide="info" class="icon-sm"></i>
+      <span>
+        <strong>Creating a project?</strong> Projects are registered via
+        <code>/mxInitProject</code> in your project directory &mdash; this binds the
+        project to its code path and your developer account automatically.
+        The Admin-UI manages existing projects (rename, access, delete) but
+        does not create new ones.
+      </span>
     </div>
 
     <!-- Stats Bar -->
@@ -1284,38 +1290,6 @@
         <button type="button" class="btn btn--primary modal-close">Done</button>
       </div>
     </div>
-  </div>
-</div>
-
-<!-- ===== Modal: New Project ===== -->
-<div id="modal-new-project" class="modal-overlay">
-  <div class="modal">
-    <div class="modal__header">
-      <span class="modal__title">
-        <i data-lucide="folder-open" class="icon-sm"></i> New project
-      </span>
-      <button class="modal-close modal__close-btn">
-        <i data-lucide="x" class="icon-sm"></i>
-      </button>
-    </div>
-    <form id="new-project-form">
-      <div class="modal__body">
-        <div class="form-group">
-          <label class="form-label" for="new-proj-name">Name *</label>
-          <input id="new-proj-name" class="form-input" type="text" placeholder="e.g. My project" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="new-proj-slug">Slug</label>
-          <input id="new-proj-slug" class="form-input mono" type="text" placeholder="auto-generated">
-        </div>
-      </div>
-      <div class="modal__footer">
-        <button type="button" class="btn modal-close">Cancel</button>
-        <button type="submit" class="btn btn--primary">
-          <i data-lucide="check-circle" class="icon-xs"></i> Create
-        </button>
-      </div>
-    </form>
   </div>
 </div>
 

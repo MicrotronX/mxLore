@@ -128,10 +128,6 @@ const Api = (function () {
     return request('GET', '/projects');
   }
 
-  function createProject(name, slug) {
-    return request('POST', '/projects', { name: name, slug: slug });
-  }
-
   function updateProject(id, data) {
     return request('PUT', '/projects/' + id, data);
   }
@@ -247,7 +243,6 @@ const Api = (function () {
     getEnvironments: getEnvironments,
     deleteEnvironment: deleteEnvironment,
     getProjects: getProjects,
-    createProject: createProject,
     updateProject: updateProject,
     getProjectDashboard: getProjectDashboard,
     deleteProject: deleteProject,
