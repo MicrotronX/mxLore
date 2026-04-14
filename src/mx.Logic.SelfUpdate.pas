@@ -1098,13 +1098,13 @@ begin
     ExitProcess(0);
   end;
 
-  // Interactive branch (user-session GUI/console): spawn the same variant
-  // the user was running so the new build is live immediately without
-  // waiting for a manual restart. Child is passed --finish-update as a
-  // pure recovery/no-op flag; FinishUpdate already ran in the parent, so
-  // the child will see no marker and exit the branch cleanly.
-  CmdLine := Format('"%s" --finish-update=%s',
-    [TPath.Combine(ExeDir, RunningExe), ZipPath]);
+  // C8 (Build 92): spawn a plain boot — no --finish-update flag. The parent
+  // already did the full extraction inline (C7a), so the child has zero
+  // update work left. Passing --finish-update caused a race where the child
+  // tried to read the already-deleted marker and hung on the mutex loop for
+  // ~5 minutes (Session 242 22:05 incident). Plain boot skips that branch
+  // entirely and goes straight to normal Application.Run.
+  CmdLine := Format('"%s"', [TPath.Combine(ExeDir, RunningExe)]);
   UpdateLog('CreateProcess cmd=' + CmdLine);
 
   FillChar(SI, SizeOf(SI), 0);
@@ -1285,8 +1285,12 @@ begin
       StrippedEntry := StripZipWrapperDir(EntryName, WrapperPrefix);
       if StrippedEntry = '' then Continue; // was the wrapper dir itself
 
-      // Skip the user INI — never overwrite a user's settings during update.
-      if SameText(ZipEntryBaseName(StrippedEntry), 'mxLoreMCP.ini') then Continue;
+      // Skip user config files — never overwrite user settings during update.
+      // mxLoreMCP.ini holds the server config, mxMCPProxy.ini holds the
+      // Claude Code client proxy config (often locked by a live Claude Code
+      // session running the proxy from this repo's claude-setup/proxy/).
+      if SameText(ZipEntryBaseName(StrippedEntry), 'mxLoreMCP.ini')  then Continue;
+      if SameText(ZipEntryBaseName(StrippedEntry), 'mxMCPProxy.ini') then Continue;
 
       if not IsPathWithin(ExeDir, StrippedEntry) then
         raise EMxError.Create('PATH_TRAVERSAL', StrippedEntry, 400);
