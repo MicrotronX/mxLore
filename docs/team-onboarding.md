@@ -199,12 +199,12 @@ Created → Viewed → Confirmed → (auto-archived)
 |---|-------|-----------------|
 | 1 | `/mxSetup` | **Install everything** — run once per host. Downloads skills, hooks, proxy, patches `settings.json`. |
 | 2 | `/mxInitProject` | Register a new project in mxLore (creates slug, scaffolds `CLAUDE.md`). |
-| 3 | `/mxSpec` | Write a specification for a feature before planning. |
-| 4 | `/mxPlan` | Turn a spec into a step-by-step implementation plan. |
-| 5 | `/mxDecision` | Capture an architectural decision (ADR) the moment you make it. |
-| 6 | `/mxDesignChecker` | Review code/design against the spec before you ship. |
-| 7 | `/mxBugChecker` | Find bugs with verified proof (no hand-waving). |
-| 8 | `/mxSave` | End-of-session persistence — state, lessons, session notes into the DB. |
-| 9 | `/mxHealth` | Periodic consistency check on the knowledge DB and local docs. |
-| 10 | `/mxMigrateToDb` | One-time migration of legacy `docs/*.md` files into MCP. |
-| — | `/mxOrchestrate` | Always-on session orchestrator via hooks. You rarely invoke it by hand — it tracks workflows, ad-hoc tasks, and team agents in the background. |
+| 3 | `/mxOrchestrate` | **Session manager.** Run `--resume` at session start to load briefing + context and pick up open workflows. Run `start ad-hoc "<summary>"` at the start of any substantial task — it wraps the work, tracks every step below as a workflow entry, and keeps session state across compacts. |
+| 4 | `/mxSpec` | Write a specification for a feature before planning. |
+| 5 | `/mxPlan` | Turn a spec into a step-by-step implementation plan. |
+| 6 | `/mxDecision` | Capture an architectural decision (ADR) the moment you make it. |
+| 7 | `/mxDesignChecker` | Review code/design against the spec before you ship. |
+| 8 | `/mxBugChecker` | Find bugs with verified proof (no hand-waving). |
+| 9 | `/mxSave` | End-of-session persistence — state, lessons, session notes into the DB. |
+| 10 | `/mxHealth` | Periodic consistency check on the knowledge DB and local docs. |
+| 11 | `/mxMigrateToDb` | One-time migration of legacy `docs/*.md` files into MCP. |
