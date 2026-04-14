@@ -119,3 +119,28 @@ MinFindingsForTuning=10
 ; =============================================================================
 [Fetch]
 AllowedHosts=localhost,127.0.0.1
+
+; =============================================================================
+; Self-Update v1 (FR#2242, Plan#2311, Build 90)
+; Admin-UI-triggered auto-install from GitHub releases. Enabled by default.
+; =============================================================================
+[SelfUpdate]
+; Master switch. false disables all /api/self-update/* endpoints and the banner.
+Enabled=true
+
+; "owner/repo" format. Hits https://api.github.com/repos/<GithubRepo>/releases/latest
+; Only build-NN tags are recognised (ParseTagName regex ^build-(\d+)$).
+GithubRepo=MicrotronX/mxLore
+
+; Minutes between actual GitHub API hits. Cached result returned in-between.
+; The recheck endpoint forces a fresh call regardless (60s cooldown per session).
+CheckCacheMinutes=60
+
+; Hours that .old-<N> rollback files and staging zips are kept after install.
+; Files older than this are deleted by CleanupOldFiles after a successful update.
+OldFileRetentionHours=24
+
+; Finish-update retry budget after a crashed boot. Marker-recovery increments
+; RetryCount on each attempt. If this limit is exceeded, the update halts in
+; usError state and requires manual recovery (delete update.marker, restart).
+MaxFinishRetries=3
