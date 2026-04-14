@@ -3,7 +3,8 @@ unit mx.Tool.Notes;
 interface
 
 uses
-  System.SysUtils, System.StrUtils, System.Variants, System.JSON, Data.DB, FireDAC.Comp.Client,
+  System.SysUtils, System.StrUtils, System.Variants, System.JSON, Data.DB,
+  FireDAC.Comp.Client, FireDAC.Stan.Error,
   mx.Types, mx.Errors, mx.Data.Pool, mx.Logic.AccessControl;
 
 function HandleCreateNote(const AParams: TJSONObject;
@@ -135,13 +136,11 @@ begin
         end;
         Break;
       except
-        on E: Exception do
-        begin
-          if (Pos('Duplicate', E.Message) > 0) and (Attempt < 9) then
+        on E: EFDDBEngineException do
+          if (E.Kind = ekUKViolated) and (Attempt < 9) then
             Continue
           else
             raise;
-        end;
       end;
     end;
 

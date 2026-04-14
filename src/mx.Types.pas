@@ -106,7 +106,7 @@ function MxGetThreadAuth: TMxAuthResult;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 85;  // mx_fetch tool: HTTP GET/POST with INI host allowlist, 50KB body cap, header whitelist, rate limit (ADR #2078)
+  MXAI_BUILD   = 86;  // Bug#2228 Phase1: HandleInitProject ACL check on revive + _global reserved slug + auth-required + typed EFDDBEngineException.ekUKViolated race-fallback; Notes.pas retry-loop same pattern-fix (Plan#2233)
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';

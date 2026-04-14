@@ -5,7 +5,7 @@ interface
 uses
   System.SysUtils, System.JSON, System.Variants, System.StrUtils, System.DateUtils,
   Data.DB,
-  FireDAC.Comp.Client,
+  FireDAC.Comp.Client, FireDAC.Stan.Error,
   mx.Types, mx.Errors;
 
 function HandleAddTags(const AParams: TJSONObject;
@@ -35,7 +35,7 @@ function HandleInitProject(const AParams: TJSONObject;
 var
   Qry: TFDQuery;
   Slug, Name, Path, SvnUrl: string;
-  ProjectId: Integer;
+  ProjectId, CallerDevId: Integer;
   Data: TJSONObject;
 begin
   Slug := AParams.GetValue<string>('slug', '');
@@ -47,13 +47,22 @@ begin
     raise EMxValidation.Create('Parameter "slug" is required');
   if Name = '' then
     raise EMxValidation.Create('Parameter "name" is required');
+  if Slug = '_global' then
+    raise EMxValidation.Create('Reserved slug');
+
+  CallerDevId := AContext.AccessControl.GetDeveloperId;
+  if CallerDevId <= 0 then
+    raise EMxAuthError.Create('Authentication required');
 
   AContext.StartTransaction;
   try
+    // Bug#2228: only revive soft-deleted projects owned by the caller.
     Qry := AContext.CreateQuery(
-      'SELECT id FROM projects WHERE slug = :slug AND is_active = FALSE');
+      'SELECT id FROM projects WHERE slug = :slug AND is_active = FALSE ' +
+      '  AND created_by_developer_id = :caller_dev_id');
     try
       Qry.ParamByName('slug').AsString := Slug;
+      Qry.ParamByName('caller_dev_id').AsInteger := CallerDevId;
       Qry.Open;
       if not Qry.IsEmpty then
         ProjectId := Qry.FieldByName('id').AsInteger
@@ -79,6 +88,21 @@ begin
     end
     else
     begin
+      // Bug#2228: pre-check whether slug is taken globally so that we can
+      // return a clean EMxConflict instead of a MariaDB
+      // "Duplicate entry '<slug>' for key 'uq_project_slug'" error that
+      // would leak the slug name and let callers enumerate foreign projects.
+      Qry := AContext.CreateQuery(
+        'SELECT 1 FROM projects WHERE slug = :slug LIMIT 1');
+      try
+        Qry.ParamByName('slug').AsString := Slug;
+        Qry.Open;
+        if not Qry.IsEmpty then
+          raise EMxConflict.Create('Slug unavailable');
+      finally
+        Qry.Free;
+      end;
+
       Qry := AContext.CreateQuery(
         'INSERT INTO projects (slug, name, path, svn_url, created_by, created_by_developer_id) ' +
         'VALUES (:slug, :name, :path, :svn_url, :created_by, :created_by_dev_id)');
@@ -93,19 +117,20 @@ begin
           Qry.ParamByName('svn_url').DataType := ftString;
           Qry.ParamByName('svn_url').Value := Null;
         end;
-        if AContext.AccessControl.GetDeveloperId > 0 then
-        begin
-          Qry.ParamByName('created_by').AsString := AContext.AccessControl.GetDeveloperName;
-          Qry.ParamByName('created_by_dev_id').AsInteger := AContext.AccessControl.GetDeveloperId;
-        end
-        else
-        begin
-          Qry.ParamByName('created_by').DataType := ftString;
-          Qry.ParamByName('created_by').Value := Null;
-          Qry.ParamByName('created_by_dev_id').DataType := ftInteger;
-          Qry.ParamByName('created_by_dev_id').Value := Null;
+        Qry.ParamByName('created_by').AsString := AContext.AccessControl.GetDeveloperName;
+        Qry.ParamByName('created_by_dev_id').AsInteger := CallerDevId;
+        try
+          Qry.ExecSQL;
+        except
+          // Race fallback: another tx inserted the same slug between our
+          // pre-check and ExecSQL. Re-raise as clean EMxConflict so the
+          // MariaDB error with the slug name never reaches the caller.
+          on E: EFDDBEngineException do
+            if E.Kind = ekUKViolated then
+              raise EMxConflict.Create('Slug unavailable')
+            else
+              raise;
         end;
-        Qry.ExecSQL;
       finally
         Qry.Free;
       end;
@@ -119,19 +144,16 @@ begin
       end;
     end;
 
-    if AContext.AccessControl.GetDeveloperId > 0 then
-    begin
-      Qry := AContext.CreateQuery(
-        'INSERT IGNORE INTO developer_project_access ' +
-        '(developer_id, project_id, access_level) VALUES (:dev_id, :proj_id, :level)');
-      try
-        Qry.ParamByName('dev_id').AsInteger := AContext.AccessControl.GetDeveloperId;
-        Qry.ParamByName('proj_id').AsInteger := ProjectId;
-        Qry.ParamByName('level').AsString := 'write';
-        Qry.ExecSQL;
-      finally
-        Qry.Free;
-      end;
+    Qry := AContext.CreateQuery(
+      'INSERT IGNORE INTO developer_project_access ' +
+      '(developer_id, project_id, access_level) VALUES (:dev_id, :proj_id, :level)');
+    try
+      Qry.ParamByName('dev_id').AsInteger := CallerDevId;
+      Qry.ParamByName('proj_id').AsInteger := ProjectId;
+      Qry.ParamByName('level').AsString := 'write';
+      Qry.ExecSQL;
+    finally
+      Qry.Free;
     end;
 
     if (Path <> '') and (MxGetThreadAuth.KeyId > 0) then
