@@ -106,7 +106,7 @@ function MxGetThreadAuth: TMxAuthResult;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 89;  // Pinned at 89 for Plan#2790 loop-testing: local .89 can repeatedly pull hardened build-90 from GitHub to exercise Self-Update v1.1 (C1-C6 + W5-W11). Keep until loop tests are green; then bump to .91 for Build 91 release.
+  MXAI_BUILD   = 91;  // Build 91 release: Self-Update v1.1 parent-does-everything refactor (ADR#2804, Plan#2790 C1-C7 + W5-W10). Session 242 live-test green.
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';
