@@ -6,7 +6,7 @@ uses
   System.SysUtils, System.Classes, System.JSON, System.Generics.Collections,
   System.SyncObjs, System.IOUtils, System.Net.HttpClient, System.Net.URLClient,
   Winapi.Windows,
-  mx.Proxy.Config, mx.Proxy.Http;
+  mx.Proxy.Log, mx.Proxy.Config, mx.Proxy.Http;
 
 type
   // Background thread that polls agent inbox and writes to file
@@ -74,6 +74,8 @@ end;
 constructor TMxAgentPollThread.Create(const AServerUrl, AApiKey, AProject,
   AInboxDir: string; AInterval: Integer);
 begin
+  LogDebug('[poll] Thread.Create entry. project=' + AProject + ' inbox=' + AInboxDir
+      + ' interval=' + IntToStr(AInterval));
   inherited Create(True);
   FreeOnTerminate := False;
   FServerUrl := AServerUrl;
@@ -86,7 +88,15 @@ begin
   FShutdownEvent := TEvent.Create(nil, True, False, '');
 
   // Ensure inbox directory exists
-  ForceDirectories(FInboxDir);
+  LogDebug('[poll] Creating inbox dir: ' + FInboxDir);
+  try
+    ForceDirectories(FInboxDir);
+    LogDebug('[poll] Inbox dir ready. exists=' + BoolToStr(DirectoryExists(FInboxDir), True));
+  except
+    on E: Exception do
+      Log('[poll] ForceDirectories FAILED: ' + E.ClassName + ': ' + E.Message);
+  end;
+  LogDebug('[poll] Thread.Create done');
 end;
 
 destructor TMxAgentPollThread.Destroy;
@@ -136,7 +146,7 @@ begin
 
   // Rename failed after retries — clean up tmp
   TFile.Delete(TmpPath);
-  WriteLn(ErrOutput, '[mxProxy] Failed to write inbox file after 3 retries');
+  Log('[mxProxy] Failed to write inbox file after 3 retries');
 end;
 
 procedure TMxAgentPollThread.CheckAndAck;
@@ -159,7 +169,7 @@ begin
     end;
   except
     on E: Exception do
-      WriteLn(ErrOutput, '[mxProxy] ACK failed: ' + E.Message);
+      Log('[mxProxy] ACK failed: ' + E.Message);
   end;
 
   // Clear regardless of ACK success (prevent infinite retry)
@@ -183,7 +193,10 @@ var
   FileJson: TJSONObject;
   NewIds: string;
 begin
+  LogDebug('[poll] Execute entry. project=' + FProject);
+  try
   Url := FServerUrl + '?agent_inbox=' + FProject;
+  LogDebug('[poll] URL=' + Url);
 
   while not Terminated do
   begin
@@ -261,19 +274,26 @@ begin
       end;
     except
       on E: Exception do
-        WriteLn(ErrOutput, '[mxProxy] Agent poll error: ' + E.Message);
+        Log('[mxProxy] Agent poll error: ' + E.Message);
     end;
 
     // Wait for interval or shutdown
     if FShutdownEvent.WaitFor(Cardinal(FInterval * 1000)) = wrSignaled then
       Break;
   end;
+  LogDebug('[poll] Execute loop exit (Terminated=' + BoolToStr(Terminated, True) + ')');
+  except
+    on E: Exception do
+      Log('[poll] FATAL in Execute: ' + E.ClassName + ': ' + E.Message);
+  end;
+  LogDebug('[poll] Execute return');
 end;
 
 { TMxStdioProxy }
 
 constructor TMxStdioProxy.Create(AConfig: TMxProxyConfig);
 begin
+  LogDebug('[stdio] TMxStdioProxy.Create entry');
   inherited Create;
   FConfig := AConfig;
   FLock := TCriticalSection.Create;
@@ -284,9 +304,12 @@ begin
 
   GProxyInstance := Self;
   SetConsoleCtrlHandler(@ConsoleCtrlHandler, True);
+  LogDebug('[stdio] ConsoleCtrlHandler installed');
 
   // Debug: log working directory and CLAUDE.md detection
-  WriteLn(ErrOutput, '[mxProxy] CWD: ' + GetCurrentDir);
+  LogDebug('[mxProxy] CWD: ' + GetCurrentDir);
+  LogDebug('[mxProxy] ExeDir (ParamStr(0)): ' + ExtractFilePath(ParamStr(0)));
+  LogDebug('[mxProxy] CLAUDE.md exists in CWD: ' + BoolToStr(FileExists('CLAUDE.md'), True));
 
   // WorkDir: override CWD if configured (for deployments where EXE is not in project dir)
   if FConfig.WorkDir <> '' then
@@ -294,18 +317,22 @@ begin
     if DirectoryExists(FConfig.WorkDir) then
     begin
       SetCurrentDir(FConfig.WorkDir);
-      WriteLn(ErrOutput, '[mxProxy] WorkDir changed to: ' + FConfig.WorkDir);
+      Log('[mxProxy] WorkDir changed to: ' + FConfig.WorkDir);
     end
     else
-      WriteLn(ErrOutput, '[mxProxy] WorkDir not found: ' + FConfig.WorkDir);
+      Log('[mxProxy] WorkDir not found: ' + FConfig.WorkDir);
   end;
 
   // Try to detect project slug from CLAUDE.md in working directory
+  LogDebug('[stdio] AgentPolling=' + BoolToStr(FConfig.AgentPolling, True));
   if FConfig.AgentPolling and FileExists('CLAUDE.md') then
   begin
+    LogDebug('[stdio] Starting CLAUDE.md slug parse');
     try
       var ClaudeMd := TFile.ReadAllText('CLAUDE.md', TEncoding.UTF8);
+      LogDebug('[stdio] CLAUDE.md read. length=' + IntToStr(Length(ClaudeMd)));
       var SlugPos := Pos('**Slug:**', ClaudeMd);
+      LogDebug('[stdio] SlugPos=' + IntToStr(SlugPos));
       if SlugPos > 0 then
       begin
         var AfterSlug := Copy(ClaudeMd, SlugPos + 9, 100);
@@ -324,44 +351,79 @@ begin
         if AfterSlug <> '' then
         begin
           FProjectSlug := AfterSlug;
-          WriteLn(ErrOutput, '[mxProxy] Slug from CLAUDE.md: ' + FProjectSlug);
+          Log('[mxProxy] Slug from CLAUDE.md: ' + FProjectSlug);
 
           // Auto-start polling thread
+          LogDebug('[stdio] About to call TMxAgentPollThread.Create');
           FAgentThread := TMxAgentPollThread.Create(
             FConfig.ServerUrl, FConfig.ApiKey,
             FProjectSlug, FConfig.InboxDir,
             FConfig.AgentPollInterval);
+          LogDebug('[stdio] TMxAgentPollThread.Create OK, about to Start');
           FAgentThread.Start;
-          WriteLn(ErrOutput, '[mxProxy] Agent polling auto-started for ' + FProjectSlug);
-        end;
+          Log('[mxProxy] Agent polling auto-started for ' + FProjectSlug);
+        end
+        else
+          LogDebug('[stdio] AfterSlug empty after parse, no thread started');
       end;
     except
       on E: Exception do
-        WriteLn(ErrOutput, '[mxProxy] CLAUDE.md read failed: ' + E.Message);
+        Log('[mxProxy] CLAUDE.md read failed: ' + E.ClassName + ': ' + E.Message);
     end;
-  end;
+  end
+  else
+    LogDebug('[stdio] Skip CLAUDE.md parse (AgentPolling off or CLAUDE.md missing)');
+  LogDebug('[stdio] TMxStdioProxy.Create done');
 end;
 
 destructor TMxStdioProxy.Destroy;
 begin
+  LogDebug('[stdio] TMxStdioProxy.Destroy entry');
   SetConsoleCtrlHandler(@ConsoleCtrlHandler, False);
   GProxyInstance := nil;
   if FAgentThread <> nil then
   begin
+    LogDebug('[stdio] Shutting down poll thread');
     FAgentThread.RequestShutdown;
     FAgentThread.WaitFor;
     FAgentThread.Free;
+    LogDebug('[stdio] Poll thread freed');
   end;
   FLock.Free;
   inherited;
+  LogDebug('[stdio] TMxStdioProxy.Destroy done');
 end;
 
 procedure TMxStdioProxy.WriteOutput(const ALine: string);
+var
+  SafeLine: string;
+  Bytes: TBytes;
+  BytesWritten: DWORD;
+  H: THandle;
 begin
+  // MCP stdio transport requires ONE JSON-RPC message per line.
+  // If the server ever returns pretty-printed JSON with embedded LF/CR,
+  // CC will see a truncated object and throw "Unexpected EOF". Collapse
+  // all CR/LF into single spaces so exactly one terminator is written.
+  SafeLine := StringReplace(ALine, #13#10, ' ', [rfReplaceAll]);
+  SafeLine := StringReplace(SafeLine, #10, ' ', [rfReplaceAll]);
+  SafeLine := StringReplace(SafeLine, #13, ' ', [rfReplaceAll]);
+
   FLock.Enter;
   try
-    WriteLn(ALine);
-    Flush(Output);
+    // Bypass Delphi's text-file RTL entirely for stdout. Delphi's WriteLn
+    // on a redirected Output can ignore the requested CodePage and may
+    // emit CRLF which some parsers accept and some don't. Win32 WriteFile
+    // on the raw handle gives exact bytes with exact LF terminator.
+    H := GetStdHandle(STD_OUTPUT_HANDLE);
+    Bytes := TEncoding.UTF8.GetBytes(SafeLine + #10);
+    if Length(Bytes) > 0 then
+    begin
+      if not WriteFile(H, Bytes[0], Length(Bytes), BytesWritten, nil) then
+        Log('[run] WriteFile(stdout) FAILED err=' + IntToStr(GetLastError))
+      else
+        LogDebug('[run] WriteFile(stdout) ok len=' + IntToStr(Length(Bytes)));
+    end;
   finally
     FLock.Leave;
   end;
@@ -434,7 +496,7 @@ begin
     FProjectSlug, FConfig.InboxDir,
     FConfig.AgentPollInterval);
   FAgentThread.Start;
-  WriteLn(ErrOutput, '[mxProxy] Agent polling started for ' +
+  Log('[mxProxy] Agent polling started for ' +
     FProjectSlug + ' (every ' + IntToStr(FConfig.AgentPollInterval) + 's)');
 end;
 
@@ -475,31 +537,121 @@ begin
       SetSessionId('');
 
     for I := 0 to High(Responses) do
+    begin
+      // Skip empty responses. Per MCP spec, notifications (requests without
+      // an "id" field) must NOT produce any response on stdout. The mxLore
+      // server correctly returns HTTP 202 with empty body for notifications;
+      // forwarding that as an empty line would corrupt CC's JSON-RPC framing
+      // (it reads the blank line as "Unexpected EOF" and drops the transport).
+      if Trim(Responses[I]) = '' then
+      begin
+        LogDebug('[run] Skipping empty response (notification ACK, no stdout write)');
+        Continue;
+      end;
       WriteOutput(Responses[I]);
+    end;
   finally
     HttpClient.Free;
+  end;
+end;
+
+// Win32-based line reader for stdin. Delphi's Text-file RTL is unreliable on
+// piped stdin (returns empty strings in a hot-loop after a certain internal
+// state is reached). ReadFile on a blocking pipe handle blocks correctly and
+// only returns 0 bytes when the peer actually closes the pipe.
+function ReadStdinLine(AHandle: THandle; out ALine: string): Boolean;
+var
+  Chunk: array[0..4095] of Byte;
+  LineBytes: TBytes;
+  LineLen: Integer;
+  I: Integer;
+  BytesRead: DWORD;
+
+  // Small per-call static scratch: we don't need leftover buffering across
+  // calls because Claude Code sends one JSON-RPC line then waits for the
+  // response; each line fits comfortably in 4 KB in practice.
+
+  procedure AppendByte(B: Byte);
+  begin
+    if LineLen >= Length(LineBytes) then
+      SetLength(LineBytes, Length(LineBytes) * 2);
+    LineBytes[LineLen] := B;
+    Inc(LineLen);
+  end;
+
+begin
+  SetLength(LineBytes, 4096);
+  LineLen := 0;
+  ALine := '';
+  while True do
+  begin
+    if not ReadFile(AHandle, Chunk[0], SizeOf(Chunk), BytesRead, nil) then
+    begin
+      Log('[run] ReadFile FAILED: err=' + IntToStr(GetLastError));
+      Exit(False);
+    end;
+    if BytesRead = 0 then
+    begin
+      // True EOF — peer closed the pipe
+      Log('[run] ReadFile returned 0 bytes (stdin closed cleanly)');
+      Exit(False);
+    end;
+    for I := 0 to Integer(BytesRead) - 1 do
+    begin
+      case Chunk[I] of
+        10: // LF — end of line
+          begin
+            SetLength(LineBytes, LineLen);
+            ALine := TEncoding.UTF8.GetString(LineBytes);
+            Exit(True);
+          end;
+        13: ; // CR — skip (LF will follow in CRLF)
+      else
+        AppendByte(Chunk[I]);
+      end;
+    end;
   end;
 end;
 
 procedure TMxStdioProxy.Run;
 var
   Line: string;
+  Iter: Integer;
+  StdinH: THandle;
 begin
+  Log('[run] Enter Run loop (Win32 ReadFile mode)');
+  StdinH := GetStdHandle(STD_INPUT_HANDLE);
+  LogDebug('[run] stdin handle=' + IntToStr(StdinH));
+  Iter := 0;
   while not FShutdownRequested do
   begin
+    Inc(Iter);
+    LogDebug('[run] Iter=' + IntToStr(Iter) + ' ReadFile...');
+    if not ReadStdinLine(StdinH, Line) then
+    begin
+      Log('[run] ReadStdinLine returned False — exiting Run loop');
+      Break;
+    end;
+    LogDebug('[run] Iter=' + IntToStr(Iter) + ' line OK, len=' + IntToStr(Length(Line)));
+
+    if Line = '' then
+    begin
+      // Genuine blank line between JSON-RPC messages — skip, don't forward
+      Continue;
+    end;
+
     try
-      ReadLn(Line);
       HandleLine(Line);
+      LogDebug('[run] Iter=' + IntToStr(Iter) + ' HandleLine done');
     except
-      on E: EInOutError do
-        Break;
       on E: Exception do
       begin
-        WriteLn(ErrOutput, 'ERROR: ' + E.Message);
+        Log('[run] EXCEPTION in HandleLine: ' + E.ClassName + ': ' + E.Message);
         Break;
       end;
     end;
   end;
+  Log('[run] Exit Run loop (FShutdownRequested=' + BoolToStr(FShutdownRequested, True) + ')');
 end;
 
 end.

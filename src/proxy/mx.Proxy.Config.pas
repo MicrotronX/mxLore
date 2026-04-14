@@ -16,6 +16,7 @@ type
     FAgentPollInterval: Integer;
     FInboxDir: string;
     FWorkDir: string;
+    FLogLevel: string;
   public
     constructor Create(const AIniPath: string);
     property ServerUrl: string read FServerUrl;
@@ -26,6 +27,7 @@ type
     property AgentPollInterval: Integer read FAgentPollInterval;
     property InboxDir: string read FInboxDir;
     property WorkDir: string read FWorkDir;
+    property LogLevel: string read FLogLevel;
   end;
 
 implementation
@@ -53,6 +55,8 @@ begin
       FInboxDir := ExtractFilePath(AIniPath) + 'agent_inbox';
     // WorkDir: override CWD for CLAUDE.md slug detection
     FWorkDir := Ini.ReadString('Agent', 'WorkDir', '');
+    // LogLevel: 'info' (default, production-clean) or 'debug' (hot-path tracing for bug hunts)
+    FLogLevel := Ini.ReadString('General', 'LogLevel', 'info');
   finally
     Ini.Free;
   end;

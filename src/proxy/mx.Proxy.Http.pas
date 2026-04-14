@@ -5,7 +5,8 @@ interface
 uses
   System.SysUtils, System.Classes, System.JSON,
   System.Net.HttpClient, System.Net.URLClient, System.NetConsts,
-  System.Generics.Collections;
+  System.Generics.Collections,
+  mx.Proxy.Log;
 
 type
   TMxProxyHttpClient = class
@@ -129,7 +130,7 @@ var
   NewSid: string;
 begin
   Result := False;
-  WriteLn(ErrOutput, 'INFO: Re-Initialize MCP session...');
+  Log('INFO: Re-Initialize MCP session...');
 
   // Schritt 1: initialize Request
   InitBody := TStringStream.Create(
@@ -146,7 +147,7 @@ begin
     Response := FClient.Post(FUrl, InitBody);
     if not (Response.StatusCode in [200, 201, 202]) then
     begin
-      WriteLn(ErrOutput, 'ERROR: Re-Initialize failed: HTTP ' +
+      Log('ERROR: Re-Initialize failed: HTTP ' +
         IntToStr(Response.StatusCode));
       Exit;
     end;
@@ -174,7 +175,7 @@ begin
     NotifBody.Free;
   end;
 
-  WriteLn(ErrOutput, 'INFO: Re-Initialize OK, neue Session: ' + FSessionId);
+  Log('INFO: Re-Initialize OK, neue Session: ' + FSessionId);
   Result := True;
 end;
 
@@ -188,6 +189,8 @@ var
   ParsedReq: TJSONObject;
   RetryCount: Integer;
 begin
+  LogDebug('[http] Forward entry. len=' + IntToStr(Length(AJsonRpcLine))
+      + ' session=' + FSessionId);
   ANewSessionId := '';
   SetLength(Result, 0);
 
@@ -248,7 +251,7 @@ begin
                   if ReInitialize then
                   begin
                     ANewSessionId := FSessionId; // Neue Session an Core melden
-                    WriteLn(ErrOutput, 'INFO: Re-Initialize erfolgreich, retry mit neuer Session');
+                    Log('INFO: Re-Initialize erfolgreich, retry mit neuer Session');
                     Continue;
                   end;
                 end;
@@ -270,7 +273,7 @@ begin
           begin
             if RetryCount = 0 then
             begin
-              WriteLn(ErrOutput, 'WARN: Connection-Fehler, retry in 1s: ' + E.Message);
+              Log('WARN: Connection-Fehler, retry in 1s: ' + E.Message);
               Sleep(1000);
               Continue;
             end;
@@ -292,6 +295,8 @@ begin
   finally
     ParsedReq.Free;
   end;
+  LogDebug('[http] Forward return. result_count=' + IntToStr(Length(Result))
+      + ' newSessionId=' + ANewSessionId);
 end;
 
 end.
