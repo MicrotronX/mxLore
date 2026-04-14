@@ -193,18 +193,18 @@ Created → Viewed → Confirmed → (auto-archived)
 
 ## Skills Overview
 
-11 Claude Code skills for AI-assisted workflows — installed automatically by `/mxSetup`:
+11 Claude Code skills for AI-assisted workflows — installed automatically by `/mxSetup`, listed in the order you typically use them:
 
-| Skill | Purpose |
-|-------|---------|
-| `/mxOrchestrate` | Session orchestrator — workflows, ad-hoc tasks, team agents |
-| `/mxSave` | Persist session state to DB |
-| `/mxPlan` | Create implementation plans |
-| `/mxSpec` | Write specifications |
-| `/mxDecision` | Document architectural decisions (ADRs) |
-| `/mxDesignChecker` | Review code/design against specs |
-| `/mxBugChecker` | Find bugs with verification |
-| `/mxHealth` | Knowledge DB consistency checks |
-| `/mxSetup` | Developer onboarding (installs skills + proxy) |
-| `/mxInitProject` | Bootstrap new project in DB |
-| `/mxMigrateToDb` | Migrate local docs to MCP |
+| # | Skill | When you use it |
+|---|-------|-----------------|
+| 1 | `/mxSetup` | **Install everything** — run once per host. Downloads skills, hooks, proxy, patches `settings.json`. |
+| 2 | `/mxInitProject` | Register a new project in mxLore (creates slug, scaffolds `CLAUDE.md`). |
+| 3 | `/mxSpec` | Write a specification for a feature before planning. |
+| 4 | `/mxPlan` | Turn a spec into a step-by-step implementation plan. |
+| 5 | `/mxDecision` | Capture an architectural decision (ADR) the moment you make it. |
+| 6 | `/mxDesignChecker` | Review code/design against the spec before you ship. |
+| 7 | `/mxBugChecker` | Find bugs with verified proof (no hand-waving). |
+| 8 | `/mxSave` | End-of-session persistence — state, lessons, session notes into the DB. |
+| 9 | `/mxHealth` | Periodic consistency check on the knowledge DB and local docs. |
+| 10 | `/mxMigrateToDb` | One-time migration of legacy `docs/*.md` files into MCP. |
+| — | `/mxOrchestrate` | Always-on session orchestrator via hooks. You rarely invoke it by hand — it tracks workflows, ad-hoc tasks, and team agents in the background. |
