@@ -157,8 +157,7 @@ begin
                 Qry.ParamByName('doc_type').AsString := DocType;
                 Qry.ParamByName('slug').AsString := Slug;
                 Qry.ParamByName('title').AsString := Title;
-                Qry.ParamByName('content').DataType := ftWideMemo;
-                Qry.ParamByName('content').AsString := Content;
+                BindLargeText(Qry.ParamByName('content'), Content);
                 Qry.ParamByName('summary_l1').AsString := Summary1;
                 Qry.ParamByName('summary_l2').AsString := Summary2;
                 Qry.ParamByName('status').AsString := Status;
@@ -200,8 +199,7 @@ begin
             'VALUES (:doc_id, 1, :content, :summary_l2, :changed_by, ''Initial version'')');
           try
             Qry.ParamByName('doc_id').AsInteger := DocId;
-            Qry.ParamByName('content').DataType := ftWideMemo;
-            Qry.ParamByName('content').AsString := Content;
+            BindLargeText(Qry.ParamByName('content'), Content);
             Qry.ParamByName('summary_l2').AsString := Summary2;
             Qry.ParamByName('changed_by').AsString := CreatedBy;
             Qry.ExecSQL;
@@ -384,10 +382,7 @@ begin
           try
             Qry.ParamByName('id').AsInteger := DocId;
             if Content <> '' then
-            begin
-              Qry.ParamByName('content').DataType := ftWideMemo;
-              Qry.ParamByName('content').AsString := Content;
-            end;
+              BindLargeText(Qry.ParamByName('content'), Content);
             if Summary1 <> '' then
               Qry.ParamByName('summary_l1').AsString := Summary1;
             if Summary2 <> '' then
@@ -421,8 +416,7 @@ begin
             try
               Qry.ParamByName('doc_id').AsInteger := DocId;
               Qry.ParamByName('rev').AsInteger := NextRevision;
-              Qry.ParamByName('content').DataType := ftWideMemo;
-              Qry.ParamByName('content').AsString := Content;
+              BindLargeText(Qry.ParamByName('content'), Content);
               Qry.ParamByName('summary_l2').AsString := Summary2;
               Qry.ParamByName('changed_by').AsString := ChangedBy;
               Qry.ParamByName('reason').AsString := ChangeReason;

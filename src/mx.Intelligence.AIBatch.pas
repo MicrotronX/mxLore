@@ -81,6 +81,9 @@ type
 
 implementation
 
+uses
+  mx.Tool.Write;
+
 const
   AI_BATCH_PROMPT =
     'AUTONOMOUS BATCH JOB. NO QUESTIONS. Process ALL items without asking. ' +
@@ -1234,8 +1237,7 @@ begin
         InsQry.ParamByName('proj_id').AsInteger := ProjectId;
         InsQry.ParamByName('slug').AsString := Slug;
         InsQry.ParamByName('title').AsString := '[Recall Metrics] ' + DateStr;
-        InsQry.ParamByName('content').DataType := ftWideMemo;
-        InsQry.ParamByName('content').AsString := Report.ToString;
+        BindLargeText(InsQry.ParamByName('content'), Report.ToString);
         InsQry.ExecSQL;
       finally
         InsQry.Free;
@@ -1477,8 +1479,7 @@ procedure TMxAIBatchRunner.RunHealthAutoNotesJob;
       InsQry.ParamByName('pid').AsInteger := AProjectId;
       InsQry.ParamByName('slug').AsString := Slug;
       InsQry.ParamByName('title').AsString := ATitle;
-      InsQry.ParamByName('content').DataType := ftWideMemo;
-      InsQry.ParamByName('content').AsString := ADetails;
+      BindLargeText(InsQry.ParamByName('content'), ADetails);
       InsQry.ParamByName('summary').AsString := Copy(ADetails, 1, 200);
       InsQry.ExecSQL;
     finally

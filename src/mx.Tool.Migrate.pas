@@ -264,8 +264,7 @@ begin
             Qry.ParamByName('doc_type').AsString := DocType;
             Qry.ParamByName('slug').AsString := Slug;
             Qry.ParamByName('title').AsString := Title;
-            Qry.ParamByName('content').DataType := ftWideMemo;
-            Qry.ParamByName('content').AsString := Content;
+            BindLargeText(Qry.ParamByName('content'), Content);
             Qry.ParamByName('summary_l1').AsString := Summary1;
             Qry.ParamByName('summary_l2').AsString := Summary2;
             Qry.ParamByName('status').AsString := DocStatus;
@@ -290,8 +289,7 @@ begin
             'VALUES (:doc_id, 1, :content, :summary_l2, ''migration'', ''Imported from file'')');
           try
             Qry.ParamByName('doc_id').AsInteger := DocId;
-            Qry.ParamByName('content').DataType := ftWideMemo;
-            Qry.ParamByName('content').AsString := Content;
+            BindLargeText(Qry.ParamByName('content'), Content);
             Qry.ParamByName('summary_l2').AsString := Summary2;
             Qry.ExecSQL;
           finally

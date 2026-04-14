@@ -6,12 +6,20 @@ uses
   System.SysUtils, System.JSON, System.Variants, System.DateUtils,
   System.StrUtils,
   Data.DB,
-  FireDAC.Comp.Client, FireDAC.Stan.Error,
+  FireDAC.Comp.Client, FireDAC.Stan.Error, FireDAC.Stan.Param,
   mx.Types, mx.Errors, mx.Data.Pool, mx.Logic.AccessControl;
 
 function GenerateSlug(const ATitle: string): string;
 function ExtractFirstSentence(const AText: string): string;
 function ExtractFirstSentences(const AText: string; ACount: Integer): string;
+
+// Bind a large text value (typically a doc body) to a TFDParam so that
+// FireDAC accepts strings beyond the default 32767-byte parameter limit.
+// FireDAC's default Param.Size is 32767 (FConnDefParams.MaxStringSize) and
+// setting DataType := ftWideMemo alone does NOT lift it — Size must be set
+// explicitly as well. We allocate at least 1 MB to absorb future growth
+// without forcing reparameterisation each call.
+procedure BindLargeText(AParam: TFDParam; const AValue: string);
 
 // CRUD (Create/Update/Delete) + Summaries — core document operations
 function HandleCreateDoc(const AParams: TJSONObject;
@@ -31,6 +39,22 @@ uses
 const
   // documents.slug is VARCHAR(100) — see sql/setup.sql
   cMaxSlugLength = 100;
+  // Minimum allocation for large-text params. Most doc bodies are a few KB,
+  // but specs/plans/lessons can grow above 100 KB. 1 MB ceiling keeps memory
+  // bounded for normal docs while leaving headroom for large ones.
+  cLargeTextMinSize = 1024 * 1024;
+
+procedure BindLargeText(AParam: TFDParam; const AValue: string);
+var
+  RequiredSize: Integer;
+begin
+  AParam.DataType := ftWideMemo;
+  RequiredSize := Length(AValue) + 1024;
+  if RequiredSize < cLargeTextMinSize then
+    RequiredSize := cLargeTextMinSize;
+  AParam.Size := RequiredSize;
+  AParam.AsString := AValue;
+end;
 
 // ---------------------------------------------------------------------------
 // Helper: Generate slug from title
@@ -549,8 +573,7 @@ begin
           Qry.ParamByName('doc_type').AsString := DocType;
           Qry.ParamByName('slug').AsString := Slug;
           Qry.ParamByName('title').AsString := Title;
-          Qry.ParamByName('content').DataType := ftWideMemo;
-          Qry.ParamByName('content').AsString := Content;
+          BindLargeText(Qry.ParamByName('content'), Content);
           Qry.ParamByName('summary_l1').AsString := Summary1;
           Qry.ParamByName('summary_l2').AsString := Summary2;
           Qry.ParamByName('status').AsString := Status;
@@ -599,8 +622,7 @@ begin
       'VALUES (:doc_id, 1, :content, :summary_l2, :changed_by, ''Initial version'')');
     try
       Qry.ParamByName('doc_id').AsInteger := DocId;
-      Qry.ParamByName('content').DataType := ftWideMemo;
-      Qry.ParamByName('content').AsString := Content;
+      BindLargeText(Qry.ParamByName('content'), Content);
       Qry.ParamByName('summary_l2').AsString := Summary2;
       Qry.ParamByName('changed_by').AsString := CreatedBy;
       Qry.ExecSQL;
@@ -864,10 +886,7 @@ begin
       if Title <> '' then
         Qry.ParamByName('title').AsString := Title;
       if Content <> '' then
-      begin
-        Qry.ParamByName('content').DataType := ftWideMemo;
-        Qry.ParamByName('content').AsString := Content;
-      end;
+        BindLargeText(Qry.ParamByName('content'), Content);
       if Status <> '' then
         Qry.ParamByName('status').AsString := Status;
       if DocType <> '' then
@@ -905,8 +924,7 @@ begin
       try
         Qry.ParamByName('doc_id').AsInteger := DocId;
         Qry.ParamByName('rev').AsInteger := NextRevision;
-        Qry.ParamByName('content').DataType := ftWideMemo;
-        Qry.ParamByName('content').AsString := Content;
+        BindLargeText(Qry.ParamByName('content'), Content);
         Qry.ParamByName('summary_l2').AsString := Summary2;
         Qry.ParamByName('changed_by').AsString := ChangedBy;
         Qry.ParamByName('reason').AsString := ChangeReason;

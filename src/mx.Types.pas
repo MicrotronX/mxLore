@@ -106,7 +106,7 @@ function MxGetThreadAuth: TMxAuthResult;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 88;  // Bug#2228 Phase 3: slug handling hardening. Bug#2261 GenerateSlug auto-truncate to VARCHAR(100) + Bug#2262 HandleCreateDoc/HandleBatchCreate retry-loop with numeric suffix on UK-violation (pattern from mx.Tool.Notes.pas). ADR prefix reserves 13 chars.
+  MXAI_BUILD   = 89;  // FireDAC large-content fix: BindLargeText helper in mx.Tool.Write.pas sets ftWideMemo + Size=max(Length+1024, 1MB), replacing FireDAC TFDParam default 32767 cap that truncated long plans/specs/content on insert. 15 call sites across mx.Tool.Write[.Batch].pas, Notes, Migrate, mx.Intelligence.AIBatch.pas. Shipped together with mxMCPProxy v1.0.4 (C1 Http.pas stdio framing fix, Win32 ReadFile/WriteFile, mx.Proxy.Log.pas).
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';

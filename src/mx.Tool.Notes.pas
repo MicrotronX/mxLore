@@ -111,8 +111,7 @@ begin
           Qry.ParamByName('proj_id').AsInteger := ProjectId;
           Qry.ParamByName('slug').AsString := Slug;
           Qry.ParamByName('title').AsString := Title;
-          Qry.ParamByName('content').DataType := ftWideMemo;
-          Qry.ParamByName('content').AsString := Body;
+          BindLargeText(Qry.ParamByName('content'), Body);
           Qry.ParamByName('doc_type').AsString := DocType;
           Qry.ParamByName('status').AsString := Status;
           if (LessonData <> '') and (DocType = 'lesson') then
