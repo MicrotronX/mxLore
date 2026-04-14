@@ -62,6 +62,23 @@ type
   TMxSelfUpdateStopProc = reference to procedure;
 
 procedure MxSelfUpdate_RegisterStopProc(AProc: TMxSelfUpdateStopProc);
+procedure MxSelfUpdate_SetErrorState(const AMessage: string);
+// C7b: read-side of the transient error channel. Admin BuildStatusJson
+// needs to surface the last install-failure text because the cached
+// gLastCheckInfo is not mutated by SetErrorState.
+procedure MxSelfUpdate_GetLastError(out AText: string; out AAt: TDateTime;
+  out AHas: Boolean);
+// W6: child FinishUpdate error persistence. Child writes a small sibling
+// file (update.error) from its dpr except branch; next parent boot reads
+// it, calls SetErrorState, then deletes the file. Keeps the admin UI
+// from silently eating a failed install on the child side.
+procedure MxSelfUpdate_WriteChildError(const AMessage: string);
+procedure MxSelfUpdate_ConsumePersistedChildError;
+
+// Diagnostic append-logger for the self-update flow. Writes to
+// <ExeDir>/update.log with process-id prefix so parent + detached child
+// can interleave cleanly. Silent on I/O failure.
+procedure UpdateLog(const AMsg: string);
 
 function  MxSelfUpdate_Check(AForce: Boolean = False): TMxUpdateInfo;
 function  MxSelfUpdate_DownloadZip(var AInfo: TMxUpdateInfo): string;
@@ -75,7 +92,7 @@ implementation
 
 uses
   System.Classes, System.IniFiles, System.RegularExpressions, System.IOUtils,
-  System.Hash, System.StrUtils, System.DateUtils,
+  System.Hash, System.StrUtils, System.DateUtils, System.SyncObjs,
   System.Net.HttpClient, System.Net.URLClient, System.Zip, System.TypInfo,
   {$IFDEF MSWINDOWS} Winapi.Windows, {$ENDIF}
   mx.Errors, mx.Types;
@@ -110,16 +127,217 @@ var
   gLastCheckInfo : TMxUpdateInfo;
   gLastCheckTime : TDateTime;
   gHasCheckInfo  : Boolean = False;
+  // C1: lock + transient error channel. Errors go here so a transient
+  // SetErrorState call does not poison the cached successful check
+  // result (previously every failed install wiped gLastCheckInfo).
+  gLastCheckLock : TCriticalSection;
+  gLastErrorText : string;
+  gLastErrorTime : TDateTime;
+  gHasLastError  : Boolean = False;
 
 procedure MxSelfUpdate_RegisterStopProc(AProc: TMxSelfUpdateStopProc);
 begin
   gStopProc := AProc;
 end;
 
+procedure MxSelfUpdate_SetErrorState(const AMessage: string);
+begin
+  gLastCheckLock.Enter;
+  try
+    gLastErrorText := AMessage;
+    gLastErrorTime := Now;
+    gHasLastError  := True;
+    // C7b: also flip the cached state so admin UI transitions out of
+    // usSwapping into usError even without reading the separate channel.
+    if gHasCheckInfo then
+    begin
+      gLastCheckInfo.State        := usError;
+      gLastCheckInfo.ErrorMessage := AMessage;
+    end;
+  finally
+    gLastCheckLock.Leave;
+  end;
+end;
+
+procedure MxSelfUpdate_GetLastError(out AText: string; out AAt: TDateTime;
+  out AHas: Boolean);
+begin
+  gLastCheckLock.Enter;
+  try
+    AText := gLastErrorText;
+    AAt   := gLastErrorTime;
+    AHas  := gHasLastError;
+  finally
+    gLastCheckLock.Leave;
+  end;
+end;
+
+function ChildErrorFilePath: string;
+begin
+  Result := TPath.Combine(ExtractFilePath(ParamStr(0)), 'update.error');
+end;
+
+procedure MxSelfUpdate_WriteChildError(const AMessage: string);
+var
+  Path, Line: string;
+begin
+  Path := ChildErrorFilePath;
+  Line := FormatDateTime('yyyy-mm-dd"T"hh:nn:ss"Z"', Now) + ' ' + AMessage;
+  try
+    TFile.WriteAllText(Path, Line, TEncoding.UTF8);
+  except
+    // Persistence is best-effort. Log hook is the user-facing fallback.
+  end;
+end;
+
+procedure MxSelfUpdate_ConsumePersistedChildError;
+var
+  Path, Content: string;
+begin
+  Path := ChildErrorFilePath;
+  if not TFile.Exists(Path) then Exit;
+  try
+    Content := TFile.ReadAllText(Path, TEncoding.UTF8).Trim;
+  except
+    Content := '';
+  end;
+  try
+    TFile.Delete(Path);
+  except
+    // leaving the file means next boot surfaces it again; acceptable.
+  end;
+  if Content <> '' then
+    MxSelfUpdate_SetErrorState('CHILD_FINISH_FAIL: ' + Content);
+end;
+
 function StagingDir: string;
 begin
   Result := IncludeTrailingPathDelimiter(
     TPath.Combine(ExtractFilePath(ParamStr(0)), 'update-staging'));
+end;
+
+function UpdateLogPath: string;
+begin
+  Result := TPath.Combine(ExtractFilePath(ParamStr(0)), 'update.log');
+end;
+
+// Diagnostic log for the self-update flow. Appends to bin/update.log so
+// both the parent (Admin API install handler thread) and the child
+// (--finish-update boot branch before Logger init) can write to the
+// same file. Thread-safe via short open-append-close cycles with shared
+// read. Silent on I/O failure so logging never breaks the update path.
+procedure UpdateLog(const AMsg: string);
+var
+  Path, Line: string;
+  F: TFileStream;
+  Bytes: TBytes;
+begin
+  Path := UpdateLogPath;
+  Line := FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz ', Now) +
+          '[pid=' + IntToStr(GetCurrentProcessId) + '] ' + AMsg + #13#10;
+  try
+    Bytes := TEncoding.UTF8.GetBytes(Line);
+    if TFile.Exists(Path) then
+      F := TFileStream.Create(Path, fmOpenWrite or fmShareDenyNone)
+    else
+      F := TFileStream.Create(Path, fmCreate or fmShareDenyNone);
+    try
+      F.Seek(0, soEnd);
+      if Length(Bytes) > 0 then
+        F.WriteBuffer(Bytes[0], Length(Bytes));
+    finally
+      F.Free;
+    end;
+  except
+    // swallow all logging errors — diagnostic must never break the update
+  end;
+end;
+
+// URL-aware filename extraction. System.SysUtils.ExtractFileName on Windows
+// only splits on '\' and ':', not on '/', so on a full https URL it returns
+// the URL tail including '//host/...'. We parse via TURI and take the last
+// path segment. Fallback 'update.zip' if path is empty.
+function UrlFileName(const AUrl: string): string;
+var
+  Uri: TURI;
+  UriPath: string;
+  LastSlash: Integer;
+begin
+  Result := '';
+  try
+    Uri := TURI.Create(AUrl);
+    UriPath := Uri.Path;
+    if UriPath <> '' then
+    begin
+      LastSlash := LastDelimiter('/', UriPath);
+      if LastSlash > 0 then
+        Result := Copy(UriPath, LastSlash + 1, MaxInt)
+      else
+        Result := UriPath;
+    end;
+  except
+    Result := '';
+  end;
+  if Result = '' then
+    Result := 'update.zip';
+end;
+
+// Zip entries use '/' as separator even on Windows. ExtractFileName won't
+// split them. This helper returns the last '/' or '\' segment so Skip
+// checks for mxLoreMCP.exe / mxLoreMCP.ini work regardless of wrapper dir.
+function ZipEntryBaseName(const AEntry: string): string;
+var
+  I: Integer;
+begin
+  I := LastDelimiter('/\', AEntry);
+  if I > 0 then
+    Result := Copy(AEntry, I + 1, MaxInt)
+  else
+    Result := AEntry;
+end;
+
+// Some release ZIPs wrap all entries in a single top-level dir like
+// mxLore-v2.4.1-win64/. For in-place self-update we want to extract INTO
+// the current install dir, not under a wrapper. If ALL entries share a
+// common first segment, strip it; otherwise return the entry unchanged.
+function StripZipWrapperDir(const AEntry, AWrapperPrefix: string): string;
+begin
+  if (AWrapperPrefix <> '') and
+     AEntry.StartsWith(AWrapperPrefix, True) then
+    Result := Copy(AEntry, Length(AWrapperPrefix) + 1, MaxInt)
+  else
+    Result := AEntry;
+end;
+
+// Scans zip entries and returns the common top-level directory prefix
+// (e.g. 'mxLore-v2.4.1-win64/') or '' if entries are already flat.
+// W10: iterate all entries and require EVERY entry to share the same
+// top-level folder. FileNames[0] is no longer trusted as the canonical
+// sample — the first entry could be a loose file or the entries could
+// be listed in any order.
+function DetectZipWrapperPrefix(const AZip: TZipFile): string;
+var
+  I, SlashPos: Integer;
+  Entry, Candidate: string;
+begin
+  Result := '';
+  if AZip.FileCount = 0 then Exit;
+  Candidate := '';
+  for I := 0 to AZip.FileCount - 1 do
+  begin
+    Entry := AZip.FileNames[I];
+    if Entry = '' then Continue;
+    SlashPos := Pos('/', Entry);
+    if SlashPos <= 1 then
+      // at least one flat entry -> zip has no uniform wrapper
+      Exit;
+    if Candidate = '' then
+      Candidate := Copy(Entry, 1, SlashPos) // includes trailing '/'
+    else if not Entry.StartsWith(Candidate, True) then
+      // two different top-level folders -> no uniform wrapper
+      Exit;
+  end;
+  Result := Candidate;
 end;
 
 var
@@ -228,19 +446,32 @@ begin
 end;
 
 procedure MxSelfUpdate_LoadConfig(const AIniPath: string);
+const
+  DEFAULT_REPO = 'MicrotronX/mxLore';
 var
   Ini: TIniFile;
+  RawRepo: string;
 begin
   Ini := TIniFile.Create(AIniPath);
   try
     gConfig.Enabled               := Ini.ReadBool   ('SelfUpdate', 'Enabled',               True);
-    gConfig.GithubRepo            := Ini.ReadString ('SelfUpdate', 'GithubRepo',            'MicrotronX/mxLore');
+    RawRepo                       := Ini.ReadString ('SelfUpdate', 'GithubRepo',            DEFAULT_REPO);
+    // W8: reject malformed owner/repo so ResolveAssetUrl cannot build a
+    // bogus api.github.com URL from INI typos. Regex matches GitHub's
+    // own slug rules (word chars, dot, hyphen on both sides).
+    if TRegEx.IsMatch(RawRepo, '^[\w.-]+/[\w.-]+$') then
+      gConfig.GithubRepo := RawRepo
+    else
+      gConfig.GithubRepo := DEFAULT_REPO;
     gConfig.CheckCacheMinutes     := Ini.ReadInteger('SelfUpdate', 'CheckCacheMinutes',     60);
     gConfig.OldFileRetentionHours := Ini.ReadInteger('SelfUpdate', 'OldFileRetentionHours', 24);
     gConfig.MaxFinishRetries      := Ini.ReadInteger('SelfUpdate', 'MaxFinishRetries',      3);
   finally
     Ini.Free;
   end;
+  // W6: surface any error the last child FinishUpdate recorded before it
+  // died, so the admin UI shows the failure on the next parent boot.
+  MxSelfUpdate_ConsumePersistedChildError;
 end;
 
 function MxSelfUpdate_Config: TMxSelfUpdateConfig;
@@ -259,11 +490,22 @@ var
   Digest, TagName: string;
   LatestBuild: Integer;
   Uri: TURI;
+  UsedCache: Boolean;
 begin
-  if (not AForce) and gHasCheckInfo and
-     (MinutesBetween(Now, gLastCheckTime) < gConfig.CheckCacheMinutes) then
+  UsedCache := False;
+  gLastCheckLock.Enter;
+  try
+    if (not AForce) and gHasCheckInfo and
+       (MinutesBetween(Now, gLastCheckTime) < gConfig.CheckCacheMinutes) then
+    begin
+      Result := gLastCheckInfo;
+      UsedCache := True;
+    end;
+  finally
+    gLastCheckLock.Leave;
+  end;
+  if UsedCache then
   begin
-    Result := gLastCheckInfo;
     ResetPostUpdateIfNeeded(Result);
     Exit;
   end;
@@ -309,12 +551,18 @@ begin
 
     if Response.StatusCode = 403 then
     begin
-      if gHasCheckInfo then
-      begin
-        Result := gLastCheckInfo;
-        Result.ErrorMessage := 'github rate-limit, returning cached';
-        Exit;
+      gLastCheckLock.Enter;
+      try
+        if gHasCheckInfo then
+        begin
+          Result := gLastCheckInfo;
+          Result.ErrorMessage := 'github rate-limit, returning cached';
+          UsedCache := True;
+        end;
+      finally
+        gLastCheckLock.Leave;
       end;
+      if UsedCache then Exit;
       Result.State := usError;
       Result.ErrorMessage := 'github rate-limit';
       Exit;
@@ -353,16 +601,31 @@ begin
       begin
         Result.State := CompareBuild(MXAI_BUILD, LatestBuild);
 
-        if Obj.TryGetValue<TJSONArray>('assets', AssetsArr) and
-           (AssetsArr.Count > 0) then
+        // W9: do not blindly pick assets[0] — scan for the first entry
+        // whose name ends in .zip AND reports size>0. Prevents picking a
+        // stray .sha256 / .sig / zero-byte placeholder that GitHub
+        // happens to list before the real release ZIP.
+        if Obj.TryGetValue<TJSONArray>('assets', AssetsArr) then
         begin
-          Asset := AssetsArr.Items[0] as TJSONObject;
-          Result.ZipUrl := Asset.GetValue<string>('browser_download_url', '');
-          Digest := Asset.GetValue<string>('digest', '');
-          if Digest.StartsWith('sha256:', True) then
-            Result.ZipSha256 := Digest.Substring(7)
-          else
-            Result.ZipSha256 := '';
+          var AssetIdx: Integer;
+          var AssetName: string;
+          var AssetSize: Int64;
+          for AssetIdx := 0 to AssetsArr.Count - 1 do
+          begin
+            Asset := AssetsArr.Items[AssetIdx] as TJSONObject;
+            AssetName := Asset.GetValue<string>('name', '');
+            AssetSize := Asset.GetValue<Int64>('size', 0);
+            if AssetName.ToLower.EndsWith('.zip') and (AssetSize > 0) then
+            begin
+              Result.ZipUrl := Asset.GetValue<string>('browser_download_url', '');
+              Digest := Asset.GetValue<string>('digest', '');
+              if Digest.StartsWith('sha256:', True) then
+                Result.ZipSha256 := Digest.Substring(7)
+              else
+                Result.ZipSha256 := '';
+              Break;
+            end;
+          end;
         end;
       end;
     finally
@@ -372,9 +635,14 @@ begin
     Http.Free;
   end;
 
-  gLastCheckInfo := Result;
-  gLastCheckTime := Now;
-  gHasCheckInfo  := True;
+  gLastCheckLock.Enter;
+  try
+    gLastCheckInfo := Result;
+    gLastCheckTime := Now;
+    gHasCheckInfo  := True;
+  finally
+    gLastCheckLock.Leave;
+  end;
 end;
 
 function ResolveCompanionSha256(const AInfo: TMxUpdateInfo): string;
@@ -456,7 +724,7 @@ begin
   if not DirectoryExists(StagingDir) then
     ForceDirectories(StagingDir);
 
-  FileName := ExtractFileName(AInfo.ZipUrl);
+  FileName := UrlFileName(AInfo.ZipUrl);
   LocalPath := TPath.Combine(StagingDir, FileName);
   AInfo.State := usDownloading;
 
@@ -572,51 +840,194 @@ begin
   end;
 end;
 
-procedure ExtractOnlyMxLoreMCPExe(const AZipPath, ADestDir: string);
-var
-  Zip: TZipFile;
-  I: Integer;
-  Bytes: TBytes;
-  OutPath: string;
+// Returns the basename of the currently running process executable —
+// either 'mxLoreMCP.exe' (console build) or 'mxLoreMCPGui.exe' (GUI build).
+// Self-Update must restart the SAME variant the user was running.
+function RunningExeBasename: string;
 begin
-  Zip := TZipFile.Create;
-  try
-    Zip.Open(AZipPath, zmRead);
-    for I := 0 to Zip.FileCount - 1 do
-    begin
-      if SameText(ExtractFileName(Zip.FileNames[I]), 'mxLoreMCP.exe') then
+  Result := ExtractFileName(ParamStr(0));
+end;
+
+// C7c: full rollback counterpart to RotateLiveFilesToOld. Previously
+// the extract/spawn failure paths only restored the running exe — the
+// libmariadb32.dll and the sibling exe variant stayed renamed, leaving
+// the install in a non-bootable half-state. This helper walks the same
+// file list RotateLiveFilesToOld uses and moves each `.old-<AOldBuild>`
+// back to its live name if the slot is free. Best-effort per file: a
+// failure on one file is logged but does not stop the others.
+procedure RollbackLiveFilesFromOld(AOldBuild: Integer);
+const
+  Candidates: array[0..2] of string = (
+    'mxLoreMCP.exe',
+    'mxLoreMCPGui.exe',
+    'libmariadb32.dll'
+  );
+var
+  ExeDir, Suffix, Dst, Src: string;
+  I: Integer;
+begin
+  ExeDir := ExtractFilePath(ParamStr(0));
+  Suffix := Format('.old-%d', [AOldBuild]);
+  for I := Low(Candidates) to High(Candidates) do
+  begin
+    Dst := TPath.Combine(ExeDir, Candidates[I]);
+    Src := Dst + Suffix;
+    if not TFile.Exists(Src) then Continue;
+    // Only restore if the live slot is currently empty — a partial
+    // extract may have already written a fresh binary we do not want
+    // to clobber with the stale one.
+    if TFile.Exists(Dst) then Continue;
+    try
+      if MoveFileWithRetry(Src, Dst) then
+        UpdateLog(Format('C7c rollback: restored %s', [Candidates[I]]))
+      else
+        UpdateLog(Format('C7c rollback: restore %s FAILED GetLastError=%d',
+          [Candidates[I], GetLastError]));
+    except
+      on E: Exception do
+        UpdateLog(Format('C7c rollback: restore %s raised %s: %s',
+          [Candidates[I], E.ClassName, E.Message]));
+    end;
+  end;
+end;
+
+// C6: Pick a free .old-<N> slot for the given base path. If the primary
+// slot (<base>.old-<N>) is already occupied from a previous update run,
+// fall back to <base>.old-<N>(2), (3), ... up to 99. Raises if exhausted.
+function ReserveOldSlot(const ABasePath: string; ANewBuild: Integer): string;
+var
+  Suffix: Integer;
+begin
+  Result := Format('%s.old-%d', [ABasePath, ANewBuild]);
+  Suffix := 2;
+  while TFile.Exists(Result) do
+  begin
+    Result := Format('%s.old-%d(%d)', [ABasePath, ANewBuild, Suffix]);
+    Inc(Suffix);
+    if Suffix > 99 then
+      raise EMxError.Create('RESERVE_OLD_SLOT_EXHAUSTED', ABasePath, 500);
+  end;
+end;
+
+// C6: Before FinishUpdate extracts the zip, move any existing mxLore binaries
+// out of the way so the fresh bytes can be written. Windows allows renaming
+// a running exe, but not overwriting it — hence the rename-before-extract.
+// Called from FinishUpdate in both normal (child) and recovery (boot-hook)
+// paths. Best-effort: a rename failure is logged but non-fatal; the extract
+// loop will surface the lock error if it still cannot write.
+procedure RenameLiveBinariesForExtraction(const AExeDir: string; ANewBuild: Integer);
+const
+  LiveBinaries: array[0..2] of string = (
+    'mxLoreMCP.exe',
+    'mxLoreMCPGui.exe',
+    'libmariadb32.dll'
+  );
+var
+  I: Integer;
+  Src, Reserved, Failures: string;
+begin
+  Failures := '';
+  for I := Low(LiveBinaries) to High(LiveBinaries) do
+  begin
+    Src := TPath.Combine(AExeDir, LiveBinaries[I]);
+    if not TFile.Exists(Src) then Continue;
+    try
+      Reserved := ReserveOldSlot(Src, ANewBuild);
+      if MoveFileWithRetry(Src, Reserved) then
+        UpdateLog(Format('C6: renamed %s -> %s', [LiveBinaries[I], ExtractFileName(Reserved)]))
+      else
       begin
-        Zip.Read(I, Bytes);
-        OutPath := TPath.Combine(ADestDir, 'mxLoreMCP.exe');
-        TFile.WriteAllBytes(OutPath, Bytes);
-        Exit;
+        UpdateLog(Format('C6: rename %s FAILED GetLastError=%d', [LiveBinaries[I], GetLastError]));
+        if Failures <> '' then Failures := Failures + ', ';
+        Failures := Failures + LiveBinaries[I];
+      end;
+    except
+      on E: Exception do
+      begin
+        UpdateLog(Format('C6: ReserveOldSlot/rename %s raised %s: %s', [LiveBinaries[I], E.ClassName, E.Message]));
+        if Failures <> '' then Failures := Failures + ', ';
+        Failures := Failures + LiveBinaries[I];
       end;
     end;
-    raise EMxError.Create('UPDATE_FAIL',
-      'mxLoreMCP.exe not found in release zip', 500);
-  finally
-    Zip.Free;
   end;
+  // C7h: raise BEFORE the extract loop if any live binary could not be
+  // vacated. Otherwise the follow-up TFile.WriteAllBytes surfaces as a
+  // raw EInOutError 'sharing violation' with no attribution to the
+  // rename step, and the admin UI sees a generic RTL exception instead
+  // of a clear "exe still locked" message. Early raise lets C7c
+  // rollback put everything back before the state diverges further.
+  if Failures <> '' then
+    raise EMxError.Create('UPDATE_FAIL',
+      'live binary still locked: ' + Failures, 500);
+end;
+
+// C7f: ExtractOnlyRunningExe removed — parent now inlines FinishUpdate
+// (ADR#2804 parent-does-everything). The former "prime the pump" step
+// that extracted a single exe out of the release zip so CreateProcess
+// could spawn it is gone: FinishUpdate already writes every binary
+// during rotate+extract, so no separate single-file extract is needed.
+
+// C2: detect whether this process runs under a user session (has a visible
+// desktop) vs Windows Service Session 0 (non-interactive). CREATE_NEW_CONSOLE
+// requires an interactive WindowStation; in Session 0 it fails and the child
+// is left without stdio. Fall back to DETACHED_PROCESS + CREATE_NO_WINDOW.
+// Imported directly (user32 function may not be exposed uniformly across
+// Winapi.Windows versions we compile against).
+function _MxGetUserObjectInformationW(hObj: THandle; nIndex: Integer;
+  pvInfo: Pointer; nLength: DWORD; lpnLengthNeeded: PDWORD): BOOL;
+  stdcall; external 'user32.dll' name 'GetUserObjectInformationW';
+function _MxGetProcessWindowStation: THandle;
+  stdcall; external 'user32.dll' name 'GetProcessWindowStation';
+
+function IsUserInteractive: Boolean;
+const
+  UOI_NAME = 2;
+var
+  WinSta: THandle;
+  Len: DWORD;
+  Name: array[0..255] of WideChar;
+begin
+  Result := False;
+  WinSta := _MxGetProcessWindowStation;
+  if WinSta = 0 then Exit;
+  Len := 0;
+  if not _MxGetUserObjectInformationW(WinSta, UOI_NAME, @Name, SizeOf(Name), @Len) then
+    Exit;
+  // Interactive user session window stations are named "WinSta0".
+  // Service Session 0 uses names like "Service-0x0-3e7$" etc.
+  Result := SameText(string(PWideChar(@Name[0])), 'WinSta0');
 end;
 
 procedure MxSelfUpdate_InstallAndRestart;
 var
   Info: TMxUpdateInfo;
-  ZipPath, ExeDir, CmdLine: string;
+  ZipPath, ExeDir, CmdLine, RunningExe: string;
   Marker: TMxUpdateMarker;
   SI: TStartupInfo;
   PI: TProcessInformation;
+  CreateFlags: DWORD;
 begin
+  UpdateLog('=== InstallAndRestart ENTER ===');
+  RunningExe := RunningExeBasename;
+  UpdateLog('RunningExe (from ParamStr(0)) = ' + RunningExe);
   if not gConfig.Enabled then
+  begin
+    UpdateLog('abort: self-update disabled');
     raise EMxError.Create('FORBIDDEN', 'self-update disabled in INI', 403);
+  end;
 
   Info := MxSelfUpdate_Check(False);
+  UpdateLog(Format('Check state=%s current=%d latest=%d zip=%s sha=%s',
+    [GetEnumName(TypeInfo(TMxUpdateState), Ord(Info.State)),
+     Info.CurrentBuild, Info.LatestBuild, Info.ZipUrl, Info.ZipSha256]));
   if Info.State <> usUpdateAvailable then
     raise EMxError.Create('UPDATE_FAIL',
       'no update available (state=' +
       GetEnumName(TypeInfo(TMxUpdateState), Ord(Info.State)) + ')', 409);
 
+  UpdateLog('Download START');
   ZipPath := MxSelfUpdate_DownloadZip(Info);
+  UpdateLog('Download OK -> ' + ZipPath);
 
   Marker.OldBuild    := MXAI_BUILD;
   Marker.NewBuild    := Info.LatestBuild;
@@ -625,61 +1036,120 @@ begin
   Marker.FinishStage := 'pending';
   Marker.RetryCount  := 0;
   WriteMarker(MarkerFilePath, Marker);
+  UpdateLog('Marker written: ' + MarkerFilePath);
 
   Info.State := usSwapping;
-  gLastCheckInfo := Info;
+  gLastCheckLock.Enter;
+  try
+    gLastCheckInfo := Info;
+    gHasCheckInfo  := True;
+  finally
+    gLastCheckLock.Leave;
+  end;
 
+  UpdateLog('Rotate START (old build=' + IntToStr(MXAI_BUILD) + ')');
   try
     RotateLiveFilesToOld(MXAI_BUILD);
+    UpdateLog('Rotate OK');
   except
     on E: EMxError do
     begin
-      Info.State := usError;
-      Info.ErrorMessage := E.Message;
-      gLastCheckInfo := Info;
+      UpdateLog('Rotate FAIL: ' + E.Code + ': ' + E.Message);
+      MxSelfUpdate_SetErrorState('ROTATE_FAIL: ' + E.Message);
       raise;
     end;
   end;
 
   ExeDir := ExtractFilePath(ParamStr(0));
+
+  // C7a/ADR#2804 parent-does-everything: extract ALL entries (exe + dll
+  // + html/js + sql) inline, then either spawn the restart (interactive
+  // builds) or exit and let AlwaysUp restart us (service branch). The
+  // previous design split "extract running exe" in the parent from
+  // "extract the rest" in a detached child; AlwaysUp killed that child
+  // as a duplicate, so the non-exe files never landed. Doing it all in
+  // the parent closes that race.
+  UpdateLog('FinishUpdate (inline) START');
   try
-    ExtractOnlyMxLoreMCPExe(ZipPath, ExeDir);
+    MxSelfUpdate_FinishUpdate(ZipPath);
+    UpdateLog('FinishUpdate (inline) OK');
   except
     on E: Exception do
     begin
-      MoveFileWithRetry(
-        TPath.Combine(ExeDir, Format('mxLoreMCP.exe.old-%d', [MXAI_BUILD])),
-        TPath.Combine(ExeDir, 'mxLoreMCP.exe'));
-      Info.State := usError;
-      Info.ErrorMessage := 'UPDATE_FAIL: extract: ' + E.Message;
-      gLastCheckInfo := Info;
+      UpdateLog('FinishUpdate (inline) FAIL: ' + E.ClassName + ': ' + E.Message);
+      // C7c full rollback: restore exe + sibling variant + libmariadb32
+      // from their .old-<MXAI_BUILD> slots. Previously only the running
+      // exe was restored, leaving the install non-bootable.
+      RollbackLiveFilesFromOld(MXAI_BUILD);
+      MxSelfUpdate_SetErrorState('UPDATE_FAIL: finish: ' + E.Message);
       raise EMxError.Create('UPDATE_FAIL', E.Message, 500);
     end;
   end;
 
+  // C7a: non-interactive (Service Session 0, AlwaysUp) skips CreateProcess
+  // entirely. AlwaysUp will observe our ExitProcess, wait its restart grace
+  // period, then relaunch the monitored exe — which now points to the newly
+  // extracted binary. No child spawn -> no AlwaysUp duplicate-kill race.
+  if not IsUserInteractive then
+  begin
+    UpdateLog('Non-interactive branch: skipping CreateProcess, parent exit -> AlwaysUp restart');
+    Sleep(1500);
+    UpdateLog('Pre-ExitProcess(0) — parent terminating NOW (non-interactive)');
+    ExitProcess(0);
+  end;
+
+  // Interactive branch (user-session GUI/console): spawn the same variant
+  // the user was running so the new build is live immediately without
+  // waiting for a manual restart. Child is passed --finish-update as a
+  // pure recovery/no-op flag; FinishUpdate already ran in the parent, so
+  // the child will see no marker and exit the branch cleanly.
   CmdLine := Format('"%s" --finish-update=%s',
-    [TPath.Combine(ExeDir, 'mxLoreMCP.exe'), ZipPath]);
+    [TPath.Combine(ExeDir, RunningExe), ZipPath]);
+  UpdateLog('CreateProcess cmd=' + CmdLine);
 
   FillChar(SI, SizeOf(SI), 0);
   SI.cb := SizeOf(SI);
+  // CREATE_NEW_CONSOLE (below) gives the child a valid stdin/stdout/stderr
+  // so FireDAC.ConsoleUI.Wait + Delphi RTL console init don't abort.
+  // STARTF_USESHOWWINDOW + SW_HIDE keep the console invisible.
+  SI.dwFlags := STARTF_USESHOWWINDOW;
+  SI.wShowWindow := SW_HIDE;
   FillChar(PI, SizeOf(PI), 0);
 
+  CreateFlags := CREATE_NEW_CONSOLE or CREATE_NEW_PROCESS_GROUP;
+  UpdateLog(Format('CreateFlags=0x%x interactive=True', [CreateFlags]));
   if not CreateProcess(nil, PChar(CmdLine), nil, nil, False,
-       CREATE_NEW_PROCESS_GROUP, nil, nil, SI, PI) then
+       CreateFlags, nil, nil, SI, PI) then
   begin
-    Info.State := usError;
-    Info.ErrorMessage := Format('SPAWN_FAIL: CreateProcess failed %d',
-      [GetLastError]);
-    gLastCheckInfo := Info;
+    UpdateLog('CreateProcess FAIL GetLastError=' + IntToStr(GetLastError));
+    MxSelfUpdate_SetErrorState(Format('SPAWN_FAIL: CreateProcess failed %d',
+      [GetLastError]));
+    // C7c: full rollback on spawn-fail. The extracted new binaries are
+    // already in place at this point, but the old ones are still present
+    // as .old-<MXAI_BUILD> and the rollback helper only restores slots
+    // that are empty. So in this rare path the rotated files usually
+    // stay in their .old-<N> form (extraction already wrote the live
+    // slots) — the helper is idempotent and safe to call regardless.
+    RollbackLiveFilesFromOld(MXAI_BUILD);
     raise EMxError.Create('SPAWN_FAIL',
       Format('CreateProcess failed: %d', [GetLastError]), 500);
   end;
+  UpdateLog('CreateProcess OK ChildPID=' + IntToStr(PI.dwProcessId));
   CloseHandle(PI.hThread);
   CloseHandle(PI.hProcess);
+  UpdateLog('Pre-ExitProcess sleep 1500');
 
-  if Assigned(gStopProc) then gStopProc();
-  Sleep(200);
-  Halt(0);
+  // Terminate parent via ExitProcess (Win32 kernel call).
+  // We deliberately DO NOT call gStopProc or Halt — both are unsafe from
+  // a background thread while Sparkle handlers/workers are still mid-
+  // flight. Prior attempts triggered EOSError Code 5 + ntdll AV from
+  // races between FAdminServer.Stop + Sparkle thread pool + logger.
+  // ExitProcess kills the process at kernel level: all handles released,
+  // no Delphi finalization, no thread unwinding. Child is DETACHED_PROCESS
+  // so it survives; ports 8080/8081 are freed immediately.
+  Sleep(1500);
+  UpdateLog('Pre-ExitProcess(0) — parent terminating NOW');
+  ExitProcess(0);
 end;
 {$ELSE}
 procedure MxSelfUpdate_InstallAndRestart;
@@ -706,7 +1176,11 @@ begin
 
   if DirectoryExists(StagingDir) then
   begin
-    Files := TDirectory.GetFiles(StagingDir, 'mxLore-build-*.zip');
+    // C7d: UrlFileName from the GitHub browser_download_url resolves to
+    // 'mxLore-v<sem>-win64.zip' (build-release.sh convention), not
+    // 'mxLore-build-<N>.zip'. Previous wildcard never matched -> staging
+    // dir grew unbounded. Cast wider to every mxLore-*.zip.
+    Files := TDirectory.GetFiles(StagingDir, 'mxLore-*.zip');
     for F in Files do
     begin
       Age := TFile.GetLastWriteTime(F);
@@ -719,63 +1193,107 @@ end;
 procedure MxSelfUpdate_FinishUpdate(const AZipPath: string);
 var
   Marker: TMxUpdateMarker;
-  MarkerPath, ExeDir, EntryName, TargetPath: string;
+  MarkerPath, ExeDir, EntryName, StrippedEntry, TargetPath, WrapperPrefix: string;
   Zip: TZipFile;
   I: Integer;
   Bytes: TBytes;
 begin
+  UpdateLog('=== FinishUpdate ENTER zip=' + AZipPath + ' ===');
   MarkerPath := MarkerFilePath;
   if not TFile.Exists(MarkerPath) then
   begin
+    UpdateLog('marker not found at ' + MarkerPath + ' — exit');
     WriteLn('[WARN] MxSelfUpdate_FinishUpdate called but marker not found');
     Exit;
   end;
 
   Marker := ReadMarker(MarkerPath);
+  UpdateLog(Format('Marker read: Old=%d New=%d RetryCount=%d Stage=%s',
+    [Marker.OldBuild, Marker.NewBuild, Marker.RetryCount, Marker.FinishStage]));
   Inc(Marker.RetryCount);
-  WriteMarker(MarkerPath, Marker);
+  // C7e: WriteMarker can raise if the marker file slot is locked
+  // (antivirus, concurrent scan). A raise here kills FinishUpdate with
+  // the RetryCount not persisted, so the next boot replays the same
+  // retry forever. Best-effort increment: log the failure and keep
+  // going so the retry cap still triggers.
+  try
+    WriteMarker(MarkerPath, Marker);
+  except
+    on E: Exception do
+      UpdateLog('C7e: WriteMarker (retry-count persist) failed: ' +
+        E.ClassName + ': ' + E.Message);
+  end;
+  UpdateLog('RetryCount incremented to ' + IntToStr(Marker.RetryCount));
 
   if Marker.RetryCount > gConfig.MaxFinishRetries then
   begin
+    UpdateLog('RetryCount exceeds MaxFinishRetries=' +
+      IntToStr(gConfig.MaxFinishRetries) + ' — HALT');
     WriteLn(ErrOutput, Format(
       '[CRITICAL] Update stuck after %d retries - manual recovery required',
       [gConfig.MaxFinishRetries]));
-    gLastCheckInfo.State := usError;
-    gLastCheckInfo.ErrorMessage := Format(
+    MxSelfUpdate_SetErrorState(Format(
       'Update stuck after %d retries - manual recovery required',
-      [gConfig.MaxFinishRetries]);
-    gHasCheckInfo := True;
+      [gConfig.MaxFinishRetries]));
+    // C7e: delete the marker on retry-exhaust so the next boot does not
+    // re-enter the recovery branch and spin. Best-effort — if deletion
+    // itself fails the user needs manual cleanup anyway.
+    try
+      TFile.Delete(MarkerPath);
+      UpdateLog('C7e: marker deleted after retry-exhaust');
+    except
+      on E: Exception do
+        UpdateLog('C7e: marker delete after retry-exhaust failed: ' +
+          E.ClassName + ': ' + E.Message);
+    end;
     Exit;
   end;
 
   if not TFile.Exists(AZipPath) then
   begin
+    UpdateLog('Zip missing at: ' + AZipPath);
     WriteLn(ErrOutput, 'finish-update: zip not found: ', AZipPath);
-    gLastCheckInfo.State := usError;
-    gLastCheckInfo.ErrorMessage := 'zip missing: ' + AZipPath;
-    gHasCheckInfo := True;
+    MxSelfUpdate_SetErrorState('zip missing: ' + AZipPath);
     Exit;
   end;
 
   ExeDir := ExtractFilePath(ParamStr(0));
+  UpdateLog('ExeDir=' + ExeDir);
+
+  // C6: Rename running binaries (mxLoreMCP*.exe + libmariadb32.dll) to
+  // .old-<NewBuild> before extracting, so file-locks cannot block the fresh
+  // writes. Handles pre-existing .old-<NewBuild> slots via incrementing
+  // (2), (3), ... suffix.
+  RenameLiveBinariesForExtraction(ExeDir, Marker.NewBuild);
+
   Marker.FinishStage := 'extracting';
   WriteMarker(MarkerPath, Marker);
+  UpdateLog('Marker stage=extracting persisted');
 
   Zip := TZipFile.Create;
   try
     Zip.Open(AZipPath, zmRead);
+    UpdateLog('Zip opened, FileCount=' + IntToStr(Zip.FileCount));
+    // build-release.sh wraps all entries under "mxLore-v*-win64/"; detect
+    // the common top-level prefix and strip it so extraction lands in
+    // ExeDir directly instead of ExeDir/mxLore-v*/.
+    WrapperPrefix := DetectZipWrapperPrefix(Zip);
+    UpdateLog('WrapperPrefix=' + WrapperPrefix);
     for I := 0 to Zip.FileCount - 1 do
     begin
       EntryName := Zip.FileNames[I];
-      if SameText(ExtractFileName(EntryName), 'mxLoreMCP.exe') then Continue;
-      if SameText(ExtractFileName(EntryName), 'mxLoreMCP.ini') then Continue;
+      StrippedEntry := StripZipWrapperDir(EntryName, WrapperPrefix);
+      if StrippedEntry = '' then Continue; // was the wrapper dir itself
 
-      if not IsPathWithin(ExeDir, EntryName) then
-        raise EMxError.Create('PATH_TRAVERSAL', EntryName, 400);
+      // Skip the user INI — never overwrite a user's settings during update.
+      if SameText(ZipEntryBaseName(StrippedEntry), 'mxLoreMCP.ini') then Continue;
 
-      TargetPath := TPath.GetFullPath(TPath.Combine(ExeDir, EntryName));
+      if not IsPathWithin(ExeDir, StrippedEntry) then
+        raise EMxError.Create('PATH_TRAVERSAL', StrippedEntry, 400);
 
-      if EntryName.EndsWith('/') or EntryName.EndsWith('\') then
+      TargetPath := TPath.GetFullPath(TPath.Combine(ExeDir, StrippedEntry));
+
+      if StrippedEntry.EndsWith('/') or StrippedEntry.EndsWith('\') then
       begin
         ForceDirectories(TargetPath);
         Continue;
@@ -792,13 +1310,20 @@ begin
   Marker.FinishStage := 'done';
   WriteMarker(MarkerPath, Marker);
   TFile.Delete(MarkerPath);
+  UpdateLog('Marker stage=done -> deleted marker file');
 
-  gLastCheckInfo.State        := usPostUpdateOk;
-  gLastCheckInfo.CurrentBuild := Marker.NewBuild;
-  gLastCheckInfo.LatestBuild  := Marker.NewBuild;
-  gHasCheckInfo := True;
+  gLastCheckLock.Enter;
+  try
+    gLastCheckInfo.State        := usPostUpdateOk;
+    gLastCheckInfo.CurrentBuild := Marker.NewBuild;
+    gLastCheckInfo.LatestBuild  := Marker.NewBuild;
+    gHasCheckInfo := True;
+  finally
+    gLastCheckLock.Leave;
+  end;
 
   MxSelfUpdate_CleanupOldFiles;
+  UpdateLog('=== FinishUpdate EXIT (success) ===');
 end;
 
 var
@@ -1016,5 +1541,11 @@ begin
   WriteLn(Format('=== %d tests, %d failed ===', [gTestCount, gTestFailed]));
   if gTestFailed > 0 then Result := 1 else Result := 0;
 end;
+
+initialization
+  gLastCheckLock := TCriticalSection.Create;
+
+finalization
+  FreeAndNil(gLastCheckLock);
 
 end.

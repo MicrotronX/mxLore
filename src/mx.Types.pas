@@ -106,7 +106,7 @@ function MxGetThreadAuth: TMxAuthResult;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 90;  // FR#2242 Self-Update v1: admin-UI-triggered auto-install from GitHub releases. New units mx.Logic.SelfUpdate + mx.Admin.Api.SelfUpdate, 3 REST endpoints (status/recheck/install), banner frontend (self-update.js + style.css), --self-test + --finish-update CLI branches, marker-file boot recovery. Spec#2291, Plan#2311. Covers AC1-AC20. 33 pure self-tests green.
+  MXAI_BUILD   = 89;  // Pinned at 89 for Plan#2790 loop-testing: local .89 can repeatedly pull hardened build-90 from GitHub to exercise Self-Update v1.1 (C1-C6 + W5-W11). Keep until loop tests are green; then bump to .91 for Build 91 release.
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';

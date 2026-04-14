@@ -33,6 +33,14 @@ docs/status.md
 docs/reference/
 docs/ops/
 docs/specs/
+docs/tmp-*.md
+
+# Self-Update runtime artifacts (FR#2242 / Plan#2790)
+update.log
+update.marker
+update.error
+update-staging/
+*.exe.old-*
 
 # Claude Code local state
 .claude/

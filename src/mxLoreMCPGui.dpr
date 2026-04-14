@@ -3,6 +3,7 @@ program mxLoreMCPGui;
 uses
   Winapi.Windows,
   System.SysUtils,
+  System.IOUtils,
   Vcl.Forms,
   // FireDAC drivers (must be in .dpr for static linking)
   FireDAC.Phys.MySQL,
@@ -32,6 +33,8 @@ uses
   mx.Tool.Session       in 'mx.Tool.Session.pas',
   mx.Logic.AccessControl in 'mx.Logic.AccessControl.pas',
   mx.Logic.Projects      in 'mx.Logic.Projects.pas',
+  mx.Logic.SelfUpdate    in 'mx.Logic.SelfUpdate.pas',
+  mx.Admin.Api.SelfUpdate in 'mx.Admin.Api.SelfUpdate.pas',
   mx.Admin.Auth         in 'mx.Admin.Auth.pas',
   mx.Admin.Server       in 'mx.Admin.Server.pas',
   mx.Admin.Api.Auth     in 'mx.Admin.Api.Auth.pas',
@@ -54,21 +57,107 @@ uses
 
 {$R *.res}
 
+const
+  // C4: 30s total budget with exponential backoff (300ms -> cap 2s). A
+  // finish-update child must wait out the parent's ExitProcess + AlwaysUp
+  // service teardown, which can exceed 4.5s on loaded servers. The 10x500ms
+  // loop we shipped in Build 90 exhausted too early and left the GUI
+  // running on the stale binary.
+  MUTEX_BUDGET_MS = 30000;
+  MUTEX_BACKOFF_START_MS = 300;
+  MUTEX_BACKOFF_CAP_MS = 2000;
 var
   Mutex: THandle;
+  FinishZip: string;
+  MutexElapsedMs: Cardinal;
+  MutexBackoffMs: Cardinal;
+  MutexStartTick: Cardinal;
 begin
-  // Single-Instance protection
-  Mutex := CreateMutex(nil, True, 'Global\mxLoreMCPGui');
-  if GetLastError = ERROR_ALREADY_EXISTS then
+  // --finish-update=<zip>: child spawned by MxSelfUpdate_InstallAndRestart.
+  // Runs the extraction BEFORE the mutex check (parent still holds it).
+  // After FinishUpdate the child falls through to the normal mutex retry
+  // loop; parent should be gone by then and the child acquires the mutex
+  // cleanly, then runs Application.Run like a normal GUI launch.
+  if FindCmdLineSwitch('finish-update', FinishZip, True, [clstValueNextParam]) then
   begin
-    // Find existing instance by window caption
+    UpdateLog('GUI dpr: --finish-update detected, zip=' + FinishZip);
+    try
+      // C5: dpr runs before mx.Server.Boot LoadConfig, so gConfig is still
+      // zero-init. MaxFinishRetries=0 would halt every retry. Load the INI
+      // now so FinishUpdate sees the real retry budget.
+      MxSelfUpdate_LoadConfig(ExtractFilePath(ParamStr(0)) + 'mxLoreMCP.ini');
+      MxSelfUpdate_FinishUpdate(FinishZip);
+      UpdateLog('GUI dpr: FinishUpdate returned normally');
+    except
+      on E: Exception do
+      begin
+        UpdateLog('GUI dpr: FinishUpdate raised ' + E.ClassName + ': ' + E.Message);
+        // W6: persist error so next parent boot surfaces usError.
+        MxSelfUpdate_WriteChildError(
+          'GUI FinishUpdate raised ' + E.ClassName + ': ' + E.Message);
+      end;
+    end;
+  end
+  else if TFile.Exists(MarkerFilePath) then
+  begin
+    UpdateLog('GUI dpr: marker found without --finish-update, running recovery');
+    try
+      // C5: see above. Recovery path hits the same pre-LoadConfig window.
+      MxSelfUpdate_LoadConfig(ExtractFilePath(ParamStr(0)) + 'mxLoreMCP.ini');
+      var RecoveryMarker := ReadMarker(MarkerFilePath);
+      MxSelfUpdate_FinishUpdate(RecoveryMarker.ZipPath);
+      UpdateLog('GUI dpr: recovery FinishUpdate returned normally');
+    except
+      on E: Exception do
+      begin
+        UpdateLog('GUI dpr: recovery FinishUpdate raised ' + E.ClassName + ': ' + E.Message);
+        // W6: persist error so next parent boot surfaces usError.
+        MxSelfUpdate_WriteChildError(
+          'GUI recovery FinishUpdate raised ' + E.ClassName + ': ' + E.Message);
+      end;
+    end;
+  end;
+
+  // C4: Single-Instance protection with 30s exp-backoff budget. A
+  // finish-update child may boot seconds after the parent issued
+  // ExitProcess — the parent + AlwaysUp service teardown can take
+  // several seconds, so a short retry window loses the race and leaves
+  // the GUI sitting on the stale binary.
+  Mutex := 0;
+  MutexBackoffMs := MUTEX_BACKOFF_START_MS;
+  MutexStartTick := GetTickCount;
+  while True do
+  begin
+    Mutex := CreateMutex(nil, True, 'Global\mxLoreMCPGui');
+    if GetLastError <> ERROR_ALREADY_EXISTS then Break;
+    CloseHandle(Mutex);
+    Mutex := 0;
+    MutexElapsedMs := GetTickCount - MutexStartTick;
+    if MutexElapsedMs >= MUTEX_BUDGET_MS then Break;
+    Sleep(MutexBackoffMs);
+    MutexBackoffMs := MutexBackoffMs + (MutexBackoffMs div 2); // *1.5
+    if MutexBackoffMs > MUTEX_BACKOFF_CAP_MS then
+      MutexBackoffMs := MUTEX_BACKOFF_CAP_MS;
+  end;
+  if (Mutex = 0) or (GetLastError = ERROR_ALREADY_EXISTS) then
+  begin
+    // C4: budget exhausted — drop the update.marker so the next boot
+    // does not re-enter recovery and spin on the same stale state.
+    UpdateLog('GUI dpr: mutex budget exhausted, removing update.marker');
+    try
+      if TFile.Exists(MarkerFilePath) then TFile.Delete(MarkerFilePath);
+    except
+      on E: Exception do
+        UpdateLog('GUI dpr: marker cleanup failed: ' + E.Message);
+    end;
+    // Another instance holds the mutex — surface that window instead.
     var Wnd := FindWindow(nil, 'mxLoreMCP Server');
     if Wnd <> 0 then
     begin
       ShowWindow(Wnd, SW_RESTORE);
       SetForegroundWindow(Wnd);
     end;
-    CloseHandle(Mutex);
+    if Mutex <> 0 then CloseHandle(Mutex);
     Exit;
   end;
   try

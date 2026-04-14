@@ -16,7 +16,7 @@ procedure HandleSelfUpdateInstall(const C: THttpServerContext;
 implementation
 
 uses
-  System.SysUtils, System.JSON, System.DateUtils,
+  System.SysUtils, System.Classes, System.JSON, System.DateUtils,
   System.Generics.Collections, System.SyncObjs,
   mx.Errors, mx.Admin.Server, mx.Logic.SelfUpdate;
 
@@ -41,6 +41,10 @@ begin
 end;
 
 function BuildStatusJson(const AInfo: TMxUpdateInfo): TJSONObject;
+var
+  ErrText: string;
+  ErrAt: TDateTime;
+  HasErr: Boolean;
 begin
   Result := TJSONObject.Create;
   Result.AddPair('ok',             TJSONBool.Create(True));
@@ -54,6 +58,18 @@ begin
   Result.AddPair('last_checked',
     FormatDateTime('yyyy-mm-dd"T"hh:nn:ss"Z"', AInfo.LastCheckedAt));
   Result.AddPair('error_message',  AInfo.ErrorMessage);
+  // C7b: surface the transient install-error channel so the UI can
+  // render banner/Settings text even when the cached state hasn't been
+  // flipped (e.g. pre-C7b builds). SetErrorState now also mutates the
+  // cached state, but keeping the separate fields is defensive.
+  MxSelfUpdate_GetLastError(ErrText, ErrAt, HasErr);
+  Result.AddPair('has_last_error', TJSONBool.Create(HasErr));
+  Result.AddPair('last_error_text', ErrText);
+  if HasErr then
+    Result.AddPair('last_error_at',
+      FormatDateTime('yyyy-mm-dd"T"hh:nn:ss"Z"', ErrAt))
+  else
+    Result.AddPair('last_error_at', '');
 end;
 
 function BuildDisabledJson: TJSONObject;
@@ -194,40 +210,77 @@ begin
     Exit;
   end;
 
+  if Assigned(ALogger) then
+    ALogger.Log(mlInfo, Format('SelfUpdate install triggered by dev#%d',
+      [ASession.DeveloperId]));
+
+  // Send 202 Accepted immediately so the client's fetch() resolves while
+  // the listener is still up. Install runs in a background thread so the
+  // Sparkle request handler can return cleanly and Sparkle can flush the
+  // response BEFORE gStopProc + Halt tear everything down. Running the
+  // full install-and-halt sequence inline inside the Sparkle handler
+  // caused a race (Admin server Stop while the handler thread was still
+  // holding references -> access violation).
+  Obj := TJSONObject.Create;
   try
-    if Assigned(ALogger) then
-      ALogger.Log(mlInfo, Format('SelfUpdate install triggered by dev#%d',
-        [ASession.DeveloperId]));
+    Obj.AddPair('ok', TJSONBool.Create(True));
+    Obj.AddPair('state', 'swapping');
+    Obj.AddPair('message', 'installing; server will restart');
+    MxSendJson(C, 202, Obj);
+  finally
+    Obj.Free;
+  end;
 
-    // Acknowledge request BEFORE spawning the replacement, so the client
-    // receives a response before the listener shuts down.
-    Obj := TJSONObject.Create;
-    try
-      Obj.AddPair('ok', TJSONBool.Create(True));
-      Obj.AddPair('state', 'swapping');
-      Obj.AddPair('message', 'installing; server will restart');
-      MxSendJson(C, 202, Obj);
-    finally
-      Obj.Free;
-    end;
-
-    // This halts the process after spawning the successor; handler never
-    // returns past this line on success.
-    MxSelfUpdate_InstallAndRestart;
+  // C7g: outer try/except wraps TThread.CreateAnonymousThread(...).Start
+  // so a thread-creation failure (rare: OS handle exhaustion, EOutOfMemory
+  // during the closure capture) cannot leak gInstallInFlight. Without this,
+  // a .Start raise would unwind out of the handler with the slot still
+  // claimed and every subsequent Install request would see 'busy' forever.
+  try
+    TThread.CreateAnonymousThread(
+      procedure
+      begin
+        // W5: widen try/except to cover the pre-InstallAndRestart setup
+        // (UpdateLog + Sleep). A raise there previously left
+        // gInstallInFlight stuck and never routed through SetErrorState,
+        // so the admin UI kept seeing 'busy' forever.
+        try
+          UpdateLog('Install background thread spawned, sleep(500) pre-flush');
+          // Let Sparkle's io flush the 202 to the client before we tear down.
+          Sleep(500);
+          UpdateLog('Install background thread entering InstallAndRestart');
+          MxSelfUpdate_InstallAndRestart;
+          // On success this never returns (ExitProcess at the end).
+        except
+          on E: EMxError do
+          begin
+            gInstallLock.Enter;
+            try
+              gInstallInFlight := False;
+            finally
+              gInstallLock.Leave;
+            end;
+            MxSelfUpdate_SetErrorState(E.Code + ': ' + E.Message);
+            if Assigned(ALogger) then
+              ALogger.Log(mlError,
+                'SelfUpdate install failed: ' + E.Code + ': ' + E.Message);
+          end;
+          on E: Exception do
+          begin
+            gInstallLock.Enter;
+            try
+              gInstallInFlight := False;
+            finally
+              gInstallLock.Leave;
+            end;
+            MxSelfUpdate_SetErrorState(E.ClassName + ': ' + E.Message);
+            if Assigned(ALogger) then
+              ALogger.Log(mlError,
+                'SelfUpdate install failed: ' + E.ClassName + ': ' + E.Message);
+          end;
+        end;
+      end).Start;
   except
-    on E: EMxError do
-    begin
-      gInstallLock.Enter;
-      try
-        gInstallInFlight := False;
-      finally
-        gInstallLock.Leave;
-      end;
-      if Assigned(ALogger) then
-        ALogger.Log(mlError,
-          'SelfUpdate install failed: ' + E.Code + ': ' + E.Message);
-      // Response already sent above; nothing more to write.
-    end;
     on E: Exception do
     begin
       gInstallLock.Enter;
@@ -236,9 +289,11 @@ begin
       finally
         gInstallLock.Leave;
       end;
+      MxSelfUpdate_SetErrorState(
+        'THREAD_START_FAIL: ' + E.ClassName + ': ' + E.Message);
       if Assigned(ALogger) then
         ALogger.Log(mlError,
-          'SelfUpdate install failed: ' + E.ClassName + ': ' + E.Message);
+          'SelfUpdate thread start failed: ' + E.ClassName + ': ' + E.Message);
     end;
   end;
 end;

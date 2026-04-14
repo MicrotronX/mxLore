@@ -84,23 +84,45 @@ begin
     var FinishZip: string;
     if FindCmdLineSwitch('finish-update', FinishZip, True, [clstValueNextParam]) then
     begin
+      UpdateLog('dpr: --finish-update flag detected, zip=' + FinishZip);
       try
+        // C5: dpr runs before mx.Server.Boot LoadConfig, so gConfig is still
+        // zero-init. MaxFinishRetries=0 would halt every retry. Load the INI
+        // now so FinishUpdate sees the real retry budget.
+        MxSelfUpdate_LoadConfig(ExtractFilePath(ParamStr(0)) + 'mxLoreMCP.ini');
         MxSelfUpdate_FinishUpdate(FinishZip);
+        UpdateLog('dpr: FinishUpdate returned normally');
       except
         on E: Exception do
+        begin
+          UpdateLog('dpr: FinishUpdate raised ' + E.ClassName + ': ' + E.Message);
           WriteLn(ErrOutput, 'finish-update failed: ', E.Message);
+          // W6: persist error so next parent boot surfaces usError.
+          MxSelfUpdate_WriteChildError(
+            'FinishUpdate raised ' + E.ClassName + ': ' + E.Message);
+        end;
       end;
     end
     else if TFile.Exists(MarkerFilePath) then
     begin
+      UpdateLog('dpr: marker found without --finish-update, running recovery');
       WriteLn(ErrOutput,
         '[WARN] Recovering from interrupted update (marker found)');
       try
+        // C5: see above. Recovery path hits the same pre-LoadConfig window.
+        MxSelfUpdate_LoadConfig(ExtractFilePath(ParamStr(0)) + 'mxLoreMCP.ini');
         var RecoveryMarker := ReadMarker(MarkerFilePath);
         MxSelfUpdate_FinishUpdate(RecoveryMarker.ZipPath);
+        UpdateLog('dpr: recovery FinishUpdate returned normally');
       except
         on E: Exception do
+        begin
+          UpdateLog('dpr: recovery FinishUpdate raised ' + E.ClassName + ': ' + E.Message);
           WriteLn(ErrOutput, 'marker-recovery finish failed: ', E.Message);
+          // W6: persist error so next parent boot surfaces usError.
+          MxSelfUpdate_WriteChildError(
+            'recovery FinishUpdate raised ' + E.ClassName + ': ' + E.Message);
+        end;
       end;
     end;
 
