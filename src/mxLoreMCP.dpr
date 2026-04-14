@@ -36,6 +36,7 @@ uses
   mx.Logic.AccessControl in 'mx.Logic.AccessControl.pas',
   mx.Logic.Projects      in 'mx.Logic.Projects.pas',
   mx.Logic.SelfUpdate    in 'mx.Logic.SelfUpdate.pas',
+  mx.Admin.Api.SelfUpdate in 'mx.Admin.Api.SelfUpdate.pas',
   mx.Admin.Auth         in 'mx.Admin.Auth.pas',
   mx.Admin.Server       in 'mx.Admin.Server.pas',
   mx.Admin.Api.Auth     in 'mx.Admin.Api.Auth.pas',

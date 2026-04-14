@@ -90,7 +90,8 @@ uses
   mx.Admin.Api.Auth, mx.Admin.Api.Developer,
   mx.Admin.Api.Keys, mx.Admin.Api.Projects,
   mx.Admin.Api.Global, mx.Admin.Api.Skills,
-  mx.Admin.Api.Settings, mx.Admin.Api.Invite;
+  mx.Admin.Api.Settings, mx.Admin.Api.Invite,
+  mx.Admin.Api.SelfUpdate;
 
 { Shared helpers }
 
@@ -791,6 +792,34 @@ begin
     begin
       mx.Admin.Api.Invite.HandleConfirmInvite(C, FPool, FInviteRateLimit,
         FSettingsCache, ASegments[1], FLogger);
+      Exit;
+    end;
+    MxSendError(C, 404, 'not_found');
+    Exit;
+  end;
+
+  // /self-update/*  (FR#2242, Plan#2311 Phase 4)
+  if SameText(ASegments[0], 'self-update') then
+  begin
+    // GET /self-update/status
+    if (Len = 2) and SameText(ASegments[1], 'status') and
+       (C.Request.MethodType = THttpMethod.Get) then
+    begin
+      mx.Admin.Api.SelfUpdate.HandleSelfUpdateStatus(C, ASession, FLogger);
+      Exit;
+    end;
+    // POST /self-update/recheck
+    if (Len = 2) and SameText(ASegments[1], 'recheck') and
+       (C.Request.MethodType = THttpMethod.Post) then
+    begin
+      mx.Admin.Api.SelfUpdate.HandleSelfUpdateRecheck(C, ASession, FLogger);
+      Exit;
+    end;
+    // POST /self-update/install
+    if (Len = 2) and SameText(ASegments[1], 'install') and
+       (C.Request.MethodType = THttpMethod.Post) then
+    begin
+      mx.Admin.Api.SelfUpdate.HandleSelfUpdateInstall(C, ASession, FLogger);
       Exit;
     end;
     MxSendError(C, 404, 'not_found');
