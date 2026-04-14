@@ -5,7 +5,7 @@ interface
 uses
   System.SysUtils, System.JSON, System.StrUtils,
   Data.DB,
-  FireDAC.Comp.Client,
+  FireDAC.Comp.Client, FireDAC.Stan.Error,
   mx.Types, mx.Errors;
 
 function HandleBatchCreate(const AParams: TJSONObject;
@@ -24,21 +24,24 @@ uses
 // ---------------------------------------------------------------------------
 function HandleBatchCreate(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
+const
+  cMaxSlugLength = 100;
 var
   Qry: TFDQuery;
   ItemsStr: string;
   ItemsArr: TJSONArray;
   ItemObj: TJSONObject;
   ItemVal: TJSONValue;
-  I, ProjectId, DocId: Integer;
+  I, ProjectId, DocId, Attempt: Integer;
   ProjectSlug, DocType, Title, Content, Summary1, Summary2,
-    CreatedBy, Slug, TagStr, Status: string;
+    CreatedBy, Slug, BaseSlug, SuffixStr, TagStr, Status: string;
   ResultArr: TJSONArray;
   ResultItem: TJSONObject;
   TagsVal: TJSONValue;
   TagsArr: TJSONArray;
   J: Integer;
   Data: TJSONObject;
+  Inserted: Boolean;
 begin
   ItemsStr := AParams.GetValue<string>('items', '');
   if ItemsStr = '' then
@@ -124,36 +127,71 @@ begin
           if not AContext.AccessControl.CheckProject(ProjectId, alWrite) then
             raise EMxAccessDenied.Create(ProjectSlug, alWrite);
 
-          // INSERT document
-          Qry := AContext.CreateQuery(
-            'INSERT INTO documents (project_id, doc_type, slug, title, content, ' +
-            '  summary_l1, summary_l2, status, created_by) ' +
-            'VALUES (:proj_id, :doc_type, :slug, :title, :content, ' +
-            '  :summary_l1, :summary_l2, :status, :created_by)');
-          try
-            Qry.ParamByName('proj_id').AsInteger := ProjectId;
-            Qry.ParamByName('doc_type').AsString := DocType;
-            Qry.ParamByName('slug').AsString := Slug;
-            Qry.ParamByName('title').AsString := Title;
-            Qry.ParamByName('content').DataType := ftWideMemo;
-            Qry.ParamByName('content').AsString := Content;
-            Qry.ParamByName('summary_l1').AsString := Summary1;
-            Qry.ParamByName('summary_l2').AsString := Summary2;
-            Qry.ParamByName('status').AsString := Status;
-            Qry.ParamByName('created_by').AsString := CreatedBy;
-            Qry.ExecSQL;
-          finally
-            Qry.Free;
+          // Bug#2262: retry-with-suffix on slug collision (same pattern as
+          // HandleCreateDoc). GenerateSlug already caps at cMaxSlugLength.
+          BaseSlug := Slug;
+          DocId := 0;
+          Inserted := False;
+          for Attempt := 0 to 9 do
+          begin
+            if Attempt = 0 then
+              Slug := BaseSlug
+            else
+            begin
+              SuffixStr := '-' + IntToStr(Attempt + 1);
+              if Length(BaseSlug) + Length(SuffixStr) > cMaxSlugLength then
+                Slug := Copy(BaseSlug, 1, cMaxSlugLength - Length(SuffixStr)) + SuffixStr
+              else
+                Slug := BaseSlug + SuffixStr;
+            end;
+
+            try
+              // INSERT document
+              Qry := AContext.CreateQuery(
+                'INSERT INTO documents (project_id, doc_type, slug, title, content, ' +
+                '  summary_l1, summary_l2, status, created_by) ' +
+                'VALUES (:proj_id, :doc_type, :slug, :title, :content, ' +
+                '  :summary_l1, :summary_l2, :status, :created_by)');
+              try
+                Qry.ParamByName('proj_id').AsInteger := ProjectId;
+                Qry.ParamByName('doc_type').AsString := DocType;
+                Qry.ParamByName('slug').AsString := Slug;
+                Qry.ParamByName('title').AsString := Title;
+                Qry.ParamByName('content').DataType := ftWideMemo;
+                Qry.ParamByName('content').AsString := Content;
+                Qry.ParamByName('summary_l1').AsString := Summary1;
+                Qry.ParamByName('summary_l2').AsString := Summary2;
+                Qry.ParamByName('status').AsString := Status;
+                Qry.ParamByName('created_by').AsString := CreatedBy;
+                Qry.ExecSQL;
+              finally
+                Qry.Free;
+              end;
+
+              // Get doc_id
+              Qry := AContext.CreateQuery('SELECT LAST_INSERT_ID() AS id');
+              try
+                Qry.Open;
+                DocId := Qry.FieldByName('id').AsInteger;
+              finally
+                Qry.Free;
+              end;
+
+              Inserted := True;
+              Break;
+            except
+              on E: EFDDBEngineException do
+                if (E.Kind = ekUKViolated) and (Attempt < 9) then
+                  Continue
+                else
+                  raise;
+            end;
           end;
 
-          // Get doc_id
-          Qry := AContext.CreateQuery('SELECT LAST_INSERT_ID() AS id');
-          try
-            Qry.Open;
-            DocId := Qry.FieldByName('id').AsInteger;
-          finally
-            Qry.Free;
-          end;
+          if not Inserted then
+            raise EMxValidation.CreateFmt(
+              'Item %d: slug collision, no free slug after 10 attempts (base="%s")',
+              [I, BaseSlug]);
 
           // INSERT initial revision
           Qry := AContext.CreateQuery(

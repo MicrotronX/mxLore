@@ -6,7 +6,7 @@ uses
   System.SysUtils, System.JSON, System.Variants, System.DateUtils,
   System.StrUtils,
   Data.DB,
-  FireDAC.Comp.Client,
+  FireDAC.Comp.Client, FireDAC.Stan.Error,
   mx.Types, mx.Errors, mx.Data.Pool, mx.Logic.AccessControl;
 
 function GenerateSlug(const ATitle: string): string;
@@ -27,6 +27,10 @@ implementation
 
 uses
   mx.Data.Graph;
+
+const
+  // documents.slug is VARCHAR(100) — see sql/setup.sql
+  cMaxSlugLength = 100;
 
 // ---------------------------------------------------------------------------
 // Helper: Generate slug from title
@@ -86,6 +90,14 @@ begin
     Result := Result.Substring(1);
   if Result.EndsWith('-') then
     Result := Result.Substring(0, Length(Result) - 1);
+  // Bug#2261: cap to DB column width so long titles no longer raise
+  // "Data too long for column 'slug'".
+  if Length(Result) > cMaxSlugLength then
+  begin
+    Result := Copy(Result, 1, cMaxSlugLength);
+    if Result.EndsWith('-') then
+      Result := Result.Substring(0, Length(Result) - 1);
+  end;
 end;
 
 // ---------------------------------------------------------------------------
@@ -410,11 +422,12 @@ var
   Qry: TFDQuery;
   ProjectSlug, DocType, Title, Content, Summary1, Summary2,
     CreatedBy, Status, LessonData: string;
-  Slug: string;
-  ProjectId, DocId, MaxAdrNum, I: Integer;
+  Slug, BaseSlug, SuffixStr: string;
+  ProjectId, DocId, MaxAdrNum, I, Attempt: Integer;
   Data: TJSONObject;
   TagsArr: TJSONArray;
   TagVal: TJSONValue;
+  Inserted: Boolean;
 begin
   ProjectSlug := AParams.GetValue<string>('project', '');
   DocType := AParams.GetValue<string>('doc_type', '');
@@ -493,50 +506,91 @@ begin
     finally
       Qry.Free;
     end;
-    // Prepend ADR number to slug if not already present
+    // Prepend ADR number to slug if not already present.
+    // Reserve 13 chars: 'adr-NNNN-' (9) + '-99' collision suffix (3) + safety (1).
     if Pos('adr-', LowerCase(Slug)) <> 1 then
+    begin
+      if Length(Slug) > (cMaxSlugLength - 13) then
+        Slug := Copy(Slug, 1, cMaxSlugLength - 13);
       Slug := Format('adr-%4.4d-%s', [MaxAdrNum, Slug]);
+    end;
   end;
+
+  // Bug#2262: retry-with-suffix on slug collision — callers no longer need to
+  // pre-check via mx_search, which is unreliable for date-based queries.
+  BaseSlug := Slug;
+  DocId := 0;
+  Inserted := False;
 
   AContext.StartTransaction;
   try
-    // INSERT document (with lesson_data for doc_type=lesson)
-    Qry := AContext.CreateQuery(
-      'INSERT INTO documents (project_id, doc_type, slug, title, content, ' +
-      '  summary_l1, summary_l2, status, created_by, lesson_data) ' +
-      'VALUES (:proj_id, :doc_type, :slug, :title, :content, ' +
-      '  :summary_l1, :summary_l2, :status, :created_by, :lesson_data)');
-    try
-      Qry.ParamByName('proj_id').AsInteger := ProjectId;
-      Qry.ParamByName('doc_type').AsString := DocType;
-      Qry.ParamByName('slug').AsString := Slug;
-      Qry.ParamByName('title').AsString := Title;
-      Qry.ParamByName('content').DataType := ftWideMemo;
-      Qry.ParamByName('content').AsString := Content;
-      Qry.ParamByName('summary_l1').AsString := Summary1;
-      Qry.ParamByName('summary_l2').AsString := Summary2;
-      Qry.ParamByName('status').AsString := Status;
-      Qry.ParamByName('created_by').AsString := CreatedBy;
-      if LessonData <> '' then
-        Qry.ParamByName('lesson_data').AsString := LessonData
+    for Attempt := 0 to 9 do
+    begin
+      if Attempt = 0 then
+        Slug := BaseSlug
       else
       begin
-        Qry.ParamByName('lesson_data').DataType := ftString;
-        Qry.ParamByName('lesson_data').Clear;
+        SuffixStr := '-' + IntToStr(Attempt + 1);
+        if Length(BaseSlug) + Length(SuffixStr) > cMaxSlugLength then
+          Slug := Copy(BaseSlug, 1, cMaxSlugLength - Length(SuffixStr)) + SuffixStr
+        else
+          Slug := BaseSlug + SuffixStr;
       end;
-      Qry.ExecSQL;
-    finally
-      Qry.Free;
+
+      try
+        // INSERT document (with lesson_data for doc_type=lesson)
+        Qry := AContext.CreateQuery(
+          'INSERT INTO documents (project_id, doc_type, slug, title, content, ' +
+          '  summary_l1, summary_l2, status, created_by, lesson_data) ' +
+          'VALUES (:proj_id, :doc_type, :slug, :title, :content, ' +
+          '  :summary_l1, :summary_l2, :status, :created_by, :lesson_data)');
+        try
+          Qry.ParamByName('proj_id').AsInteger := ProjectId;
+          Qry.ParamByName('doc_type').AsString := DocType;
+          Qry.ParamByName('slug').AsString := Slug;
+          Qry.ParamByName('title').AsString := Title;
+          Qry.ParamByName('content').DataType := ftWideMemo;
+          Qry.ParamByName('content').AsString := Content;
+          Qry.ParamByName('summary_l1').AsString := Summary1;
+          Qry.ParamByName('summary_l2').AsString := Summary2;
+          Qry.ParamByName('status').AsString := Status;
+          Qry.ParamByName('created_by').AsString := CreatedBy;
+          if LessonData <> '' then
+            Qry.ParamByName('lesson_data').AsString := LessonData
+          else
+          begin
+            Qry.ParamByName('lesson_data').DataType := ftString;
+            Qry.ParamByName('lesson_data').Clear;
+          end;
+          Qry.ExecSQL;
+        finally
+          Qry.Free;
+        end;
+
+        // Get doc_id
+        Qry := AContext.CreateQuery('SELECT LAST_INSERT_ID() AS id');
+        try
+          Qry.Open;
+          DocId := Qry.FieldByName('id').AsInteger;
+        finally
+          Qry.Free;
+        end;
+
+        Inserted := True;
+        Break;
+      except
+        on E: EFDDBEngineException do
+          if (E.Kind = ekUKViolated) and (Attempt < 9) then
+            Continue
+          else
+            raise;
+      end;
     end;
 
-    // Get doc_id
-    Qry := AContext.CreateQuery('SELECT LAST_INSERT_ID() AS id');
-    try
-      Qry.Open;
-      DocId := Qry.FieldByName('id').AsInteger;
-    finally
-      Qry.Free;
-    end;
+    if not Inserted then
+      raise EMxValidation.CreateFmt(
+        'Slug collision: could not find a free slug after 10 attempts (base="%s")',
+        [BaseSlug]);
 
     // INSERT initial revision
     Qry := AContext.CreateQuery(

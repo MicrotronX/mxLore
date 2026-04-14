@@ -106,7 +106,7 @@ function MxGetThreadAuth: TMxAuthResult;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 87;  // Bug#2228 Phase 2: retire Admin-UI project creation entirely. POST /api/projects route + HandleCreateProject + TMxProjectManager.CreateProject/SlugExists removed. Admin-UI shows info banner; mx_init_project is the single project-creation path (Plan#2233)
+  MXAI_BUILD   = 88;  // Bug#2228 Phase 3: slug handling hardening. Bug#2261 GenerateSlug auto-truncate to VARCHAR(100) + Bug#2262 HandleCreateDoc/HandleBatchCreate retry-loop with numeric suffix on UK-violation (pattern from mx.Tool.Notes.pas). ADR prefix reserves 13 chars.
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';
