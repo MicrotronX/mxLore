@@ -6,6 +6,7 @@ program mxLoreMCP;
 
 uses
   System.SysUtils,
+  System.IOUtils,
   // FireDAC drivers (must be in .dpr for static linking)
   FireDAC.Phys.MySQL,
   FireDAC.DApt,
@@ -76,8 +77,35 @@ begin
       Exit;
     end;
 
-    // Config path: same directory as exe, or first argument
-    if ParamCount > 0 then
+    // --finish-update=<zip>: complete extraction after RotateLiveFilesToOld
+    // (called by fresh spawn from MxSelfUpdate_InstallAndRestart, or auto-
+    // detected via marker-file on plain boot if a prior attempt crashed).
+    var FinishZip: string;
+    if FindCmdLineSwitch('finish-update', FinishZip, True, [clstValueNextParam]) then
+    begin
+      try
+        MxSelfUpdate_FinishUpdate(FinishZip);
+      except
+        on E: Exception do
+          WriteLn(ErrOutput, 'finish-update failed: ', E.Message);
+      end;
+    end
+    else if TFile.Exists(MarkerFilePath) then
+    begin
+      WriteLn(ErrOutput,
+        '[WARN] Recovering from interrupted update (marker found)');
+      try
+        var RecoveryMarker := ReadMarker(MarkerFilePath);
+        MxSelfUpdate_FinishUpdate(RecoveryMarker.ZipPath);
+      except
+        on E: Exception do
+          WriteLn(ErrOutput, 'marker-recovery finish failed: ', E.Message);
+      end;
+    end;
+
+    // Config path: same directory as exe, or first positional argument
+    // (skip if first arg is a switch like --finish-update=...)
+    if (ParamCount > 0) and (not ParamStr(1).StartsWith('--')) then
       ConfigPath := ParamStr(1)
     else
       ConfigPath := ExtractFilePath(ParamStr(0)) + 'mxLoreMCP.ini';

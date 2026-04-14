@@ -1055,6 +1055,15 @@ begin
   if Assigned(FAdminServer) then
     FAdminServer.Start;
 
+  // Self-Update: register stop callback so MxSelfUpdate_InstallAndRestart
+  // can gracefully stop Sparkle listeners before the exe is replaced (T11).
+  mx.Logic.SelfUpdate.MxSelfUpdate_RegisterStopProc(
+    procedure
+    begin
+      if Assigned(FAdminServer) then FAdminServer.Stop;
+      if Assigned(FMcpServer)   then FMcpServer.Stop;
+    end);
+
   FHost.OnStarted(FConfig.ServerPort, FConfig.AdminPort);
 end;
 
