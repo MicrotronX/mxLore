@@ -17,9 +17,9 @@ Self-hosted MCP server for AI-assisted software development. Stores architectura
 - **AI Batch** — automatic summaries, tagging, stale detection at boot time
 - **Works in claude.ai** — CTOs and PMs use mxLore from a chat window, developers from Claude Code — same server, same knowledge
 
-## Quick Start
+## Install the Server
 
-**Prerequisites:** Windows x64, MariaDB 10.6+, any MCP client.
+**Prerequisites:** Windows x64, MariaDB 10.6+.
 
 | Step | What | Details |
 |------|------|---------|
@@ -27,11 +27,28 @@ Self-hosted MCP server for AI-assisted software development. Stores architectura
 | **2** | Create database | `mysql -u root -p -e "CREATE DATABASE mxai_knowledge CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"` |
 | **3** | Configure | `copy mxLoreMCP.ini.example mxLoreMCP.ini` — set `Password=` to your MariaDB root password |
 | **4** | Start | `mxLoreMCP.exe` — auto-detects MariaDB, creates schema, starts on port 8080 + 8081 |
-| **5** | Verify | Open `http://localhost:8081` — Admin UI should appear |
-| **6** | Create member | First start has no login. Create a team member + API key |
-| **7** | Connect client | **[Team Onboarding Guide](docs/team-onboarding.md)** — Claude Code, claude.ai, Cursor, etc. |
 
-**Detailed instructions:** [Installation Guide](docs/installation.md) | **Problems?** [Troubleshooting](docs/troubleshooting.md)
+The console should show `Admin server listening on 127.0.0.1:8081`. **You're halfway there — don't stop.**
+
+## First Start — From Running Server to Connected AI
+
+> ⚠️ **The server is running, but your AI can't talk to it yet.** The API key you need lives inside the Admin UI. Here's how to pick it up and hand it to Claude Code.
+
+1. **Open the Admin UI** → browse to **<http://localhost:8081>**.
+   First start has no login (no team members exist yet, so the UI opens directly).
+2. **Create your first team member** — click **"New member"**, enter a name, save. An invite dialog appears right after.
+3. **Copy the API key** — format `mxk_...`. You'll paste this into Claude Code in the next step.
+4. **Connect Claude Code** — in any Claude Code session, run:
+   ```
+   /mxSetup mxk_your_api_key_here
+   ```
+   `mxSetup` downloads the 11 skills, installs the proxy, and writes your `.claude/settings.json`. Takes ~15 seconds.
+5. **Verify the handshake** — ask Claude: *"ping the mxLore server"*. You should see `version: 2.4.0` come back.
+
+**That's it.** Your AI now has persistent memory across sessions.
+
+**Other clients (claude.ai, Cursor, Windsurf, team invites):** [Team Onboarding Guide](docs/team-onboarding.md)
+**Full walkthrough:** [Installation Guide](docs/installation.md) | **Problems?** [Troubleshooting](docs/troubleshooting.md)
 
 ## Documentation
 
