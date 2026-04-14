@@ -34,6 +34,7 @@ uses
   mx.Tool.Session       in 'mx.Tool.Session.pas',
   mx.Logic.AccessControl in 'mx.Logic.AccessControl.pas',
   mx.Logic.Projects      in 'mx.Logic.Projects.pas',
+  mx.Logic.SelfUpdate    in 'mx.Logic.SelfUpdate.pas',
   mx.Admin.Auth         in 'mx.Admin.Auth.pas',
   mx.Admin.Server       in 'mx.Admin.Server.pas',
   mx.Admin.Api.Auth     in 'mx.Admin.Api.Auth.pas',
@@ -65,6 +66,13 @@ begin
     if (ParamCount >= 2) and SameText(ParamStr(1), '--encrypt') then
     begin
       WriteLn(mxEncryptStaticString(ParamStr(2)));
+      Exit;
+    end;
+
+    // --self-test: run mx.Logic.SelfUpdate pure-logic tests and halt
+    if (ParamCount >= 1) and SameText(ParamStr(1), '--self-test') then
+    begin
+      ExitCode := MxSelfUpdate_RunSelfTests;
       Exit;
     end;
 
