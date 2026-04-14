@@ -2705,3 +2705,51 @@ select.form-input {
     min-width: 24px;
   }
 }
+
+/* ===== Self-Update Banner (FR#2242) ===== */
+#mx-selfupdate-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  padding: 10px 20px;
+  font: 14px/1.4 system-ui, -apple-system, sans-serif;
+  color: #fff;
+  display: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+#mx-selfupdate-banner.visible {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+#mx-selfupdate-banner.state-available { background: #2563eb; }
+#mx-selfupdate-banner.state-updating  { background: #f59e0b; }
+#mx-selfupdate-banner.state-success   { background: #16a34a; }
+#mx-selfupdate-banner.state-error     { background: #dc2626; }
+#mx-selfupdate-banner .mx-su-text { flex: 1; }
+#mx-selfupdate-banner .mx-su-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: #fff;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+}
+#mx-selfupdate-banner .mx-su-btn:hover    { background: rgba(255, 255, 255, 0.3); }
+#mx-selfupdate-banner .mx-su-btn:disabled { opacity: 0.5; cursor: wait; }
+#mx-selfupdate-banner .mx-su-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: mx-su-spin 0.8s linear infinite;
+}
+@keyframes mx-su-spin {
+  to { transform: rotate(360deg); }
+}
+body.mx-su-banner-visible { padding-top: 50px; }

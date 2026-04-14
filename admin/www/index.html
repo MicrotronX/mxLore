@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <base href="./">
   <title>mxLore — Admin</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -1034,6 +1035,30 @@
 
     <div id="settings-alert" class="alert" style="margin-bottom:var(--gap-md)"></div>
 
+    <!-- Self-Update card (FR#2242) -->
+    <div class="card" style="padding: var(--gap-lg); max-width: 720px; margin-bottom: var(--gap-md)">
+      <h3 style="margin-bottom: var(--gap-md)">
+        <i data-lucide="download-cloud" class="icon-header"></i> Self-Update
+      </h3>
+      <p class="text-muted" style="margin-bottom: var(--gap-md); font-size: 0.9rem">
+        Check GitHub for a newer mxLore release. When an update is available,
+        a banner appears at the top of every admin page.
+      </p>
+      <div style="display: flex; gap: var(--gap-sm); align-items: center">
+        <button type="button" class="btn btn--primary"
+                onclick="if(window.mxSelfUpdate) window.mxSelfUpdate.recheck();">
+          <i data-lucide="refresh-cw" class="icon-xs"></i> Check for Update
+        </button>
+        <button type="button" class="btn"
+                onclick="if(window.mxSelfUpdate) window.mxSelfUpdate.hide();">
+          <i data-lucide="x" class="icon-xs"></i> Dismiss banner
+        </button>
+      </div>
+      <small class="form-hint" style="display:block; margin-top: var(--gap-sm)">
+        Triggers a fresh <code>POST /api/self-update/recheck</code> (60 s cooldown per session).
+      </small>
+    </div>
+
     <form id="settings-form" class="card" style="padding: var(--gap-lg); max-width: 720px">
       <h3 style="margin-bottom: var(--gap-md)">Connect URLs</h3>
       <p class="text-muted" style="margin-bottom: var(--gap-md); font-size: 0.9rem">
@@ -1492,5 +1517,6 @@
 <script src="js/icons.js"></script>
 <script src="js/api.js"></script>
 <script src="js/app.js"></script>
+<script src="js/self-update.js"></script>
 </body>
 </html>
