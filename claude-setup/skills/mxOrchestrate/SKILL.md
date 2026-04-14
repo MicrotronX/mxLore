@@ -83,11 +83,11 @@ Runs in pre-routing after session setup. ⚡ 0 extra MCP calls — uses mx_sessi
 }
 ```
 
-**Field `last_save_deltas` (Compact-Cycle):**
+**Field `last_save_deltas` (Compact-Cycle, Spec#2152):**
 - Pre-reset Snapshot des `state_deltas`-Werts direkt vor dem Reset in mxSave Step 4
 - Default `0` wenn Feld fehlt (alte State-Files sind abwaertskompatibel)
 - **Single Source of Truth:** Nur mxSave Step 4 schreibt dieses Feld
-- Konsumenten: mxSave Final-Block (2-Stufen-Threshold-Logik), PostCompact-Hook (Re-Brief-Last-Save-Zeile, currently **DORMANT** — see `~/.claude/hooks/dormant-pre-post-compact.md`)
+- Konsumenten: mxSave Final-Block (2-Stufen-Threshold-Logik), PostCompact-Hook (Re-Brief-Last-Save-Zeile)
 
 **Stack rules:**
 - workflow_stack[0] = active workflow
@@ -259,3 +259,4 @@ Hook reports `JUST_COMPLETED` (WF completed <5min ago) + substantive prompt
 - ⚡ Team agents: MCP access only, never local state file
 - UTF-8 without BOM. Prefer MCP, local=fallback
 - Workflow templates: `docs/workflows.md`(project, priority) then `~/.claude/skills/mxOrchestrate/workflows.md`(global)
+- ⚡ **Token Discipline (state-file):** orchestrate-state.json writes: Edit for incremental changes (1-5 fields), background subagent for full rewrites — keep token cost low in main context
