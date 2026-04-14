@@ -27,6 +27,17 @@ type
     ErrorMessage  : string;
   end;
 
+  TMxSelfUpdateConfig = record
+    Enabled              : Boolean;
+    GithubRepo           : string;
+    CheckCacheMinutes    : Integer;
+    OldFileRetentionHours: Integer;
+    MaxFinishRetries     : Integer;
+  end;
+
+procedure MxSelfUpdate_LoadConfig(const AIniPath: string);
+function  MxSelfUpdate_Config: TMxSelfUpdateConfig;
+
 function  MxSelfUpdate_Check(AForce: Boolean = False): TMxUpdateInfo;
 procedure MxSelfUpdate_InstallAndRestart;
 procedure MxSelfUpdate_FinishUpdate(const AZipPath: string);
@@ -35,6 +46,33 @@ procedure MxSelfUpdate_CleanupOldFiles;
 function  MxSelfUpdate_RunSelfTests: Integer;
 
 implementation
+
+uses
+  System.IniFiles;
+
+var
+  gConfig: TMxSelfUpdateConfig;
+
+procedure MxSelfUpdate_LoadConfig(const AIniPath: string);
+var
+  Ini: TIniFile;
+begin
+  Ini := TIniFile.Create(AIniPath);
+  try
+    gConfig.Enabled               := Ini.ReadBool   ('SelfUpdate', 'Enabled',               True);
+    gConfig.GithubRepo            := Ini.ReadString ('SelfUpdate', 'GithubRepo',            'MicrotronX/mxLore');
+    gConfig.CheckCacheMinutes     := Ini.ReadInteger('SelfUpdate', 'CheckCacheMinutes',     60);
+    gConfig.OldFileRetentionHours := Ini.ReadInteger('SelfUpdate', 'OldFileRetentionHours', 24);
+    gConfig.MaxFinishRetries      := Ini.ReadInteger('SelfUpdate', 'MaxFinishRetries',      3);
+  finally
+    Ini.Free;
+  end;
+end;
+
+function MxSelfUpdate_Config: TMxSelfUpdateConfig;
+begin
+  Result := gConfig;
+end;
 
 function MxSelfUpdate_Check(AForce: Boolean): TMxUpdateInfo;
 begin
