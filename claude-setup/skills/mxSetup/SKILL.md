@@ -1,18 +1,28 @@
 ---
 name: mxSetup
-description: "Developer onboarding: MCP connection, skills, proxy, config. Run on new PC or after updates."
+description: This skill should be used when a developer sets up mxLore on a new PC, runs a fresh Claude Code install, updates the global mx-rules block in ~/.claude/CLAUDE.md, refreshes skills/hooks from GitHub, or reinstalls the mxMCPProxy. Triggers "neuer PC", "fresh install", "onboard me", "/mxSetup", "update mx-rules", "mx-rules block veraltet", "reinstall proxy", "skills aktualisieren".
 user-invocable: true
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
-argument-hint: "<api-key> | --update"
+argument-hint: "<api-key> | --update | --update-rules | --update-proxy"
 ---
 
 # /mxSetup — Developer Onboarding (~30 seconds)
 
+> AI-Steno: !=forbidden →=use ⚡=critical ?=ask
 > ⚡ **!Python !jq !sed for file operations.** Only Write/Read/Edit tools + Bash for `claude mcp` and `curl`.
 > ⚡ **Bash: Single-line.** !Multi-line !Heredocs !Newlines in commands.
 
+## When to trigger this skill
+- `claude mcp list` returns empty or lacks `mxai-knowledge`
+- `mxMCPProxy.exe` missing or version mismatch vs server
+- mx-rules marker block in `~/.claude/CLAUDE.md` outdated or missing
+- New PC / fresh Claude Code install
+- User says "/mxSetup", "onboard me", or "neuer PC"
+- Skills folder out of date (upstream updates in `MicrotronX/mxLore-skills`)
+
 ## Prerequisites
-- **Node.js** — Required for 5 of 8 hooks (Orchestrate, Recall-Gate, Recall-Outcome). Without Node.js the session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/
+- **Required CLI tools:** `curl`, `unzip`, `claude` (Claude Code CLI). Git-Bash on Windows includes curl+unzip.
+- **Node.js** — Recommended. Required for 5 of 8 hooks (Orchestrate, Recall-Gate, Recall-Outcome). Without Node.js the session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/
 
 ## First Installation (with API key)
 
@@ -29,22 +39,11 @@ claude mcp add -s user --transport http mxai-knowledge "<SERVER-URL>" --header "
 
 ### Phase 2: Install Skills from GitHub (~5 seconds)
 
-⚡ **EXACT URL — DO NOT invent!**
-`https://github.com/MicrotronX/mxLore-skills/archive/main.zip`
-!mxai-org !mxai-tech !other repos. ONLY `MicrotronX/mxLore-skills`.
+⚡ **EXACT URL — DO NOT invent!** Source: `MicrotronX/mxLore-skills` (GitHub). !mxai-org !mxai-tech !other repos.
 
-**All platforms (curl + unzip, works in Bash/Git-Bash/Linux/macOS):**
+Downloads the zip, extracts skills into `~/.claude/skills/`, hooks into `~/.claude/hooks/`, reference into `~/.claude/reference/`, and stages `CLAUDE.md` as `/tmp/mxLore-skills-CLAUDE.md` for Phase 5c:
 ```bash
-curl -L -o /tmp/mxLore-skills.zip https://github.com/MicrotronX/mxLore-skills/archive/main.zip && unzip -o /tmp/mxLore-skills.zip -d /tmp/mxLore-skills
-```
-
-Then copy:
-```bash
-cp -r /tmp/mxLore-skills/mxLore-skills-main/mx* ~/.claude/skills/
-mkdir -p ~/.claude/hooks && cp -r /tmp/mxLore-skills/mxLore-skills-main/hooks/* ~/.claude/hooks/
-mkdir -p ~/.claude/reference && cp -r /tmp/mxLore-skills/mxLore-skills-main/reference/* ~/.claude/reference/
-cp /tmp/mxLore-skills/mxLore-skills-main/CLAUDE.md /tmp/mxLore-skills-CLAUDE.md 2>/dev/null
-rm -rf /tmp/mxLore-skills /tmp/mxLore-skills.zip
+bash ~/.claude/skills/mxSetup/scripts/install-skills.sh
 ```
 
 ⚡ !PowerShell !Invoke-WebRequest — always use curl+unzip in Bash (works everywhere).
@@ -54,12 +53,11 @@ rm -rf /tmp/mxLore-skills /tmp/mxLore-skills.zip
 1. **Resolve Download URL** from mx_ping response:
    - Use `proxy_download_url` — always set when `admin_port > 0` (external URL if configured, otherwise localhost)
    - If `admin_port` missing in mx_ping response: warning, skip proxy install.
-2. Download:
+2. Downloads the proxy EXE to `~/.claude/mxMCPProxy.exe` and verifies size (>100KB):
 ```bash
-curl -f -o ~/.claude/mxMCPProxy.exe "<RESOLVED-URL>"
+PROXY_URL="<RESOLVED-URL>" bash ~/.claude/skills/mxSetup/scripts/install-proxy.sh
 ```
-3. Check file size (>100KB). If smaller: warning, skip proxy.
-4. Create proxy INI (Write tool → `~/.claude/mxMCPProxy.ini`):
+3. Create proxy INI (Write tool → `~/.claude/mxMCPProxy.ini`):
 ```ini
 [Server]
 Url=<SERVER-URL>
@@ -103,15 +101,10 @@ node --version 2>/dev/null
 ```
 If `node` not found: show warning:
 > "Node.js not found. 5 of 8 hooks (Orchestrate, Recall-Gate, Recall-Outcome) will not work without Node.js. Session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/"
-→ Only install Bash hooks, skip JS hooks (PreCompact/PostCompact prompts are DORMANT — see Section 5b below).
+→ Only install Bash hooks, skip JS hooks (PreCompact/PostCompact prompts are DORMANT — see pointer below).
 
-| Event | Hooks (in order) | Requires |
-|-------|-----------------|----------|
-| `SessionStart` | `node ~/.claude/hooks/orchestrate-reconcile.js` (2000ms) + `node ~/.claude/hooks/orchestrate-status.js` (2000ms) | Node.js |
-| `UserPromptSubmit` | `bash ~/.claude/hooks/agent_inbox_check.sh` (2000ms) + `node ~/.claude/hooks/orchestrate-status.js` (2000ms) | Bash + Node.js |
-| `Stop` | `node ~/.claude/hooks/orchestrate-step-check.js` (3000ms) | Node.js |
-| `PreToolUse` (matcher: `Edit\|Write`) | `node ~/.claude/hooks/recall-gate.js` (2000ms) | Node.js |
-| `PostToolUse` (matcher: `Edit\|Write`) | `node ~/.claude/hooks/recall-outcome-hook.js` (2000ms) | Node.js |
+Hooks table (Event → hooks → Requires) — see `references/hooks-table.md` for details.
+⚡ Load-bearing: without Node.js, 5 of 8 hooks degrade (see references file).
 
 **5b-StatusLine** — Add `statusLine` block at top level of settings.json (NOT inside `hooks`):
 ```json
@@ -122,19 +115,9 @@ If `node` not found: show warning:
 ```
 Shows: `<slug> | <model> | <context%> | <$cost> | <tasks>`. Reads slug from `CLAUDE.md` (`**Slug:**` line, accepts both backticked and plain format). ⚡ Legacy path `~/.claude/statusline-command.sh` (pre-2026-04): delete it and ensure command points to `~/.claude/hooks/statusline-command.sh` — all hooks live under `~/.claude/hooks/` for consistency.
 
-**PreCompact / PostCompact prompts** — **DORMANT, do NOT install.**
+**PreCompact / PostCompact prompts** — **DORMANT, do NOT install.** See `references/dormant-precompact.md` for rationale and re-activation steps. Manual workaround: user calls `/mxSave` before `/compact` and `mx_briefing` after.
 
-Both `type: "prompt"` hooks for `PreCompact` and `PostCompact` are not executed by the current Claude Code version (Anthropic-side limitation). They would only sleep silently and reintroduce the marketing/reality mismatch. Therefore:
-
-- The `PreCompact`/`PostCompact` rows in the hooks table above are **not** installed in Step 5b.
-- The original prompts are archived in `~/.claude/hooks/dormant-pre-post-compact.md` as a copy-ready re-activation backup. Once Anthropic supports prompt-type hooks for Pre/PostCompact, paste the JSON blocks from there back into `~/.claude/settings.json`.
-- Manual workaround until then: user calls `/mxSave` **before** `/compact` and `mx_briefing` **after** `/compact` themselves. The `last_save_deltas` mechanism in mxSave Step 4 + `orchestrate-state.json` remains fully functional code-side; only the trigger is manual.
-
-**5c. CLAUDE.md** — Use `/tmp/mxLore-skills-CLAUDE.md` (saved in Phase 2):
-   - If `~/.claude/CLAUDE.md` does not exist: copy it
-   - If exists and has mx-rules marker: replace block between `<!-- mx-rules-start -->` and `<!-- mx-rules-end -->` with new one
-   - If exists without marker: append mx-rules block at the end
-   - Afterwards: `rm /tmp/mxLore-skills-CLAUDE.md`
+**5c. CLAUDE.md** — Use `/tmp/mxLore-skills-CLAUDE.md` (saved in Phase 2). Three-branch merge logic (no file / marker present / marker absent) — see `references/claude-md-merge.md` for details. Afterwards: `rm /tmp/mxLore-skills-CLAUDE.md`.
 
 **5d. Agent Inbox:** `mkdir -p ~/.claude/agent_inbox`
 
@@ -157,12 +140,20 @@ Next steps:
 3. Run /mxInitProject
 ```
 
-## Update Mode (--update)
+## Update Modes
 
-1. Run Phase 2 (skills from GitHub)
-2. Run Phase 5 (update config)
-3. Proxy update: call `mx_ping()`, resolve URL as Phase 3 step 1 → download new EXE → rename old → move new → delete old
-4. Show summary
+### `--update` (full refresh)
+Runs Phase 2 (skills + hooks + reference from GitHub), Phase 5 (config + `~/.claude/CLAUDE.md` mx-rules marker block), and proxy version-check (same flow as Phase 3, download only if version differs). Use after upstream `mxLore-skills` changes or when several things are out of date.
+
+Optional: `CLEAN=1 ~/.claude/skills/mxSetup/scripts/install-skills.sh` removes stale `mx*/` dirs before re-copy. Use only if you have NO local unsynced edits in your `mx*`-skills.
+
+### `--update-rules` (mx-rules marker only — fast path)
+- `--update-rules` — Re-runs Phase 2 (which downloads the full skills bundle) and Phase 5c (CLAUDE.md mx-rules marker merge). Skills + hooks get refreshed as collateral; if you want only the marker block updated without skill refresh, edit `~/.claude/CLAUDE.md` manually between the markers.
+
+### `--update-proxy` (proxy EXE swap only)
+Only re-runs Phase 3: `mx_ping()` → resolve URL → `install-proxy.sh` → replace `~/.claude/mxMCPProxy.exe`. INI left untouched. Use when the server build moved ahead of the local proxy.
+
+⚡ Stop the running proxy first (`taskkill /IM mxMCPProxy.exe /F` on Windows) — staging+mv mitigates file lock but a clean swap is more reliable.
 
 ## Rules
 
