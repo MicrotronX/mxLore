@@ -1,7 +1,7 @@
 ---
 name: mxOrchestrate
 description: Persistent session orchestrator for mxLore. This skill should be used when the user says "park", "resume", "what's my workflow status", "/mxOrchestrate start/track/park/resume/status/suggest", "start a new feature/bugfix workflow", "track this as ad-hoc", "spawn a team agent", or when a session begins and workflow state must be loaded. Always-on via SessionStart/UserPromptSubmit hooks. Manages workflow stack (LIFO), ad-hoc tasks, team agents, and skill chains.
-allowed-tools: Read, Write, Edit, Grep, Glob, Skill, Agent
+allowed-tools: Read, Write, Edit, Grep, Glob, Skill
 ---
 
 # /mxOrchestrate — Persistent Session Orchestrator (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
@@ -18,7 +18,7 @@ Skills **auto-execute fully**. Only ask user for **optional steps**.
 This skill fires on:
 - `/mxOrchestrate start <type>`, `/mxOrchestrate track <note>`, `/mxOrchestrate park`, `/mxOrchestrate resume [id]`, `/mxOrchestrate status`, `/mxOrchestrate suggest`
 - Natural language: "park this", "resume my workflow", "what's my workflow status", "start a new feature/bugfix", "track this as ad-hoc", "spawn a team agent for X"
-- Automatic: SessionStart, UserPromptSubmit (every prompt, 3-line context), [DORMANT] PreCompact/PostCompact
+- Automatic: SessionStart, UserPromptSubmit (every prompt, 3-line context), [DORMANT] PreCompact/PostCompact (see `references/hooks.md` for reactivation path)
 
 ## Architecture
 ```
@@ -30,7 +30,7 @@ MCP = Source of Truth | .claude/orchestrate-state.json = Cache
 Full hook documentation + dormant PreCompact/PostCompact note → `references/hooks.md`.
 
 ## Init (Pre-Routing, EVERY call)
-1. CLAUDE.md→`**Slug:**`=project-param. ∅slug→?user
+1. CLAUDE.md parse: if file missing OR no `**Slug:**` line is present → ?user. If `**Slug:**` line is present → use that value as project slug.
 2. Load state: `.claude/orchestrate-state.json`→parse. ∅file or corrupt→mode `init`
 3. **Ensure session:**
    - **Staleness check (ADR-0016):** compute `age = now() - max(state.last_save, state.last_reconciliation)`. Both fields missing → treat as stale. Threshold: **12h**.
@@ -62,7 +62,7 @@ Runs in pre-routing after session setup. 0 extra MCP calls — uses `mx_session_
 
 | Mode | MCP calls | State writes |
 |------|-----------|--------------|
-| init | 1 mx_session_start, 1 mx_ping (or skip if cached <12h) | 1 Write (full state) |
+| init | 1 mx_session_start, 1 mx_ping (or skip if cached <12h) | 1 Write (bootstrap only — empty/corrupt state → new file; not a mode-level violation of the rule below) |
 | start | 1 mx_create_doc | 1 Edit (append WF to stack) |
 | track | 1 mx_create_doc | 1 Edit (append to adhoc_tasks) |
 | park | 0 | 1 Edit (status flip + reorder) |
@@ -125,7 +125,7 @@ Schema v2, stack rules, and internal operations → `references/state-schema.md`
 2. **With ID:** Find WF by ID in stack→move to [0], shift rest down
 3. WF.status = 'active'
 4. Log event (type='resume')
-5. **⚡ Reconciliation (Session-Boundary Sync):** `mx_detail` + compare local vs MCP, push/pull whichever is ahead, handle archived/diverged, clamp, set `state.last_reconciliation = now()`. Full decision tree → `references/reconciliation.md`.
+5. **⚡ Reconciliation (Session-Boundary Sync):** `mx_detail` + compare local vs MCP, push/pull whichever is ahead, handle archived; **diverged → STOP + ask user which version to keep (NEVER silently overwrite)**; clamp; set `state.last_reconciliation = now()`. Full decision tree → `references/reconciliation.md`.
 6. Identify next pending step from reconciled state
 7. Output: `WF "<Name>" resumed. Progress: <X>/<Y>. Next step: <Description>.`
 8. Auto-invoke next step
@@ -161,6 +161,9 @@ Full overview:
 4. ∅stack→open-items list + chat heuristic: ADR→/mxPlan | Plan→Impl | Code→/mxDesignChecker | long session→/mxSave
 
 ## Team Agents (Ad-hoc Escalation: spawn)
+
+⚡ **TeamCreate is a deferred tool** — not in this skill's `allowed-tools` frontmatter. Before the first spawn, load its schema via `ToolSearch` with query `select:TeamCreate`, then invoke.
+
 1. Claude recognizes: ad-hoc task is independent + parallelizable
 2. **TeamCreate** call with context:
    - Project slug + MCP access
@@ -199,6 +202,8 @@ All steps done/skipped:
 
 ## Auto-Tracking (Spec#1615)
 Hook injects signal on every prompt. Claude reacts based on context.
+
+⚡ **Precedence when multiple signals fire in the same prompt:** Rule 3 (JUST_COMPLETED) wins over Rule 1 (NO_WORKFLOW). A workflow that completed <5min ago should continue its follow-up work under a new ad-hoc WF created by Rule 3, NOT get double-tracked via both rules. Rule 2 (topic deviation) applies only when a WF is already active and is mutually exclusive with Rules 1+3.
 
 **Rule 1 — NO_WORKFLOW + substantive work:**
 Hook reports `NO_WORKFLOW` + user prompt describes implementation/fix/feature/refactoring

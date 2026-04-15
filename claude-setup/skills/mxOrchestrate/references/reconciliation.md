@@ -11,7 +11,7 @@ Called from mxOrchestrate Mode 5 when resuming a workflow. Compares local `curre
 Call `mx_detail(doc_id)` → parse response:
 
 - **Error / NotFound:** remove WF from local stack + warn user "WF deleted in MCP" → skip.
-- **`status='archived'`:** remove WF from local stack + warn user "WF already archived" → skip.
+- **`status='archived'`:** ⚡ before removing, check for unsynced local work. If `wf.unsynced == true` AND `wf.current_step > 0`, the local stack holds steps marked done that were never pushed to MCP before the archive happened. Do NOT silently discard — WARN user: "WF archived in MCP but local has N unsynced steps. Options: (1) resurrect as new WF from the lost work, (2) discard local and accept MCP archive, (3) inspect both." Wait for user choice before removing from stack. If `wf.unsynced == false` OR `wf.current_step == 0`, remove from local stack + warn "WF already archived" → skip.
 - **OK:** parse step table → `mcp_step` = count of done steps, `mcp_total` = count of total rows.
 
 ## Sanity

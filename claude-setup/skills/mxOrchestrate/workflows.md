@@ -1,116 +1,116 @@
-# Workflow-Templates
+# Workflow Templates
 
-Deklarative Workflow-Definitionen fuer `/mxOrchestrate`.
-Projekte koennen diese Templates in `docs/workflows.md` ueberschreiben oder ergaenzen (Projekt-spezifisch hat Vorrang).
+Declarative workflow definitions for `/mxOrchestrate`.
+Projects can override or extend these templates in `docs/workflows.md` (project-specific takes precedence over global).
 
 ---
 
-## Template: neues-feature
+## Template: new-feature
 
-**Trigger-Woerter:** feature, neues feature, neue funktion, implementieren, neuer bereich
-**Beschreibung:** Kompletter Workflow fuer ein neues Feature: Von der Idee bis zur Implementierung.
+**Trigger words:** feature, new feature, new functionality, implement, new area
+**Description:** Full workflow for a new feature — from idea to implementation.
 
-| # | Schritt | Skill | Optional | Bedingung |
-|---|---------|-------|----------|-----------|
-| 1 | Anforderungen klaeren | superpowers:brainstorming | nein | - |
-| 2 | Spezifikation schreiben | /mxSpec (mit PRD-Phase) | ja | Wenn Feature komplex genug fuer eine eigene Spec |
-| 2a | Spec-Review | /mxDesignChecker | wenn-spec | Nur wenn Schritt 2 ausgefuehrt, laedt spec-review.md |
-| 2b | Spec korrigieren + Re-Review | /mxSpec + /mxDesignChecker | wenn-findings | Max 2 Iterationen bei CRITICAL/WARNING |
-| 3 | Design pruefen | /mxDesignChecker | nein | Design-Dokument aus Schritt 1 pruefen |
-| 4 | Entscheidung dokumentieren | /mxDecision | ja | Wenn Architektur-Entscheidung im Brainstorming gefallen |
-| 5 | Plan erstellen | /mxPlan | nein | - |
-| 6 | Implementieren | superpowers:executing-plans ODER superpowers:subagent-driven-development | nein | - |
-| 7 | Code pruefen | /mxDesignChecker | nein | Geaenderte Dateien gegen Design pruefen |
-| 8 | Bug-Check | /mxBugChecker | ja | Bei kritischem oder komplexem Code |
-| 9 | Zustand sichern | /mxSave | nein | - |
+| # | Step | Skill | Optional | Condition |
+|---|------|-------|----------|-----------|
+| 1 | Clarify requirements | superpowers:brainstorming | no | - |
+| 2 | Write specification | /mxSpec (with PRD phase) | yes | If feature is complex enough to need its own spec |
+| 2a | Spec review | /mxDesignChecker | if-spec | Only if step 2 ran; loads spec-review.md rules |
+| 2b | Fix spec + re-review | /mxSpec + /mxDesignChecker | if-findings | Max 2 iterations for CRITICAL/WARNING |
+| 3 | Review design | /mxDesignChecker | no | Review the design document from step 1 |
+| 4 | Document decision | /mxDecision | yes | If an architectural decision emerged during brainstorming |
+| 5 | Create plan | /mxPlan | no | - |
+| 6 | Implement | superpowers:executing-plans OR superpowers:subagent-driven-development | no | - |
+| 7 | Review code | /mxDesignChecker | no | Check modified files against design |
+| 8 | Bug check | /mxBugChecker | yes | For critical or complex code |
+| 9 | Save state | /mxSave | no | - |
 
 ---
 
 ## Template: bugfix
 
-**Trigger-Woerter:** bug, fix, fehler, problem, kaputt, crash, exception
-**Beschreibung:** Strukturierter Bugfix-Workflow mit Analyse und Verifikation.
+**Trigger words:** bug, fix, error, problem, broken, crash, exception
+**Description:** Structured bugfix workflow with analysis and verification.
 
-| # | Schritt | Skill | Optional | Bedingung |
-|---|---------|-------|----------|-----------|
-| 1 | Bug analysieren | /mxBugChecker ODER superpowers:systematic-debugging | nein | - |
-| 2 | Fix planen | /mxPlan | ja | Wenn Fix mehrere Dateien oder nicht-triviale Aenderungen betrifft |
-| 3 | Fix implementieren | manuell | nein | - |
-| 4 | Code pruefen | /mxDesignChecker | nein | Geaenderte Dateien pruefen |
-| 5 | Entscheidung dokumentieren | /mxDecision | ja | Wenn Architektur-Aenderung noetig war |
-| 6 | Zustand sichern | /mxSave | nein | - |
-
----
-
-## Template: entscheidung
-
-**Trigger-Woerter:** entscheidung, architektur, adr, design-entscheidung, abwaegung
-**Beschreibung:** Strukturierte Architektur-Entscheidung mit Analyse und Dokumentation.
-
-| # | Schritt | Skill | Optional | Bedingung |
-|---|---------|-------|----------|-----------|
-| 1 | Optionen diskutieren | superpowers:brainstorming | nein | - |
-| 2 | Entscheidung dokumentieren | /mxDecision | nein | - |
-| 3 | Betroffene Specs aktualisieren | /mxSpec | ja | Wenn bestehende Specs von der Entscheidung betroffen sind |
-| 4 | Betroffene Plaene aktualisieren | /mxPlan | ja | Wenn bestehende Plaene angepasst werden muessen |
-| 5 | Zustand sichern | /mxSave | nein | - |
+| # | Step | Skill | Optional | Condition |
+|---|------|-------|----------|-----------|
+| 1 | Analyze bug | /mxBugChecker OR superpowers:systematic-debugging | no | - |
+| 2 | Plan fix | /mxPlan | yes | If the fix touches multiple files or non-trivial changes |
+| 3 | Implement fix | manual | no | - |
+| 4 | Review code | /mxDesignChecker | no | Check modified files |
+| 5 | Document decision | /mxDecision | yes | If an architectural change was required |
+| 6 | Save state | /mxSave | no | - |
 
 ---
 
-## Template: spezifikation
+## Template: decision
 
-**Trigger-Woerter:** spec, spezifikation, anforderungen, requirements
-**Beschreibung:** Feature-Spezifikation erstellen mit Review-Iteration und anschliessender Planung.
+**Trigger words:** decision, architecture, adr, design decision, trade-off
+**Description:** Structured architectural decision with analysis and documentation.
 
-| # | Schritt | Skill | Optional | Bedingung |
-|---|---------|-------|----------|-----------|
-| 1 | Anforderungen klaeren | superpowers:brainstorming | nein | - |
-| 2 | Spezifikation schreiben | /mxSpec (mit PRD-Phase) | nein | - |
-| 3 | Spec-Review | /mxDesignChecker | nein | Spec-Datei als Argument, laedt spec-review.md Regeln |
-| 3a | Spec korrigieren | /mxSpec (update) | wenn-findings | Nur wenn Review CRITICAL/WARNING Findings hat |
-| 3b | Re-Review | /mxDesignChecker | wenn-korrektur | Max 2 Iterationen, dann weiter (mit offenen Findings als Open Questions) |
-| 4 | Entscheidung dokumentieren | /mxDecision | ja | Wenn Architektur-Entscheidung gefallen |
-| 5 | Plan erstellen | /mxPlan | ja | Wenn direkt in die Planung uebergegangen werden soll |
-| 6 | Zustand sichern | /mxSave | nein | - |
+| # | Step | Skill | Optional | Condition |
+|---|------|-------|----------|-----------|
+| 1 | Discuss options | superpowers:brainstorming | no | - |
+| 2 | Document decision | /mxDecision | no | - |
+| 3 | Update affected specs | /mxSpec | yes | If existing specs are impacted by the decision |
+| 4 | Update affected plans | /mxPlan | yes | If existing plans need to be adjusted |
+| 5 | Save state | /mxSave | no | - |
+
+---
+
+## Template: specification
+
+**Trigger words:** spec, specification, requirements
+**Description:** Create a feature specification with review iteration followed by planning.
+
+| # | Step | Skill | Optional | Condition |
+|---|------|-------|----------|-----------|
+| 1 | Clarify requirements | superpowers:brainstorming | no | - |
+| 2 | Write specification | /mxSpec (with PRD phase) | no | - |
+| 3 | Spec review | /mxDesignChecker | no | Spec file as argument; loads spec-review.md rules |
+| 3a | Fix spec | /mxSpec (update) | if-findings | Only if review produced CRITICAL/WARNING findings |
+| 3b | Re-review | /mxDesignChecker | if-fix | Max 2 iterations, then continue (open findings become open questions) |
+| 4 | Document decision | /mxDecision | yes | If an architectural decision emerged |
+| 5 | Create plan | /mxPlan | yes | If moving directly into planning |
+| 6 | Save state | /mxSave | no | - |
 
 ---
 
 ## Template: ad-hoc
 
-**Trigger-Woerter:** (kein manueller Trigger — wird automatisch durch Auto-Tracking erstellt)
-**Beschreibung:** Leichtgewichtiger Tracking-WF fuer Ad-hoc-Arbeit ohne expliziten Workflow-Start. Auto-Cleanup bei 0 Artefakten.
+**Trigger words:** (no manual trigger — automatically created by auto-tracking)
+**Description:** Lightweight tracking WF for ad-hoc work without an explicit workflow start. Auto-cleanup at 0 artifacts.
 
-| # | Schritt | Skill | Optional | Bedingung |
-|---|---------|-------|----------|-----------|
-| 1 | Arbeit durchfuehren | — | nein | - |
-| 2 | Code pruefen | /mxDesignChecker + /mxBugChecker | ja | Nur bei Code-Aenderungen |
-| 3 | Zustand sichern | /mxSave | nein | - |
+| # | Step | Skill | Optional | Condition |
+|---|------|-------|----------|-----------|
+| 1 | Do the work | — | no | - |
+| 2 | Review code | /mxDesignChecker + /mxBugChecker | yes | Only for code changes |
+| 3 | Save state | /mxSave | no | - |
 
 ---
 
-## Projekt-spezifische Overrides
+## Project-specific overrides
 
-Projekte koennen eigene Workflow-Templates in `docs/workflows.md` definieren.
-Format identisch zu den Templates oben. Bei Namenskollision hat das Projekt Vorrang.
+Projects can define their own workflow templates in `docs/workflows.md`.
+Format is identical to the templates above. On name collision the project template wins.
 
-Beispiel fuer eine projekt-spezifische `docs/workflows.md`:
+Example of a project-specific `docs/workflows.md`:
 
 ```markdown
-# Projekt-Workflows
+# Project Workflows
 
-## Template: tarif-erweiterung
+## Template: tariff-extension
 
-**Trigger-Woerter:** tarif, rate, zone, preismatrix, tariff
-**Beschreibung:** Tarifsystem erweitern (Zonen, Raten, Matrix).
+**Trigger words:** tariff, rate, zone, price matrix
+**Description:** Extend the tariff system (zones, rates, matrix).
 
-| # | Schritt | Skill | Optional | Bedingung |
-|---|---------|-------|----------|-----------|
-| 1 | Anforderungen klaeren | superpowers:brainstorming | nein | - |
-| 2 | Tarif-Spec schreiben | /mxSpec | nein | Tarif-Aenderungen brauchen Spec |
-| 3 | Design pruefen | /mxDesignChecker | nein | - |
-| 4 | DB-Migration planen | /mxPlan | nein | install.sql Aenderungen |
-| 5 | Entscheidung dokumentieren | /mxDecision | ja | Bei grundlegender Aenderung |
-| 6 | Implementieren | superpowers:executing-plans | nein | - |
-| 7 | Code + Grid pruefen | /mxDesignChecker | nein | Spreadsheet-Aenderungen kritisch |
-| 8 | Zustand sichern | /mxSave | nein | - |
+| # | Step | Skill | Optional | Condition |
+|---|------|-------|----------|-----------|
+| 1 | Clarify requirements | superpowers:brainstorming | no | - |
+| 2 | Write tariff spec | /mxSpec | no | Tariff changes require a spec |
+| 3 | Review design | /mxDesignChecker | no | - |
+| 4 | Plan DB migration | /mxPlan | no | install.sql changes |
+| 5 | Document decision | /mxDecision | yes | For fundamental changes |
+| 6 | Implement | superpowers:executing-plans | no | - |
+| 7 | Review code + grid | /mxDesignChecker | no | Spreadsheet changes are critical |
+| 8 | Save state | /mxSave | no | - |
 ```
