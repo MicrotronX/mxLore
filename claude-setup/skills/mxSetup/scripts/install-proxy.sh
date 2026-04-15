@@ -21,7 +21,11 @@ mkdir -p "$CLAUDE_HOME"
 # Staged download: write to .new, swap on success. Prevents partial-write corruption
 # of the live binary if curl fails mid-download and (mostly) sidesteps Windows
 # file-locks on the existing exe until the final mv step.
-curl -fL --retry 3 --max-time 300 --connect-timeout 10 -o "$DEST_NEW" "$PROXY_URL" \
+# HTTPS proto-pin (--proto =https --proto-redir =https) blocks any accidental
+# http:// fallback or redirect. An http:// proxy_download_url is only valid for
+# localhost admin_port (127.0.0.1) — if you need that, unset the pin via
+# CURL_EXTRA env var, but the default refuses unencrypted binary downloads.
+curl -fL --proto '=https' --proto-redir '=https' --retry 3 --max-time 300 --connect-timeout 10 -o "$DEST_NEW" "$PROXY_URL" \
   || { rm -f "$DEST_NEW"; echo "ERROR: proxy download failed from $PROXY_URL" >&2; exit 1; }
 
 # TODO: replace 100KB size check with SHA256 verification once mx_ping

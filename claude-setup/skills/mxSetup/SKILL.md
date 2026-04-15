@@ -46,6 +46,10 @@ Downloads the zip, extracts skills into `~/.claude/skills/`, hooks into `~/.clau
 bash ~/.claude/skills/mxSetup/scripts/install-skills.sh
 ```
 
+⚡ **Scope limit:** `install-skills.sh` copies hook FILES into `~/.claude/hooks/` but does **NOT** modify `~/.claude/settings.json`. Hook **registration** (`PreToolUse` / `PostToolUse` / `Stop` / etc. entries) happens in Phase 5b below — running `install-skills.sh` standalone leaves hook files on disk but inactive until settings.json is updated.
+
+Optional: `REPO_REF=v2.4.0 bash ~/.claude/skills/mxSetup/scripts/install-skills.sh` pins a release tag instead of `main` HEAD (default remains `main` until `mxLore-skills` cuts tagged releases).
+
 ⚡ !PowerShell !Invoke-WebRequest — always use curl+unzip in Bash (works everywhere).
 
 ### Phase 3: Install Proxy
