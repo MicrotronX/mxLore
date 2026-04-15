@@ -13,12 +13,18 @@ function GenerateSlug(const ATitle: string): string;
 function ExtractFirstSentence(const AText: string): string;
 function ExtractFirstSentences(const AText: string; ACount: Integer): string;
 
-// Clamps summary string to docs.summary_l1 VARCHAR(500) limit (char-count
-// under utf8mb4). Adds ellipsis if truncated. Returns S unchanged if
-// Length(S) <= 500. Bug#2738 Phase 4: direct-input path from claude.exe
-// AI-Batch can deliver summaries > 500 chars that otherwise fail at INSERT
-// with SQL state 22001 (Data too long for column 'summary_l1').
-function ClampSummary(const S: string): string;
+// Clamps a string to MaxLen char-count (utf8mb4). Ellipsis suffix on truncate.
+// Bug#2889: defect class of Bug#2738 — VARCHAR columns must be clamped at the
+// bind site because direct-input callers can exceed declared column size.
+function ClampVarchar(const S: string; MaxLen: Integer): string;
+
+// Thin wrappers over ClampVarchar for the docs/doc_revisions VARCHAR columns.
+// Each wrapper encodes the column's declared length as a self-documenting
+// call site: "this bind target is VARCHAR(N)".
+function ClampSummary(const S: string): string;       // docs.summary_l1 VARCHAR(500), Bug#2738
+function ClampTitle(const S: string): string;         // docs.title VARCHAR(255), Bug#2889
+function ClampSlug(const S: string): string;          // docs.slug VARCHAR(100), Bug#2889
+function ClampChangeReason(const S: string): string;  // doc_revisions.change_reason VARCHAR(500), Bug#2889
 
 // Bind a large text value (typically a doc body) to a TFDParam so that
 // FireDAC accepts strings beyond the default 32767-byte parameter limit.
@@ -193,15 +199,35 @@ begin
 end;
 
 // ---------------------------------------------------------------------------
-// Helper: Clamp summary string to docs.summary_l1 VARCHAR(500) limit
-// Bug#2738 Phase 4
+// Helpers: VARCHAR input clamps for docs/doc_revisions bind sites
+// Bug#2738 Phase 4 (summary) + Bug#2889 (title/slug/change_reason)
 // ---------------------------------------------------------------------------
+function ClampVarchar(const S: string; MaxLen: Integer): string;
+begin
+  if (MaxLen < 4) or (Length(S) <= MaxLen) then
+    Result := S
+  else
+    Result := Copy(S, 1, MaxLen - 3) + '...';
+end;
+
 function ClampSummary(const S: string): string;
 begin
-  if Length(S) > 500 then
-    Result := Copy(S, 1, 497) + '...'
-  else
-    Result := S;
+  Result := ClampVarchar(S, 500);
+end;
+
+function ClampTitle(const S: string): string;
+begin
+  Result := ClampVarchar(S, 255);
+end;
+
+function ClampSlug(const S: string): string;
+begin
+  Result := ClampVarchar(S, 100);
+end;
+
+function ClampChangeReason(const S: string): string;
+begin
+  Result := ClampVarchar(S, 500);
 end;
 
 // ---------------------------------------------------------------------------
@@ -590,8 +616,8 @@ begin
         try
           Qry.ParamByName('proj_id').AsInteger := ProjectId;
           Qry.ParamByName('doc_type').AsString := DocType;
-          Qry.ParamByName('slug').AsString := Slug;
-          Qry.ParamByName('title').AsString := Title;
+          Qry.ParamByName('slug').AsString := ClampSlug(Slug);
+          Qry.ParamByName('title').AsString := ClampTitle(Title);
           BindLargeText(Qry.ParamByName('content'), Content);
           // Bug#2738: clamp to VARCHAR(500) — direct input path can exceed
           Qry.ParamByName('summary_l1').AsString := ClampSummary(Summary1);
@@ -904,7 +930,7 @@ begin
     try
       Qry.ParamByName('id').AsInteger := DocId;
       if Title <> '' then
-        Qry.ParamByName('title').AsString := Title;
+        Qry.ParamByName('title').AsString := ClampTitle(Title);
       if Content <> '' then
         BindLargeText(Qry.ParamByName('content'), Content);
       if Status <> '' then
@@ -948,7 +974,7 @@ begin
         BindLargeText(Qry.ParamByName('content'), Content);
         Qry.ParamByName('summary_l2').AsString := Summary2;
         Qry.ParamByName('changed_by').AsString := ChangedBy;
-        Qry.ParamByName('reason').AsString := ChangeReason;
+        Qry.ParamByName('reason').AsString := ClampChangeReason(ChangeReason);
         Qry.ExecSQL;
       finally
         Qry.Free;

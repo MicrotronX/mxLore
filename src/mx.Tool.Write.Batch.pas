@@ -155,8 +155,8 @@ begin
               try
                 Qry.ParamByName('proj_id').AsInteger := ProjectId;
                 Qry.ParamByName('doc_type').AsString := DocType;
-                Qry.ParamByName('slug').AsString := Slug;
-                Qry.ParamByName('title').AsString := Title;
+                Qry.ParamByName('slug').AsString := ClampSlug(Slug);
+                Qry.ParamByName('title').AsString := ClampTitle(Title);
                 BindLargeText(Qry.ParamByName('content'), Content);
                 // Bug#2738: clamp to VARCHAR(500) — direct input path can exceed
                 Qry.ParamByName('summary_l1').AsString := ClampSummary(Summary1);
@@ -421,7 +421,7 @@ begin
               BindLargeText(Qry.ParamByName('content'), Content);
               Qry.ParamByName('summary_l2').AsString := Summary2;
               Qry.ParamByName('changed_by').AsString := ChangedBy;
-              Qry.ParamByName('reason').AsString := ChangeReason;
+              Qry.ParamByName('reason').AsString := ClampChangeReason(ChangeReason);
               Qry.ExecSQL;
             finally
               Qry.Free;

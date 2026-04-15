@@ -235,7 +235,7 @@ begin
         try
           Qry.ParamByName('pid').AsInteger := ProjectId;
           Qry.ParamByName('dtype').AsString := DocType;
-          Qry.ParamByName('slug').AsString := Slug;
+          Qry.ParamByName('slug').AsString := ClampSlug(Slug);
           Qry.Open;
           if not Qry.IsEmpty then
           begin
@@ -262,8 +262,8 @@ begin
           try
             Qry.ParamByName('proj_id').AsInteger := ProjectId;
             Qry.ParamByName('doc_type').AsString := DocType;
-            Qry.ParamByName('slug').AsString := Slug;
-            Qry.ParamByName('title').AsString := Title;
+            Qry.ParamByName('slug').AsString := ClampSlug(Slug);
+            Qry.ParamByName('title').AsString := ClampTitle(Title);
             BindLargeText(Qry.ParamByName('content'), Content);
             // Bug#2738: clamp to VARCHAR(500) — migration path can exceed
             Qry.ParamByName('summary_l1').AsString := ClampSummary(Summary1);
