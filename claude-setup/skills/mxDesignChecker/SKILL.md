@@ -1,10 +1,7 @@
 ---
 name: mxDesignChecker
-description: Reviews design documents and code with verified knowledge. Loads specs/designs from Knowledge-DB (MCP) or locally. Loads technology-specific rules. NO automatic corrections — only with user confirmation. Start after design approval (before writing-plans) and parallel to code implementation.
-user-invocable: true
-effort: high
-allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task
-argument-hint: "<spec-slug, design-file.md or code-file:lines>"
+description: Use when the user says "/designcheck", "/mxDesignChecker", "review the design", "check the spec", "review this ADR", "audit architecture", "second opinion on this code", or otherwise requests design/spec/ADR review or code-vs-design audit. Verified-knowledge design reviewer — every finding requires concrete proof from spec or code. Loads specs/designs from the mxLore Knowledge-DB via MCP and persists findings via Skill Evolution. NO automatic corrections — all fixes require user confirmation.
+allowed-tools: Read, Write, Edit, Grep, Glob, Bash
 ---
 
 # /mxDesignChecker — Design & Code Review (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
@@ -12,6 +9,13 @@ argument-hint: "<spec-slug, design-file.md or code-file:lines>"
 > **Context:** ALWAYS as subagent(Agent-Tool) !main-context. Result: max 20 lines, findings only. Called from brainstorming(Design) and executing-plans(Code).
 
 Software architect+senior dev. Review design docs and code for risks/bugs. **Second opinion** — thorough, critical, constructive.
+
+## Trigger phrases
+
+This skill fires on:
+- `/designcheck`, `/mxDesignChecker`
+- Natural language: "review the design", "check the spec", "review this ADR", "audit the architecture", "second opinion on this code", "design review", "code-vs-design check"
+- Programmatic invocation from other skills (mxSpec after draft, mxDecision after ADR accept, mxOrchestrate workflow step, pre-commit review)
 
 ### Delphi Senior Mindset (MANDATORY for Delphi)
 - Compiler awareness: Anonymous Methods→Heap-Frames, var-Param+Closure-Capture divergence(Rule 19 delphi.md), RTTI side-effects
@@ -32,9 +36,10 @@ Software architect+senior dev. Review design docs and code for risks/bugs. **Sec
 - ∅Argument→search newest design doc(DB or docs/plans/)→Mode 1
 
 ## Phase 1: Load context
-1. CLAUDE.md→project type+slug. Keywords: Delphi/VCL/FMX→`rules/delphi.md` | PHP/HTML/JS/TS→`rules/web.md` | Always: `rules/general.md` | Mode 3: +`rules/spec-review.md`
+1. CLAUDE.md→project type+slug. Keywords: Delphi/VCL/FMX→`references/delphi-rules.md` | PHP/HTML/JS/TS→`references/web-rules.md` | Always: `references/general-rules.md` | Mode 3: +`references/spec-review.md`. (Legacy `rules/` folder retained as symlink/alias — prefer `references/` per the plugin-dev pattern.)
 2. docs/status.md→header+recent changes
-3. **Load document:** MCP(Slug)→mx_search+mx_detail. Local→Read. ∅MCP→local files
+3. **Load document:** MCP(Slug)→`mx_search(project, doc_type='spec,plan,decision', query='<slug>', status='active', include_content=false, limit=5)` then `mx_detail(doc_id, max_content_tokens=0)` for the full body. ⚡ **`max_content_tokens=0` is REQUIRED** — the 600-token default silently truncates and causes false "not found" / "section missing" findings. Local fallback → Read file directly.
+4. ⚡ **MCP down → continue with CLAUDE.md + status.md + local files only; never abort Phase 1.**
 
 ## Phase 2: Analysis (max 5 categories from rules files)
 
@@ -66,10 +71,24 @@ X CRITICAL | Y WARNING | Z INFO | **Not checked:** <irrelevant cats>
 **Code-Proof:** ⚡ MANDATORY. Exact(max 3L) via Read. !paraphrased. ∅Proof=∅Finding.
 
 ## Phase 3b: Persist findings (Skill Evolution)
-MCP available(Phase 1 mx_ping OK) AND Findings>0:
+MCP available (Phase 1 mx_ping OK) AND Findings > 0:
 For each finding: `mx_skill_manage(action='record_finding', skill='mxDesignChecker', rule_id='<cat-lowercase>', project='<slug>', severity='<sev-lowercase>', title='<finding summary>', file_path='<file>', line_number=<line>, context_hash='<file>:<line>', details='<code-proof + finding>')`
-- rule_id derived from rules files (e.g. ownership-lifecycle, error-handling, api-design)
-- Duplicate(status=duplicate)→OK. ∅MCP→skip.
+
+⚡ **Canonical rule_id slugs (English, lowercase with dashes):** `ownership-lifecycle`, `error-handling`, `api-design`, `threading`, `spec-feasibility`, `architecture`, `naming`, `testability`, `security-design`, `data-flow`. Derived from `references/delphi-rules.md`, `references/web-rules.md`, `references/general-rules.md`, `references/spec-review.md`. Do NOT use ad-hoc German / mixed slugs.
+
+⚡ **Severity mapping** (report → MCP): `CRITICAL` → `critical`, `WARNING` → `warning`, `INFO` → `info`. Canonical lowercase on the wire.
+
+⚡ **ClampVarchar (Bug#2889) limits for persisted fields:**
+- `title` → max 255 chars. Trim the finding summary locally.
+- `rule_id` → max 100 chars. Slugs are short, safe.
+- `file_path` → max 500 chars. Long paths are rare; trim leading repo path if needed.
+- `details` → TEXT column (unclamped), keep it focused (Code Proof max 3 lines + Finding max 2 sentences).
+
+- Duplicate (status=duplicate) → OK. ∅MCP or error → skip, !abort.
+- Response contains finding_uid → remember for user feedback.
+
+⚡ **Self-check recursion guard:** if mxDesignChecker is asked to review its own SKILL.md, run as a normal review target (Phase 1-3). Do NOT spawn a nested mxDesignChecker on the output; do NOT Phase 3b persist findings against project='mxDesignChecker' (no such project slug exists). Self-review findings are reported inline only.
+
 After recording: `**Skill Evolution:** N findings persisted. Feedback: mx_skill_feedback(finding_uid='...', reaction='confirmed|dismissed|false_positive')`
 
 ## Phase 4: Corrections + Auto-Confirm
@@ -98,3 +117,4 @@ Every finding that is fixed+accepted by user→immediately execute `mx_skill_fee
 - ⚡ !auto-correction !invented names/lines !"just in case"-findings
 - Max 5 cats, thorough+pragmatic, pre-existing→INFO, IP-protection(offset/limit)
 - !Style-nitpicks(unless functional issue). Consider context(CLAUDE.md/status.md)
+- ⚡ **Mirror sync:** edits to this skill MUST propagate to `V:\Projekte\MX_Intern\mxLore-skills\mxDesignChecker\` + `V:\Projekte\MX_Intern\mxHannesMCP\claude-setup\skills\mxDesignChecker\` (per `feedback_mxlore_skill_sync_workflow.md`). Canonical first, then `cp` to both mirrors.
