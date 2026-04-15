@@ -910,7 +910,7 @@ var
   Ctx: IMxDbContext;
   Qry, ChkQry, InsQry, TagQry: TFDQuery;
   Count: Integer;
-  NoteTitle, NoteContent: string;
+  NoteTitle, NoteContent, NoteSlug: string;
   DocId, TargetDocId, ProjectId: Integer;
   DocTitle, DocType, TargetTitle, TargetStatus: string;
 begin
@@ -943,17 +943,23 @@ begin
 
         NoteTitle := Format('[Contradiction] %s #%d references %s ADR #%d',
           [DocType, DocId, TargetStatus, TargetDocId]);
+        NoteSlug := Format('contradiction-%d-%d', [DocId, TargetDocId]);
 
-        // Idempotent: check if note already exists
+        // Idempotent via slug-based check against uq_doc constraint
+        // (project_id, doc_type, slug). Archived/deleted notes still count
+        // as "exists" to respect prior admin action.
         ChkQry := Ctx.CreateQuery(
           'SELECT 1 FROM documents ' +
-          'WHERE doc_type = ''note'' AND title = :title ' +
-          '  AND status NOT IN (''deleted'', ''archived'') LIMIT 1');
+          'WHERE project_id = :proj_id AND doc_type = ''note'' ' +
+          '  AND slug = :slug LIMIT 1');
         try
-          ChkQry.ParamByName('title').AsString := NoteTitle;
+          ChkQry.ParamByName('proj_id').AsInteger := ProjectId;
+          ChkQry.ParamByName('slug').AsString := NoteSlug;
           ChkQry.Open;
           if not ChkQry.Eof then
           begin
+            FLogger.Log(mlInfo, Format(
+              'Skipping duplicate contradiction note for slug %s', [NoteSlug]));
             Qry.Next;
             Continue;
           end;
