@@ -1,5 +1,8 @@
 # ADR-NNNN: <Title>
-**Status:** <accepted|proposed> | **Date:** YYYY-MM-DD
+**Status:** proposed | **Date:** YYYY-MM-DD
+
+<!-- Status values (lowercase): proposed | accepted | implemented | superseded | deprecated. Flip proposed -> accepted once the decision is confirmed in chat. The skill auto-archives with implemented/superseded on follow-up completion or supersedes chain. -->
+
 
 ## Context
 <Problem or reason — 2-5 sentences. What forces or constraints led to this decision? What alternatives were on the table?>
