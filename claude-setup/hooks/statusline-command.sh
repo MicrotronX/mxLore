@@ -19,14 +19,31 @@ cwd=$(json_val "cwd")
 
 # --- Section 1: label (slug from CLAUDE.md or directory basename) ---
 # Accepts both formats: **Slug:** `mxLore` (backticked) and **Slug:** mxLore (plain)
+# Walks up the directory tree from cwd to find CLAUDE.md — robust against
+# cwd drift when bash calls cd into subdirectories.
 label=""
-if [ -n "$cwd" ] && [ -f "$cwd/CLAUDE.md" ]; then
-  slug=$(sed -n 's/.*\*\*Slug:\*\*[[:space:]]*`\([^`]*\)`.*/\1/p' "$cwd/CLAUDE.md" 2>/dev/null | head -1)
-  if [ -z "$slug" ]; then
-    slug=$(sed -n 's/.*\*\*Slug:\*\*[[:space:]]*\([^[:space:]]*\).*/\1/p' "$cwd/CLAUDE.md" 2>/dev/null | head -1)
-  fi
-  if [ -n "$slug" ]; then
-    label="$slug"
+if [ -n "$cwd" ]; then
+  search_dir="$cwd"
+  claude_md=""
+  # Walk up max 10 levels to avoid runaway on weird filesystems
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if [ -f "$search_dir/CLAUDE.md" ]; then
+      claude_md="$search_dir/CLAUDE.md"
+      break
+    fi
+    parent=$(dirname "$search_dir")
+    [ "$parent" = "$search_dir" ] && break
+    search_dir="$parent"
+  done
+
+  if [ -n "$claude_md" ]; then
+    slug=$(sed -n 's/.*\*\*Slug:\*\*[[:space:]]*`\([^`]*\)`.*/\1/p' "$claude_md" 2>/dev/null | head -1)
+    if [ -z "$slug" ]; then
+      slug=$(sed -n 's/.*\*\*Slug:\*\*[[:space:]]*\([^[:space:]]*\).*/\1/p' "$claude_md" 2>/dev/null | head -1)
+    fi
+    if [ -n "$slug" ]; then
+      label="$slug"
+    fi
   fi
 fi
 if [ -z "$label" ] && [ -n "$cwd" ]; then
@@ -56,7 +73,26 @@ if [ -n "$cost" ]; then
   fi
 fi
 
-# --- Section 4: open tasks ---
+# --- Section 4: session token usage (cumulative, decimal divisor) ---
+tokens_section=""
+in_tok=$(json_num "total_input_tokens")
+out_tok=$(json_num "total_output_tokens")
+in_tok_i=$(printf '%.0f' "${in_tok:-0}" 2>/dev/null)
+in_tok_i=${in_tok_i:-0}
+out_tok_i=$(printf '%.0f' "${out_tok:-0}" 2>/dev/null)
+out_tok_i=${out_tok_i:-0}
+[ "$in_tok_i" -lt 0 ] && in_tok_i=0
+[ "$out_tok_i" -lt 0 ] && out_tok_i=0
+total_tok=$(( in_tok_i + out_tok_i ))
+if [ "$total_tok" -gt 0 ]; then
+  if [ "$total_tok" -ge 1000 ]; then
+    tokens_section=$(printf "T:%dk" $(( total_tok / 1000 )))
+  else
+    tokens_section=$(printf "T:%d" "$total_tok")
+  fi
+fi
+
+# --- Section 5: open tasks ---
 tasks_section=""
 task_total=$(json_num "total")
 task_completed=$(json_num "completed")
@@ -71,6 +107,7 @@ parts=()
 [ -n "$model" ]        && parts+=("$model")
 [ -n "$ctx_section" ]  && parts+=("$ctx_section")
 [ -n "$cost_section" ] && parts+=("$cost_section")
+[ -n "$tokens_section" ] && parts+=("$tokens_section")
 [ -n "$tasks_section" ] && parts+=("$tasks_section")
 
 output=""
