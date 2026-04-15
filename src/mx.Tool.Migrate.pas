@@ -265,7 +265,8 @@ begin
             Qry.ParamByName('slug').AsString := Slug;
             Qry.ParamByName('title').AsString := Title;
             BindLargeText(Qry.ParamByName('content'), Content);
-            Qry.ParamByName('summary_l1').AsString := Summary1;
+            // Bug#2738: clamp to VARCHAR(500) — migration path can exceed
+            Qry.ParamByName('summary_l1').AsString := ClampSummary(Summary1);
             Qry.ParamByName('summary_l2').AsString := Summary2;
             Qry.ParamByName('status').AsString := DocStatus;
             Qry.ExecSQL;

@@ -13,6 +13,13 @@ function GenerateSlug(const ATitle: string): string;
 function ExtractFirstSentence(const AText: string): string;
 function ExtractFirstSentences(const AText: string; ACount: Integer): string;
 
+// Clamps summary string to docs.summary_l1 VARCHAR(500) limit (char-count
+// under utf8mb4). Adds ellipsis if truncated. Returns S unchanged if
+// Length(S) <= 500. Bug#2738 Phase 4: direct-input path from claude.exe
+// AI-Batch can deliver summaries > 500 chars that otherwise fail at INSERT
+// with SQL state 22001 (Data too long for column 'summary_l1').
+function ClampSummary(const S: string): string;
+
 // Bind a large text value (typically a doc body) to a TFDParam so that
 // FireDAC accepts strings beyond the default 32767-byte parameter limit.
 // FireDAC's default Param.Size is 32767 (FConnDefParams.MaxStringSize) and
@@ -183,6 +190,18 @@ begin
       Exit;
     end;
   end;
+end;
+
+// ---------------------------------------------------------------------------
+// Helper: Clamp summary string to docs.summary_l1 VARCHAR(500) limit
+// Bug#2738 Phase 4
+// ---------------------------------------------------------------------------
+function ClampSummary(const S: string): string;
+begin
+  if Length(S) > 500 then
+    Result := Copy(S, 1, 497) + '...'
+  else
+    Result := S;
 end;
 
 // ---------------------------------------------------------------------------
@@ -574,7 +593,8 @@ begin
           Qry.ParamByName('slug').AsString := Slug;
           Qry.ParamByName('title').AsString := Title;
           BindLargeText(Qry.ParamByName('content'), Content);
-          Qry.ParamByName('summary_l1').AsString := Summary1;
+          // Bug#2738: clamp to VARCHAR(500) — direct input path can exceed
+          Qry.ParamByName('summary_l1').AsString := ClampSummary(Summary1);
           Qry.ParamByName('summary_l2').AsString := Summary2;
           Qry.ParamByName('status').AsString := Status;
           Qry.ParamByName('created_by').AsString := CreatedBy;
@@ -892,7 +912,8 @@ begin
       if DocType <> '' then
         Qry.ParamByName('doc_type').AsString := DocType;
       if Summary1 <> '' then
-        Qry.ParamByName('summary_l1').AsString := Summary1;
+        // Bug#2738: clamp to VARCHAR(500) — direct input path can exceed
+        Qry.ParamByName('summary_l1').AsString := ClampSummary(Summary1);
       if Summary2 <> '' then
         Qry.ParamByName('summary_l2').AsString := Summary2;
       if NewProject <> '' then
@@ -1092,7 +1113,9 @@ begin
         UpdQry := AContext.CreateQuery(
           'UPDATE documents SET summary_l1 = :l1, summary_l2 = :l2 WHERE id = :id');
         try
-          UpdQry.ParamByName('l1').AsString := NewL1;
+          // Bug#2738: clamp to VARCHAR(500) — ExtractFirstSentence already
+          // clamps but belt-and-suspenders for the direct-input path shape
+          UpdQry.ParamByName('l1').AsString := ClampSummary(NewL1);
           UpdQry.ParamByName('l2').AsString := NewL2;
           UpdQry.ParamByName('id').AsInteger := DocId;
           UpdQry.ExecSQL;

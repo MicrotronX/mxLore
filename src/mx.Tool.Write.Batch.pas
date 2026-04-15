@@ -158,7 +158,8 @@ begin
                 Qry.ParamByName('slug').AsString := Slug;
                 Qry.ParamByName('title').AsString := Title;
                 BindLargeText(Qry.ParamByName('content'), Content);
-                Qry.ParamByName('summary_l1').AsString := Summary1;
+                // Bug#2738: clamp to VARCHAR(500) — direct input path can exceed
+                Qry.ParamByName('summary_l1').AsString := ClampSummary(Summary1);
                 Qry.ParamByName('summary_l2').AsString := Summary2;
                 Qry.ParamByName('status').AsString := Status;
                 Qry.ParamByName('created_by').AsString := CreatedBy;
@@ -384,7 +385,8 @@ begin
             if Content <> '' then
               BindLargeText(Qry.ParamByName('content'), Content);
             if Summary1 <> '' then
-              Qry.ParamByName('summary_l1').AsString := Summary1;
+              // Bug#2738: clamp to VARCHAR(500) — direct input path can exceed
+              Qry.ParamByName('summary_l1').AsString := ClampSummary(Summary1);
             if Summary2 <> '' then
               Qry.ParamByName('summary_l2').AsString := Summary2;
             if Status <> '' then
