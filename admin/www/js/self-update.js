@@ -11,6 +11,15 @@
   var POLL_TIMEOUT_MS = 3000;
   var SUCCESS_AUTOHIDE_MS = 10000;
 
+  // FR#2815 Fix C: build-number diffing. lastKnownBuild is updated on every
+  // successful status response so onInstallClick can snapshot targetBuild
+  // BEFORE the install fires. The poll loop then detects success by seeing
+  // state=idle with build_current != targetBuild (server restarted with a
+  // new build). This is the primary success path; serverWasDown stays as a
+  // defensive fallback for the case where the poll catches the down-phase.
+  var lastKnownBuild = null;
+  var targetBuild = null;
+
   function csrfToken() {
     // Api is declared via `const` in api.js — that does NOT attach to window,
     // but the binding is still accessible as a bare identifier.
@@ -136,6 +145,11 @@
       hideBanner(b);
       return;
     }
+    // FR#2815 Fix C: remember build_current so onInstallClick has a fresh
+    // snapshot available without an extra fetch.
+    if (data.build_current != null) {
+      lastKnownBuild = data.build_current;
+    }
     if (data.state === 'disabled' || data.state === 'idle') {
       hideBanner(b);
       return;
@@ -174,18 +188,45 @@
             hideBanner();
             return;
           }
+          // FR#2815 Fix C (PRIMARY success path): if we had a targetBuild
+          // snapshot from before the install and the server now reports a
+          // different build_current, the restart happened and the new binary
+          // is live — regardless of whether the poll ever caught the down
+          // phase.
+          if (data && targetBuild != null &&
+              data.build_current != null &&
+              data.build_current !== targetBuild) {
+            if (data.build_current != null) {
+              lastKnownBuild = data.build_current;
+            }
+            renderSuccess(ensureBanner(), data);
+            targetBuild = null;
+            polling = false;
+            return;
+          }
+          // Fallback: if the poll caught the server-down phase and the
+          // response is now back, treat any response as success.
           if (serverWasDown) {
+            if (data && data.build_current != null) {
+              lastKnownBuild = data.build_current;
+            }
             renderSuccess(ensureBanner(), data || {});
+            targetBuild = null;
             polling = false;
             return;
           }
           if (data && data.state === 'post_update_ok') {
+            if (data.build_current != null) {
+              lastKnownBuild = data.build_current;
+            }
             renderSuccess(ensureBanner(), data);
+            targetBuild = null;
             polling = false;
             return;
           }
           if (data && data.state === 'error') {
             renderError(ensureBanner(), data.error_message);
+            targetBuild = null;
             polling = false;
             return;
           }
@@ -204,6 +245,12 @@
     if (installBtn) installBtn.disabled = true;
     var b = ensureBanner();
     renderUpdating(b, 'Downloading build...');
+
+    // FR#2815 Fix C: snapshot the build running right now so the poll loop
+    // can detect success as soon as it sees a different build_current.
+    // lastKnownBuild was populated by the most recent handleStatusResponse
+    // (either on page-load or from the update_available banner render).
+    targetBuild = lastKnownBuild;
 
     fetchJson('install', 'POST')
       .then(function (data) {
