@@ -114,6 +114,19 @@
     if (dismiss) dismiss.addEventListener('click', function () { hideBanner(b); });
   }
 
+  function renderUpToDate(b, info) {
+    var buildStr = info && info.build_current != null
+      ? ' (Build ' + escapeHtml(info.build_current) + ')'
+      : '';
+    setBannerState(b, 'success',
+      '<span class="mx-su-text">No updates available — running the latest version' +
+      buildStr + '.</span>' +
+      '<button class="mx-su-btn" id="mx-su-dismiss-btn">Dismiss</button>');
+    var dismiss = document.getElementById('mx-su-dismiss-btn');
+    if (dismiss) dismiss.addEventListener('click', function () { hideBanner(b); });
+    setTimeout(function () { hideBanner(b); }, SUCCESS_AUTOHIDE_MS);
+  }
+
   function fetchJson(path, method) {
     var ctrl = new AbortController();
     var timer = setTimeout(function () { ctrl.abort(); }, POLL_TIMEOUT_MS);
@@ -139,7 +152,7 @@
       .catch(function (e) { clearTimeout(timer); throw e; });
   }
 
-  function handleStatusResponse(data) {
+  function handleStatusResponse(data, fromRecheck) {
     var b = ensureBanner();
     if (!data || data._unauth) {
       hideBanner(b);
@@ -151,7 +164,11 @@
       lastKnownBuild = data.build_current;
     }
     if (data.state === 'disabled' || data.state === 'idle') {
-      hideBanner(b);
+      if (fromRecheck) {
+        renderUpToDate(b, data);
+      } else {
+        hideBanner(b);
+      }
       return;
     }
     if (data.state === 'cooldown') { renderCooldown(b, data.message); return; }
@@ -170,7 +187,7 @@
     var path = force ? 'recheck' : 'status';
     var method = force ? 'POST' : 'GET';
     return fetchJson(path, method)
-      .then(handleStatusResponse)
+      .then(function (data) { handleStatusResponse(data, !!force); })
       .catch(function () { /* network failure: stay silent on initial load */ });
   }
 
