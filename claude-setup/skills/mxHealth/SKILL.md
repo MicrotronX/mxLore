@@ -1,10 +1,7 @@
 ---
 name: mxHealth
-description: "Use to verify Knowledge-DB and docs/ consistency via MCP. Checks document metadata, cross-references, orphaned relations, status consistency, CLAUDE.md weight, and local/DB sync. Run periodically or before major releases. Loop-capable."
-user-invocable: true
-effort: medium
-allowed-tools: Read, Grep, Glob, Bash
-argument-hint: "[--scope decisions|plans|specs|workflows|all] [--loop]"
+description: Use when the user says "/health", "/mxHealth", "health check", "check knowledge db", "verify consistency", "db health", or otherwise wants to verify Knowledge-DB and docs/ consistency via MCP. Runs 14 consistency checks (document metadata, cross-references, orphaned relations, status consistency, CLAUDE.md weight, local/DB sync, AI-Steno format, skill-evolution metrics, AI-Batch status) and persists findings via Skill Evolution. Loop-capable. ⚡ MCP-required — aborts if Knowledge-DB is unreachable.
+allowed-tools: Read, Write, Edit, Grep, Glob, Bash
 ---
 
 # /mxHealth — Knowledge-DB Consistency Checker (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
@@ -12,6 +9,16 @@ argument-hint: "[--scope decisions|plans|specs|workflows|all] [--loop]"
 > **Context:** ALWAYS run as subagent(Agent-Tool) !main-context. Result: max 20 lines, problems only.
 
 Health-Check-Agent. Verify consistency of Knowledge-DB + local docs/.
+
+## Trigger phrases
+
+This skill fires on:
+- `/health`, `/mxHealth`
+- Natural language: "health check", "check knowledge db", "verify consistency", "db health", "audit the project state"
+- Programmatic: pre-release validation, periodic `/loop` invocation, pre-commit integrity sweep
+
+## MCP Required
+⚡ mxHealth is MCP-dependent by design. Phases P1-P14 all query the Knowledge-DB. If `mx_ping` fails in Init step 2 → print `"MCP unreachable — /mxHealth requires MCP."` and ABORT. No partial runs, no local-only fallback mode. The caller should retry once MCP is back.
 
 ## Init
 1. CLAUDE.md→`**Slug:**`=project. ∅slug→?user
@@ -31,7 +38,7 @@ Execute in parallel:
 From mx_search results: title!empty, summary_l1 present, slug unique per project+doc_type.
 ERROR=empty titles | WARNING=missing summaries
 
-### P2: Format Consistency (Sample max 5 docs via mx_batch_detail(doc_ids=[...]))
+### P2: Format Consistency (Sample max 5 docs via mx_batch_detail(doc_ids=[...], max_content_tokens=0))
 - ADRs: `**Status:**` (accepted|proposed|superseded|deprecated)
 - PLANs: `**Status:**` (active|completed|paused|cancelled)
 - SPECs: `**Created:**` or `**Slug:**`
@@ -42,12 +49,12 @@ Relations per mx_search(include_details=true): Target exists(!deleted), bidirect
 ERROR=relation to deleted | WARNING=missing reverse relation
 
 ### P4: Status Consistency (DB, Content via mx_batch_detail)
-IDs from P1 mx_search collected→mx_batch_detail(doc_ids=[...]) for all active/completed PLANs + proposed ADRs (1 call, max 10 IDs).
+IDs from P1 mx_search collected→mx_batch_detail(doc_ids=[...], max_content_tokens=0) for all active/completed PLANs + proposed ADRs (1 call, max 10 IDs).
 - active PLANs MUST contain `- [ ]` | completed PLANs MUST NOT have `- [ ]`
 - proposed ADRs >30 days old→WARNING
 
 ### P5: Workflow Consistency (DB, Content via mx_batch_detail)
-IDs from P1 mx_search(doc_type='workflow_log') collected→mx_batch_detail(doc_ids=[...]) for all active WFs (1 call).
+IDs from P1 mx_search(doc_type='workflow_log') collected→mx_batch_detail(doc_ids=[...], max_content_tokens=0) for all active WFs (1 call).
 Active Workflows: MUST have pending steps. >30 days old→WARNING(forgotten?)
 
 ### P6: Local/DB Sync
@@ -150,8 +157,14 @@ P9 findings→removed (B6.5). ∅P9→skip.
 - Bugreport only on ERROR (WARNING→skip in loop)
 - ∅findings→single line: `mxHealth OK — 0 problems`
 
+⚡ **Delta semantics across iterations:** each iteration fires P1-P14 fresh. A finding is "new" if its `context_hash` (`<check>:<document-slug>`) has not been persisted via `mx_skill_manage(action='record_finding', ...)` in a prior iteration. Findings with matching `context_hash` → suppress the output line (they're duplicates). This keeps the loop output noise-free while preserving the full audit trail in MCP.
+
 ## Rules
 - Read-only + bug notes + summary fix. !modify document contents
 - MCP error→ERROR in report, !abort
-- >20 docs/type→sampling(max 10 via mx_batch_detail). P1 on all(from mx_search). ⚡ !individual mx_detail calls→always mx_batch_detail(doc_ids=[...])
+- >20 docs/type→sampling(max 10 via mx_batch_detail). P1 on all(from mx_search). ⚡ !individual mx_detail calls→always mx_batch_detail(doc_ids=[...], max_content_tokens=0)
 - IP protection: metadata+structure only. UTF-8 without BOM. !assumptions→facts only
+- ⚡ **ClampVarchar (Bug#2889) for persisted findings:** `title` max 255 chars (trim the finding summary locally), `rule_id` max 100 chars (pN-kebab-case slugs are short, safe), `file_path` max 500 chars, `details` is TEXT (unclamped but keep focused).
+- ⚡ **Severity mapping** (report → MCP): `ERROR` → `error`, `WARNING` → `warning`, `INFO` → `info`. Canonical lowercase on the wire.
+- ⚡ **Self-check recursion guard:** if mxHealth runs on a project slug named `mxHealth` (none exists), skip Phase 3b/4 persistence. Self-review findings are reported inline only.
+- ⚡ **Mirror sync:** edits to this skill MUST propagate to `V:\Projekte\MX_Intern\mxLore-skills\mxHealth\` + `V:\Projekte\MX_Intern\mxHannesMCP\claude-setup\skills\mxHealth\` (per `feedback_mxlore_skill_sync_workflow.md`). Canonical first, then `cp` to both mirrors.
