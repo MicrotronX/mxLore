@@ -1093,7 +1093,7 @@ begin
       '  SUM(CASE WHEN embedding_stale = 1 AND embedding IS NULL THEN 1 ELSE 0 END) AS stale ' +
       'FROM documents WHERE status <> ''deleted'' ' +
       'AND doc_type IN (''spec'',''plan'',''decision'',''lesson'',''note'',' +
-      '''reference'',''snippet'',''bugreport'',''feature_request'',''todo'',''assumption'')');
+      '''reference'',''snippet'',''bugreport'',''feature_request'',''todo'',''assumption'',''skill'')');
     try
       Qry.Open;
       var Total := Qry.FieldByName('total_docs').AsInteger;

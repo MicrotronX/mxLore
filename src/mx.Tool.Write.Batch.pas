@@ -89,9 +89,7 @@ begin
             raise EMxValidation.CreateFmt('Item %d: "project" is required', [I]);
           if DocType = '' then
             raise EMxValidation.CreateFmt('Item %d: "doc_type" is required', [I]);
-          if not MatchStr(DocType, ['plan', 'spec', 'decision', 'status',
-              'workflow_log', 'session_note', 'finding', 'reference', 'snippet',
-              'note', 'bugreport', 'feature_request', 'todo', 'assumption', 'lesson']) then
+          if not IsAllowedDocType(DocType) then
             raise EMxValidation.CreateFmt('Item %d: invalid doc_type "%s"', [I, DocType]);
           if Title = '' then
             raise EMxValidation.CreateFmt('Item %d: "title" is required', [I]);

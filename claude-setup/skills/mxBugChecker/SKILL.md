@@ -4,6 +4,14 @@ description: Use when the user says "/bugcheck", "/mxBugChecker", "check for bug
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash
 ---
 
+## Output Format ⚡ (Bug#2989 F6 — Reasoning-Leak Fix)
+
+**FIRST line of every response = `### REPORT ###` EXACTLY. Position 0. Nothing before.**
+
+Forbidden pre-marker content: prosa, reasoning sentences, "I will now...", "All done.", "Producing final report.", blank lines, markdown heading prefixes. The marker IS the first character-run of the first line, or the report is INVALID.
+
+Why: Cross-skill reasoning-leak pattern — 5/5 mx*-Skill-Subagents leaked internal reasoning above report body in Live-Test Session 2026-04-15 (doc#3017). Observed even after partial rule introduction ("All done. Producing final report." pre-marker prosa). Strict Position-0 anchors the rule.
+
 # /mxBugChecker — Bug Finder (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
 > **Context:** ALWAYS as subagent(Agent-Tool) !main-context. Result: max 20 lines, findings only (`File:Line — Finding`).
@@ -121,3 +129,54 @@ Every finding that is fixed+accepted by user→immediately execute `mx_skill_fee
 - Max 5 cat, IP protection(offset/limit), !style-nitpicks, pre-existing→INFO
 - Respect context(CLAUDE.md/status.md), VCS-agnostic, ANSI encoding for Delphi
 - ⚡ **Mirror sync:** edits to this skill MUST propagate to `V:\Projekte\MX_Intern\mxLore-skills\mxBugChecker\` + `V:\Projekte\MX_Intern\mxHannesMCP\claude-setup\skills\mxBugChecker\` (per `feedback_mxlore_skill_sync_workflow.md`). Canonical first, then `cp` to both mirrors.
+
+## Severity Calibration ⚡ (Bug#2989 F8 — Inflation Fix)
+
+Existing report severities (Phase 4) stay `CRITICAL / WARNING / INFO`. This section tightens what each level MEANS and introduces a reachability gate. `INFO` is now explicitly the bucket for defensive-only / unreachable findings — do NOT promote them to `WARNING` or `CRITICAL`.
+
+**Categories (lowest to highest):**
+- **INFO** — defensive-only suggestion OR improvement. Edge case NOT reachable from any current code path, OR style-level polish, OR hardening for a future change. !WARNING !CRITICAL. Maps to MCP `info`.
+- **WARNING** — reachable code path, measurable risk (edge case, recoverable error, degraded behavior). User-visible or runtime-visible. Maps to MCP `warning`.
+- **CRITICAL** — reachable code path, bug/crash/data-loss/security breach. Double-read mandatory before classification (existing Golden Rule #5). Maps to MCP `critical`.
+
+**Reachability Gate ⚡ (required before assigning WARNING or CRITICAL):**
+Before tagging any finding above INFO, answer in the finding body (Root Cause or Code Proof column):
+1. Is the offending code path reachable from a public entry point? (HTTP handler, CLI command, scheduled job, DB trigger, user action, IPC message, hook)  yes/no
+2. If yes → cite the entry point as `File:Line` in the Root Cause.
+3. If no → downgrade to `INFO` with a `reachability: unverified` or `reachability: dead-code` note. Do NOT omit — the finding still exists in the record, just at the honest severity.
+
+**Rationale:** Live-Test Session 2026-04-15 (doc#3017 §4.3, Bug#2989 F8) documented Severity-Inflation where defensive-only edge cases were reported as WARNING, diluting finding-density and training the user to ignore the output. A finding that is unreachable in the current code is a hardening opportunity, not a bug. Report it as INFO so the record is honest without inflating the severity histogram.
+
+**Anti-pattern examples (all → INFO, not WARNING):**
+- "Function X could divide by zero IF called with 0" — but no caller passes 0, and no external input reaches it.
+- "Variable Y could be nil" — but every call site guards it with an `if Assigned` check.
+- "SQL string could be injected" — but the query is built from a hardcoded const, not user input.
+
+## Language Semantics ⚡ (Bug#2989 F7 — isset Overclaim Fix)
+
+Before claiming a language-level bug, verify against actual language semantics. Cross-reference this section during Phase 3 analysis for any finding that depends on how a language treats undefined/null/missing values. Common false-positive traps:
+
+### PHP null-safety primitives — NONE emit "Undefined variable" warnings
+
+- `isset($var)` / `isset($arr['k'])` — returns `false` on undefined OR null. No warning. No notice. Array-access form does NOT require the key to exist.
+- `empty($var)` — returns `true` on undefined/null/0/`""`/`"0"`/`[]`/`false`. No warning even if `$var` was never set.
+- `$a ?? $b` (null-coalesce) — short-circuits on undefined/null and returns `$b`. No warning. `$arr['k'] ?? 'default'` is safe even if `'k'` is missing.
+- `array_key_exists('k', $arr)` — checks key presence without triggering on null values. No warning if `$arr` is an array. !confuse with `isset` — `isset` returns `false` for `null` values, `array_key_exists` returns `true`.
+- `??=` (null-coalesce assignment, PHP 7.4+) — same semantics as `??`, null-safe.
+
+**PHP constructs that DO warn on undefined:**
+- Direct read: `$var` (bare access outside a null-safe primitive)
+- String interpolation: `"hello $var"` or `"hello {$arr['k']}"`
+- Array access without `isset`/`??` guard: `$arr['k']` when `'k'` may be missing
+- Passing to functions that don't null-check the argument
+- Concatenation: `'x' . $var` when `$var` may be undefined
+
+**Verification protocol before filing a PHP undefined-variable/index finding:**
+1. `Grep` the surrounding 5 lines around the alleged bug site.
+2. Confirm the variable is read via a BARE access, not wrapped in `isset` / `empty` / `??` / `array_key_exists`.
+3. If the bare access is on a branch guarded by an earlier `isset` in the same scope → no bug.
+4. If unsure → mark the finding as `INFO` with `reachability: unverified` per the Severity Calibration section above. Do NOT file as WARNING.
+
+### Other languages
+
+Delphi/Pascal, JS/TS, Python, Go null-safety primitives live in `mxDesignChecker/references/` (language-specific rule files). Cross-read those when a finding hinges on language semantics. If the target language is NOT covered in the references and you are uncertain → finding goes to `INFO` with an explicit `language-semantics: unverified` note.

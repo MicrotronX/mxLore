@@ -531,10 +531,8 @@ begin
     raise EMxValidation.Create('Parameter "project" is required');
   if DocType = '' then
     raise EMxValidation.Create('Parameter "doc_type" is required');
-  if not MatchStr(DocType, ['plan', 'spec', 'decision', 'status',
-      'workflow_log', 'session_note', 'finding', 'reference', 'snippet',
-      'note', 'bugreport', 'feature_request', 'todo', 'assumption', 'lesson']) then
-    raise EMxValidation.CreateFmt('Invalid doc_type "%s". Allowed: plan, spec, decision, status, workflow_log, session_note, finding, reference, snippet, note, bugreport, feature_request, todo, assumption, lesson', [DocType]);
+  if not IsAllowedDocType(DocType) then
+    raise EMxValidation.CreateFmt('Invalid doc_type "%s". Allowed: plan, spec, decision, status, workflow_log, session_note, finding, reference, snippet, note, bugreport, feature_request, todo, assumption, lesson, skill', [DocType]);
   if Title = '' then
     raise EMxValidation.Create('Parameter "title" is required');
 
@@ -782,6 +780,53 @@ begin
 end;
 
 // ---------------------------------------------------------------------------
+// Bug#3018 W8: word-boundary bypass-keyword matcher for the length-delta gate.
+// ContainsText() is substring-based and caused a false-positive bypass when a
+// change_reason mentioned 'E_UNEXPECTED_SHRINK' (the error name itself). We
+// match each keyword only if its surrounding chars are NOT word chars
+// (letters/digits/underscore), mirroring regex \b on \w. Underscore is treated
+// as word-char so 'E_UNEXPECTED_SHRINK' does NOT bypass — the flanking '_'
+// breaks the boundary.
+// ---------------------------------------------------------------------------
+function HasBypassKeyword(const AReason: string): Boolean;
+const
+  Keywords: array[0..11] of string = (
+    'truncate', 'rewrite', 'restructure', 'shrink', 'delete', 'remove',
+    'condense', 'compact', 'summarize', 'prune', 'finalize', 'archive');
+var
+  Lower: string;
+  c, p, kLen: Integer;
+  PrevCh, NextCh: Char;
+  PrevIsWord, NextIsWord: Boolean;
+begin
+  Result := False;
+  if AReason = '' then Exit;
+  Lower := LowerCase(AReason);
+  for c := Low(Keywords) to High(Keywords) do
+  begin
+    kLen := Length(Keywords[c]);
+    p := 1;
+    while True do
+    begin
+      p := PosEx(Keywords[c], Lower, p);
+      if p = 0 then Break;
+      if p > 1 then PrevCh := Lower[p - 1] else PrevCh := #0;
+      if p + kLen - 1 < Length(Lower) then NextCh := Lower[p + kLen]
+      else NextCh := #0;
+      PrevIsWord := ((PrevCh >= 'a') and (PrevCh <= 'z')) or
+                    ((PrevCh >= '0') and (PrevCh <= '9')) or
+                    (PrevCh = '_');
+      NextIsWord := ((NextCh >= 'a') and (NextCh <= 'z')) or
+                    ((NextCh >= '0') and (NextCh <= '9')) or
+                    (NextCh = '_');
+      if (not PrevIsWord) and (not NextIsWord) then
+        Exit(True);
+      Inc(p);
+    end;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
 // mx_update_doc — Update document with optimistic locking
 // ---------------------------------------------------------------------------
 function HandleUpdateDoc(const AParams: TJSONObject;
@@ -789,7 +834,7 @@ function HandleUpdateDoc(const AParams: TJSONObject;
 var
   Qry: TFDQuery;
   DocId, ProjectId: Integer;
-  Title, Content, Status, DocType, Summary1, Summary2,
+  Title, Content, AppendContent, OldContent, Status, DocType, Summary1, Summary2,
     ChangeReason, ChangedBy, ExpectedUpdatedAt, NewUpdatedAt,
     ProjectSlug, CurrentDocType, CurrentTitle, NewProject: string;
   NewProjectId: Integer;
@@ -798,6 +843,8 @@ var
   NextRevision: Integer;
   Fmt: TFormatSettings;
   Data: TJSONObject;
+  OldLen, NewLen: NativeInt;
+  AllowedShrink: Boolean;
 begin
   DocId := AParams.GetValue<Integer>('doc_id', 0);
   if DocId = 0 then
@@ -805,6 +852,7 @@ begin
 
   Title := AParams.GetValue<string>('title', '');
   Content := AParams.GetValue<string>('content', '');
+  AppendContent := AParams.GetValue<string>('append_content', '');
   Status := AParams.GetValue<string>('status', '');
   DocType := AParams.GetValue<string>('doc_type', '');
   Summary1 := AParams.GetValue<string>('summary_l1', '');
@@ -816,6 +864,13 @@ begin
   NewProject := AParams.GetValue<string>('project', '');
   NewProjectId := 0;
 
+  // Bug#3018: content vs append_content are mutually exclusive. Accepting both
+  // forces an arbitrary precedence rule and hides intent from the caller.
+  if (Content <> '') and (AppendContent <> '') then
+    raise EMxValidation.Create(
+      'Parameters "content" and "append_content" are mutually exclusive. ' +
+      'Use "content" to REPLACE the body, "append_content" to GROW it.');
+
   // Validate status if provided
   if (Status <> '') and not MatchStr(Status, ['draft', 'active', 'completed',
       'superseded', 'archived', 'reported', 'confirmed', 'fixed', 'rejected', 'accepted',
@@ -823,17 +878,19 @@ begin
       'open', 'in_progress', 'done', 'deferred']) then
     raise EMxValidation.CreateFmt('Invalid status "%s"', [Status]);
 
-  // Validate doc_type if provided (Bug #352)
-  if (DocType <> '') and not MatchStr(DocType, ['plan', 'spec', 'decision', 'status',
-      'workflow_log', 'session_note', 'finding', 'reference', 'snippet',
-      'note', 'bugreport', 'feature_request', 'todo', 'assumption', 'lesson']) then
+  // Validate doc_type if provided (Bug #352, Bug#3034: + skill)
+  if (DocType <> '') and not IsAllowedDocType(DocType) then
     raise EMxValidation.CreateFmt('Invalid doc_type "%s"', [DocType]);
 
   // Build dynamic SET clause (before transaction)
+  // Bug#3018: append_content path also writes to docs.content after
+  // in-TX concatenation. Add the SET fragment once up front so the
+  // bind site below can populate it regardless of which parameter
+  // originally arrived.
   SetParts := '';
   if Title <> '' then
     SetParts := SetParts + 'title = :title, ';
-  if Content <> '' then
+  if (Content <> '') or (AppendContent <> '') then
     SetParts := SetParts + 'content = :content, ';
   if Status <> '' then
     SetParts := SetParts + 'status = :status, ';
@@ -847,10 +904,11 @@ begin
   // Project move: add to SET, resolve inside transaction
   if NewProject <> '' then
     SetParts := SetParts + 'project_id = :project_id, ';
-  // Confidence: verified=true → 1.00, content change → 0.80
+  // Confidence: verified=true -> 1.00, content change -> 0.80
+  // Bug#3018: append_content is also a content change.
   if Verified then
     SetParts := SetParts + 'confidence = 1.00, '
-  else if Content <> '' then
+  else if (Content <> '') or (AppendContent <> '') then
     SetParts := SetParts + 'confidence = 0.80, ';
 
   if SetParts = '' then
@@ -924,6 +982,70 @@ begin
         raise EMxConflict.Create('Document was modified since last read');
     end;
 
+    // Bug#3018: destructive-write safety. Load current body when the caller
+    // is touching content at all, then either (a) concatenate for append_content
+    // or (b) run a length-delta gate for content. Both paths leave `Content`
+    // holding the final body to bind below.
+    if (Content <> '') or (AppendContent <> '') then
+    begin
+      OldContent := '';
+      // Bug#3018 W7: FOR UPDATE prevents lost-update race — a concurrent
+      // writer cannot commit between this SELECT and the UPDATE below.
+      // Prior art: mx.Tool.Session.pas:473 (same FireDAC+MariaDB pattern).
+      Qry := AContext.CreateQuery(
+        'SELECT content FROM documents WHERE id = :id FOR UPDATE');
+      try
+        Qry.ParamByName('id').AsInteger := DocId;
+        Qry.Open;
+        if not Qry.IsEmpty then
+          OldContent := Qry.FieldByName('content').AsString;
+      finally
+        Qry.Free;
+      end;
+
+      if AppendContent <> '' then
+      begin
+        // Append path: OldContent + blank line + AppendContent becomes the
+        // new body. Empty OldContent degrades to a plain write.
+        if OldContent <> '' then
+          Content := OldContent + sLineBreak + sLineBreak + AppendContent
+        else
+          Content := AppendContent;
+      end
+      else
+      begin
+        // Replace path: length-delta gate. If the new body is under 50%
+        // of the old body and the caller did not mark the shrink as
+        // intentional in change_reason, abort. This is the direct
+        // safeguard against the Session 248 incident where a finding
+        // Fix-Evidence block replaced 12 finding bodies.
+        OldLen := Length(OldContent);
+        NewLen := Length(Content);
+        if (OldLen > 0) and (NewLen * 2 < OldLen) then
+        begin
+          // Bug#3018 W8: word-boundary matcher — substring match via
+          // ContainsText() caused a false-positive bypass when change_reason
+          // mentioned the error name 'E_UNEXPECTED_SHRINK'.
+          AllowedShrink := HasBypassKeyword(ChangeReason);
+          if AllowedShrink then
+            AContext.Logger.Log(mlWarning,
+              Format('[LengthGate] Shrink bypass triggered for doc %d: ' +
+                'old=%d new=%d reason="%s"',
+                [DocId, OldLen, NewLen, ChangeReason]));
+          if not AllowedShrink then
+            raise EMxValidation.CreateFmt(
+              'E_UNEXPECTED_SHRINK: new content (%d chars) is less than 50%% ' +
+              'of existing content (%d chars). Refusing to overwrite. ' +
+              'If this is intentional, include one of ' +
+              '[truncate|rewrite|restructure|shrink|delete|remove|' +
+              'condense|compact|summarize|prune|finalize|archive] in ' +
+              'change_reason. Otherwise use append_content to grow the body. ' +
+              'See Bug#3018.',
+              [NewLen, OldLen]);
+        end;
+      end;
+    end;
+
     // UPDATE document
     Qry := AContext.CreateQuery(
       'UPDATE documents SET ' + SetParts + ' WHERE id = :id');
@@ -950,6 +1072,7 @@ begin
     end;
 
     // INSERT revision if content changed
+    // Load-bearing for append path: Content was rebuilt above as OldContent + sep + AppendContent
     if Content <> '' then
     begin
       // Get next revision number

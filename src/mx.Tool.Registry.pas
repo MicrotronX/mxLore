@@ -251,12 +251,13 @@ begin
   ARegistry
     .Add('mx_search', HandleSearch)
     .Desc('Full-text search across documents. Also replaces mx_list_notes (use doc_type+tag filter).')
-    .Param('query', mptString, False, 'Search query (optional when using doc_type/tag filters)')
+    .Param('query', mptString, False, 'Search query (optional when using doc_type/tag/status/since filters)')
     .Param('scope', mptString, False, 'project or all (def all)')
     .Param('project', mptString, False, 'Project slug')
     .Param('doc_type', mptString, False, 'Filter by type (comma-sep)')
     .Param('tag', mptString, False, 'Filter by tag')
     .Param('status', mptString, False, 'Filter by status (e.g. active, archived)')
+    .Param('since', mptString, False, 'ISO 8601 cutoff — only docs with updated_at >= since (Bug#3033)')
     .Param('token_budget', mptInteger, False, 'Max tokens (def 1500)')
     .Param('include_content', mptBoolean, False, 'Include content if <=3 results')
     .Param('include_details', mptBoolean, False, 'Include content+relations if <=5 results')
@@ -275,6 +276,20 @@ begin
     .Desc('Multiple documents in one call (max 10)')
     .Param('doc_ids', mptArray, True, 'Array of document IDs')
     .Param('level', mptString, False, 'Detail level: full (default) or summary (no content)')
+    .Param('session_id', mptInteger, False, 'Session ID');
+
+  ARegistry
+    .Add('mx_doc_revisions', HandleDocRevisions)
+    .Desc('List revisions of a document from doc_revisions (previews only). ACL: dev must have read access to document project.')
+    .Param('doc_id', mptInteger, True, 'Document ID')
+    .Param('limit', mptInteger, False, 'Max revisions 1-100 (def 20)')
+    .Param('session_id', mptInteger, False, 'Session ID');
+
+  ARegistry
+    .Add('mx_get_revision', HandleGetRevision)
+    .Desc('Fetch full body of a specific revision. ACL: dev must have read access to document project.')
+    .Param('doc_id', mptInteger, True, 'Document ID')
+    .Param('revision', mptInteger, True, 'Revision number (1-based)')
     .Param('session_id', mptInteger, False, 'Session ID');
 
   // ---- WRITE TOOLS ----
@@ -306,7 +321,8 @@ begin
     .Desc('Update a document (with optimistic locking and revision tracking)')
     .Param('doc_id', mptInteger, True, 'Document ID')
     .Param('title', mptString, False, 'New title')
-    .Param('content', mptString, False, 'New content (triggers revision)')
+    .Param('content', mptString, False, 'New content REPLACES body (triggers revision). Use append_content to grow the body instead. Threshold 50% shrink. Bypass: change_reason contains truncate|rewrite|restructure|shrink|delete|remove|condense|compact|summarize|prune|finalize|archive (case-insensitive).')
+    .Param('append_content', mptString, False, 'Append to existing body with a blank-line separator (triggers revision). Mutually exclusive with content. Bug#3018 safe-append path.')
     .Param('status', mptString, False, 'draft, active, archived, superseded')
     .Param('doc_type', mptString, False, 'Change type')
     .Param('summary_l1', mptString, False, 'Updated L1 summary')

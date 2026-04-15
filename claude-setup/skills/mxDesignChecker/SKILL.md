@@ -4,6 +4,14 @@ description: Use when the user says "/designcheck", "/mxDesignChecker", "review 
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash
 ---
 
+## Output Format ⚡ (Bug#2989 F6 — Reasoning-Leak Fix)
+
+**FIRST line of every response = `### REPORT ###` EXACTLY. Position 0. Nothing before.**
+
+Forbidden pre-marker content: prosa, reasoning sentences, "I will now...", "All done.", "Producing final report.", blank lines, markdown heading prefixes. The marker IS the first character-run of the first line, or the report is INVALID.
+
+Why: Cross-skill reasoning-leak pattern — 5/5 mx*-Skill-Subagents leaked internal reasoning above report body in Live-Test Session 2026-04-15 (doc#3017). Observed even after partial rule introduction ("All done. Producing final report." pre-marker prosa). Strict Position-0 anchors the rule.
+
 # /mxDesignChecker — Design & Code Review (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
 > **Context:** ALWAYS as subagent(Agent-Tool) !main-context. Result: max 20 lines, findings only. Called from brainstorming(Design) and executing-plans(Code).

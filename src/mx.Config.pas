@@ -374,7 +374,7 @@ begin
     FEmbeddingMaxInputChars := Ini.ReadInteger('AI', 'EmbeddingMaxInputChars', 30000);
     FEmbeddingTimeoutMs := Ini.ReadInteger('AI', 'EmbeddingTimeoutMs', 30000);
     FEmbeddingDocTypes := Ini.ReadString('AI', 'EmbeddingDocTypes',
-      'spec,plan,decision,lesson,note,reference,snippet,bugreport,feature_request,todo,assumption');
+      'spec,plan,decision,lesson,note,reference,snippet,bugreport,feature_request,todo,assumption,skill');
     FSemanticWeight := StrToFloatDef(
       Ini.ReadString('AI', 'SemanticWeight', '0.4'), 0.4);
     FKeywordWeight := StrToFloatDef(

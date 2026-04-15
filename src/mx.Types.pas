@@ -104,9 +104,14 @@ type
 procedure MxSetThreadAuth(const AResult: TMxAuthResult);
 function MxGetThreadAuth: TMxAuthResult;
 
+// --- doc_type whitelist (Wave 2c: consolidates 4 parallel copies in
+//     mx.Tool.Read/Write/Write.Batch that drifted twice — Bug#3012 + FAIL#7).
+//     Single source of truth; add new doc_types HERE and nowhere else. ---
+function IsAllowedDocType(const AValue: string): Boolean;
+
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 93;  // Build 93: Bug#2798 AI-Batch duplicate-key slug-pre-check + Bug#2866 mx_fetch caller_id redesign + Bug#2889 VARCHAR input-clamp family (ClampTitle/Slug/ChangeReason) + Bug#2928 admin-UI Check-for-Update no-feedback fix.
+  MXAI_BUILD   = 94;  // Build 94 (Session 248, WF-2026-04-15-007 Phase 3d): Bug#3011 mx_search since= param (ISO8601 date-only + AsDateTime bind) + Bug#3012 doc_type='skill' whitelist (4 sites + shared const) + Bug#3018 mx_update_doc destructive-write safety (append_content param + 50% length-gate with 12-keyword bypass + FOR UPDATE race-hardening) + Wave 2a quality fixes (relevance CASE skill branch, EmbeddingDocTypes, admin stats, NativeInt length math) + Wave 2b new tools (mx_doc_revisions + mx_get_revision) + Wave 2c whitelist consolidation (mx.Types.AllowedDocTypes).
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';
@@ -117,6 +122,29 @@ var
   MXAI_ADMIN_PORT: Integer;    // Set from INI at boot (for mx_ping)
 
 implementation
+
+const
+  // Wave 2c: single source of truth for doc_type whitelist.
+  // Previously duplicated in mx.Tool.Read (mx_search),
+  // mx.Tool.Write (mx_create_doc + mx_update_doc) and
+  // mx.Tool.Write.Batch (mx_batch_create). Drifted twice
+  // (Bug#3012 initial + FAIL#7 batch-path follow-up).
+  cAllowedDocTypes: array[0..15] of string = (
+    'plan', 'spec', 'decision', 'status',
+    'workflow_log', 'session_note', 'finding', 'reference',
+    'snippet', 'note', 'bugreport', 'feature_request',
+    'todo', 'assumption', 'lesson', 'skill'
+  );
+
+function IsAllowedDocType(const AValue: string): Boolean;
+var
+  I: Integer;
+begin
+  for I := Low(cAllowedDocTypes) to High(cAllowedDocTypes) do
+    if cAllowedDocTypes[I] = AValue then
+      Exit(True);
+  Result := False;
+end;
 
 { TNullEventBus }
 

@@ -127,7 +127,7 @@ Schema v2, stack rules, and internal operations → `references/state-schema.md`
 4. Log event (type='resume')
 5. **⚡ Reconciliation (Session-Boundary Sync):** `mx_detail` + compare local vs MCP, push/pull whichever is ahead, handle archived; **diverged → STOP + ask user which version to keep (NEVER silently overwrite)**; clamp; set `state.last_reconciliation = now()`. Full decision tree → `references/reconciliation.md`.
 6. Identify next pending step from reconciled state
-7. Output: `WF "<Name>" resumed. Progress: <X>/<Y>. Next step: <Description>.`
+7. Output: `WF "<Name>" resumed. Progress: <X>/<Y>. Next step: <Description>.` — followed by the `state_deltas` band line per the Rules section (structured timestamps only, no `gestern`/`heute` free-form)
 8. Auto-invoke next step
 
 **Backward-compatible:** `--resume` without active stack→open-items list as before (Phase 1 context load)
@@ -153,6 +153,7 @@ Full overview:
 - **Active MCP Docs:** `mx_search(project, doc_type='workflow_log,plan,spec', status='active')`→show only open
 - **Recently archived:** `mx_search(project, doc_type='workflow_log,plan,spec', status='archived', limit=5)`→last 5 completed
 - **Open items:** MCP-Notes(status='active') + status.md (deduplicated against MCP)
+- **Save signal:** append `state_deltas` band line per the Rules section (silent at 0; marketing/tip/compact-question at `>=1`/`>=10`/`>=15`). Timestamps inside event descriptions MUST be structured (`YYYY-MM-DD HH:MM`), never relative natural language.
 
 ## Mode 7: Suggest
 1. Active WF→next step
@@ -227,3 +228,7 @@ Hook reports `JUST_COMPLETED` (WF completed <5min ago) + substantive prompt
 - UTF-8 without BOM. Prefer MCP, local=fallback
 - Workflow templates: `docs/workflows.md`(project, priority) then `~/.claude/skills/mxOrchestrate/workflows.md`(global)
 - ⚡ **Token Discipline (state-file):** orchestrate-state.json writes: Edit for incremental changes (1-5 fields), background subagent for full rewrites — keep token cost low in main context
+- ⚡ **Structured `events_log.detail` (Bug#2989 Findings 2+5):** `events_log[*].detail` MUST be a factual fragment that can survive re-read without introducing hallucinations. Forbidden inside `detail`: relative temporal natural language (`gestern`, `heute`, `vorhin`, `yesterday`, `today`, `earlier`, `just now`). Allowed: doc_ids, WF-IDs, short factual summaries (e.g. `Step 2 → done, spec doc#2988 created, 8 AC + 4 OQ`), ISO timestamps when a time must be referenced. Rationale: a subagent on the next call reads the state file and will echo any hallucinated adverb as if it were ground truth — propagation confirmed live in mxTicketSystem Session #255. Schema + examples → `references/state-schema.md`.
+- ⚡ **Temporal-language rule (Bug#2989 Finding 1):** when reporting past events in ANY output (resume report, step-done summary, status overview, mode outputs), MUST use structured timestamps (`YYYY-MM-DD HH:MM` or `<N>h ago` computed from `now() - event.ts`). Free-form natural-language adverbs (`gestern`, `heute`, `vorhin`) are FORBIDDEN unless derived from a live `now() - event.ts` calculation (same-calendar-day → `today`, previous-calendar-day → `yesterday`, etc., never invented).
+- ⚡ **Counts-from-tool-calls rule (Bug#2989 Finding 4):** any numeric claim about document contents (`N open tasks`, `X/Y done`, `3 pending`) MUST come from a structured tool call: `mx_detail` for pending-task counts inside a plan/spec, `mx_search` `data` array length for result counts. Counts derived from prose snippets inside `mx_search` summaries are FORBIDDEN. If a count cannot be verified within the current tool-budget, either omit the number or prefix with `estimated, unverified`.
+- ⚡ **`state_deltas` output signal (Bug#2989 Finding 3 + global mx-rules Persist section):** every Mode 5 (Resume), Mode 6 (Status), and Auto-Invoke step-done output MUST emit a deltas-band line based on `state.state_deltas` (the running counter of changes since the last `/mxSave` reset — NOT `state.last_save_deltas`, which is a pre-reset snapshot owned by mxSave Step 4 per Spec#2152 and MUST NOT be written from here). Bands: `== 0` silent; `>= 1 AND < 10` append marketing line `⚡ mxLore knows — /mxSave keeps context alive across /compact + /clear`; `>= 10 AND < 15` append tip line `⚡ <N> deltas since save — consider /mxSave soon`; `>= 15` append compact-question line `⚡ <N> deltas since save — /mxSave + /compact cycle recommended`. mxOrchestrate reads `state_deltas` (live counter) and `last_save_deltas` (historical snapshot for the previous save cycle, informational only); it NEVER writes either field — mxSave is the sole writer of both per Spec#2152.

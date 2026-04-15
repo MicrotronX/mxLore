@@ -20,6 +20,10 @@ function HandleDetail(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
 function HandleBatchDetail(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
+function HandleDocRevisions(const AParams: TJSONObject;
+  AContext: IMxDbContext): TJSONObject;
+function HandleGetRevision(const AParams: TJSONObject;
+  AContext: IMxDbContext): TJSONObject;
 
 implementation
 
@@ -180,6 +184,7 @@ begin
     '          WHEN d2.doc_type = ''reference'' THEN 0.6 ' +
     '          WHEN d2.doc_type = ''spec'' THEN 0.5 ' +
     '          WHEN d2.doc_type = ''plan'' THEN 0.5 ' +
+    '          WHEN d2.doc_type = ''skill'' THEN 0.55 ' +
     '          WHEN d2.doc_type = ''note'' THEN 0.4 ' +
     '          WHEN d2.doc_type = ''session_note'' THEN 0.3 ' +
     '          WHEN d2.doc_type = ''workflow_log'' THEN 0.3 ' +
@@ -447,7 +452,8 @@ function HandleSearch(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
 var
   Qry, SubQry: TFDQuery;
-  Query, Scope, ProjectSlug, DocType, Tag, StatusFilter, RowProjSlug, IdList, SQL: string;
+  Query, Scope, ProjectSlug, DocType, Tag, StatusFilter, SinceStr, NormSinceStr, RowProjSlug, IdList, SQL: string;
+  SinceDT: TDateTime;
   DocParts: TArray<string>;
   TokenBudget, ProjId, I, MaxLimit: Integer;
   Data: TJSONArray;
@@ -478,11 +484,29 @@ begin
   if MaxLimit < 1 then MaxLimit := 1;
   if MaxLimit > 50 then MaxLimit := 50;
   IncludeDetails := AParams.GetValue<Boolean>('include_details', False);
+  // Bug#3033: since filter — ISO 8601 cutoff, matches mx_session_delta pattern
+  SinceStr := Trim(AParams.GetValue<string>('since', ''));
+  SinceDT := 0;
+  if SinceStr <> '' then
+  begin
+    // Accept date-only form (YYYY-MM-DD) by normalizing to midnight, because
+    // Delphi's ISO8601ToDate requires a 'T'-datetime component. Parse once
+    // and bind as TDateTime (AsDateTime), mirroring mx_session_delta:697-702.
+    if Length(SinceStr) = 10 then
+      NormSinceStr := SinceStr + 'T00:00:00'
+    else
+      NormSinceStr := SinceStr;
+    try
+      SinceDT := ISO8601ToDate(NormSinceStr, False);
+    except
+      raise EMxValidation.Create('Invalid "since" timestamp (expected ISO 8601)');
+    end;
+  end;
 
   Query := Trim(Query);
-  // B6.2: query is now optional when using doc_type/tag/status filters
-  if (Query = '') and (DocType = '') and (Tag = '') and (StatusFilter = '') then
-    raise EMxValidation.Create('At least one of query, doc_type, tag, or status is required');
+  // B6.2: query is now optional when using doc_type/tag/status/since filters
+  if (Query = '') and (DocType = '') and (Tag = '') and (StatusFilter = '') and (SinceStr = '') then
+    raise EMxValidation.Create('At least one of query, doc_type, tag, status, or since is required');
 
   // Bug #549: Pure wildcard queries ('*', '**') are not valid for MySQL FTS.
   if Query <> '' then
@@ -496,9 +520,7 @@ begin
     for I := 0 to High(DocParts) do
     begin
       DocParts[I] := Trim(DocParts[I]);
-      if not MatchStr(DocParts[I], ['plan', 'spec', 'decision', 'status',
-          'workflow_log', 'session_note', 'finding', 'reference', 'snippet',
-          'note', 'bugreport', 'feature_request', 'todo', 'assumption', 'lesson']) then
+      if not IsAllowedDocType(DocParts[I]) then
         raise EMxValidation.CreateFmt('Invalid doc_type "%s"', [DocParts[I]]);
       if I > 0 then DocType := DocType + ',';
       DocType := DocType + DocParts[I];
@@ -553,6 +575,9 @@ begin
         SQL := SQL + ' AND EXISTS (SELECT 1 FROM doc_tags dt WHERE dt.doc_id = d.id AND FIND_IN_SET(dt.tag, :tag) > 0)';
       if StatusFilter <> '' then
         SQL := SQL + ' AND d.status = :status';
+      // Bug#3033: since filter — updated_at cutoff (inclusive)
+      if SinceStr <> '' then
+        SQL := SQL + ' AND d.updated_at >= :since';
       SQL := SQL +
         ' AND MATCH(d.title, d.summary_l2, d.content) ' +
         'AGAINST(:query IN NATURAL LANGUAGE MODE) ' +
@@ -577,6 +602,9 @@ begin
         SQL := SQL + ' AND EXISTS (SELECT 1 FROM doc_tags dt WHERE dt.doc_id = d.id AND FIND_IN_SET(dt.tag, :tag) > 0)';
       if StatusFilter <> '' then
         SQL := SQL + ' AND d.status = :status';
+      // Bug#3033: since filter — updated_at cutoff (inclusive)
+      if SinceStr <> '' then
+        SQL := SQL + ' AND d.updated_at >= :since';
       SQL := SQL + ' ORDER BY d.updated_at DESC LIMIT ' + IntToStr(MaxLimit);
     end;
 
@@ -592,6 +620,9 @@ begin
         Qry.ParamByName('tag').AsString := LowerCase(Trim(Tag));
       if StatusFilter <> '' then
         Qry.ParamByName('status').AsString := StatusFilter;
+      // Bug#3033: since binding — TDateTime bind, matches mx_session_delta pattern (Session.pas:697-702)
+      if SinceStr <> '' then
+        Qry.ParamByName('since').AsDateTime := SinceDT;
       Qry.Open;
 
       Data := TJSONArray.Create;
@@ -1204,6 +1235,175 @@ begin
       raise;
     end;
     IdMap.Free;
+  finally
+    Qry.Free;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// mx_doc_revisions — List recent revisions of a document (Wave 2b, Bug#3018
+// follow-up). Reads the doc_revisions table populated by mx_update_doc.
+// ACL: same project-read check as mx_detail.
+// ---------------------------------------------------------------------------
+function HandleDocRevisions(const AParams: TJSONObject;
+  AContext: IMxDbContext): TJSONObject;
+var
+  Qry: TFDQuery;
+  DocId, ProjectId, MaxLimit: Integer;
+  ProjectSlug: string;
+  Data: TJSONObject;
+  Revisions: TJSONArray;
+  Row: TJSONObject;
+begin
+  DocId := AParams.GetValue<Integer>('doc_id', 0);
+  if DocId = 0 then
+    raise EMxValidation.Create('Parameter "doc_id" is required');
+
+  MaxLimit := AParams.GetValue<Integer>('limit', 20);
+  if MaxLimit < 1 then MaxLimit := 1;
+  if MaxLimit > 100 then MaxLimit := 100;
+
+  // Query 1: Resolve document + ACL on project (mirrors HandleDetail pattern)
+  Qry := AContext.CreateQuery(
+    'SELECT d.project_id, p.slug AS project ' +
+    'FROM documents d ' +
+    'JOIN projects p ON d.project_id = p.id ' +
+    'WHERE d.id = :doc_id AND p.is_active = TRUE');
+  try
+    Qry.ParamByName('doc_id').AsInteger := DocId;
+    Qry.Open;
+    if Qry.IsEmpty then
+      raise EMxNotFound.Create('Document not found: ' + IntToStr(DocId));
+    ProjectId := Qry.FieldByName('project_id').AsInteger;
+    ProjectSlug := Qry.FieldByName('project').AsString;
+  finally
+    Qry.Free;
+  end;
+
+  if not AContext.AccessControl.CheckProject(ProjectId, alRead) then
+    raise EMxAccessDenied.Create(ProjectSlug, alRead);
+
+  // Query 2: List revisions (newest first)
+  Revisions := TJSONArray.Create;
+  Qry := AContext.CreateQuery(
+    'SELECT id, revision, changed_at, changed_by, change_reason, ' +
+    '  LENGTH(content) AS content_length, LEFT(content, 100) AS content_preview ' +
+    'FROM doc_revisions ' +
+    'WHERE doc_id = :doc_id ' +
+    'ORDER BY revision DESC ' +
+    'LIMIT :lim');
+  try
+    Qry.ParamByName('doc_id').AsInteger := DocId;
+    Qry.ParamByName('lim').AsInteger := MaxLimit;
+    Qry.Open;
+    while not Qry.Eof do
+    begin
+      Row := TJSONObject.Create;
+      Row.AddPair('revision_id',
+        TJSONNumber.Create(Qry.FieldByName('id').AsInteger));
+      Row.AddPair('revision',
+        TJSONNumber.Create(Qry.FieldByName('revision').AsInteger));
+      Row.AddPair('changed_at', Qry.FieldByName('changed_at').AsString);
+      Row.AddPair('changed_by', Qry.FieldByName('changed_by').AsString);
+      Row.AddPair('change_reason', Qry.FieldByName('change_reason').AsString);
+      Row.AddPair('content_length',
+        TJSONNumber.Create(Qry.FieldByName('content_length').AsInteger));
+      Row.AddPair('content_preview', Qry.FieldByName('content_preview').AsString);
+      Revisions.Add(Row);
+      Qry.Next;
+    end;
+  finally
+    Qry.Free;
+  end;
+
+  Data := TJSONObject.Create;
+  try
+    Data.AddPair('doc_id', TJSONNumber.Create(DocId));
+    Data.AddPair('project', ProjectSlug);
+    Data.AddPair('count', TJSONNumber.Create(Revisions.Count));
+    Data.AddPair('limit', TJSONNumber.Create(MaxLimit));
+    Data.AddPair('revisions', Revisions);
+    Result := MxSuccessResponse(Data);
+  except
+    Data.Free;
+    raise;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// mx_get_revision — Fetch the full body of one revision (Wave 2b).
+// ACL: same project-read check as mx_detail. Raises EMxNotFound when the
+// (doc_id, revision) pair does not exist.
+// ---------------------------------------------------------------------------
+function HandleGetRevision(const AParams: TJSONObject;
+  AContext: IMxDbContext): TJSONObject;
+var
+  Qry: TFDQuery;
+  DocId, RevNum, ProjectId: Integer;
+  ProjectSlug: string;
+  Data: TJSONObject;
+begin
+  DocId := AParams.GetValue<Integer>('doc_id', 0);
+  if DocId = 0 then
+    raise EMxValidation.Create('Parameter "doc_id" is required');
+  RevNum := AParams.GetValue<Integer>('revision', 0);
+  if RevNum = 0 then
+    raise EMxValidation.Create('Parameter "revision" is required');
+
+  // Query 1: Resolve document + ACL on project
+  Qry := AContext.CreateQuery(
+    'SELECT d.project_id, p.slug AS project ' +
+    'FROM documents d ' +
+    'JOIN projects p ON d.project_id = p.id ' +
+    'WHERE d.id = :doc_id AND p.is_active = TRUE');
+  try
+    Qry.ParamByName('doc_id').AsInteger := DocId;
+    Qry.Open;
+    if Qry.IsEmpty then
+      raise EMxNotFound.Create('Document not found: ' + IntToStr(DocId));
+    ProjectId := Qry.FieldByName('project_id').AsInteger;
+    ProjectSlug := Qry.FieldByName('project').AsString;
+  finally
+    Qry.Free;
+  end;
+
+  if not AContext.AccessControl.CheckProject(ProjectId, alRead) then
+    raise EMxAccessDenied.Create(ProjectSlug, alRead);
+
+  // Query 2: Load the revision row (full content)
+  Qry := AContext.CreateQuery(
+    'SELECT id, revision, changed_at, changed_by, change_reason, ' +
+    '  content, LENGTH(content) AS content_length ' +
+    'FROM doc_revisions ' +
+    'WHERE doc_id = :doc_id AND revision = :rev ' +
+    'LIMIT 1');
+  try
+    Qry.ParamByName('doc_id').AsInteger := DocId;
+    Qry.ParamByName('rev').AsInteger := RevNum;
+    Qry.Open;
+    if Qry.IsEmpty then
+      raise EMxNotFound.CreateFmt(
+        'Revision not found: doc_id=%d revision=%d', [DocId, RevNum]);
+
+    Data := TJSONObject.Create;
+    try
+      Data.AddPair('doc_id', TJSONNumber.Create(DocId));
+      Data.AddPair('project', ProjectSlug);
+      Data.AddPair('revision_id',
+        TJSONNumber.Create(Qry.FieldByName('id').AsInteger));
+      Data.AddPair('revision',
+        TJSONNumber.Create(Qry.FieldByName('revision').AsInteger));
+      Data.AddPair('changed_at', Qry.FieldByName('changed_at').AsString);
+      Data.AddPair('changed_by', Qry.FieldByName('changed_by').AsString);
+      Data.AddPair('change_reason', Qry.FieldByName('change_reason').AsString);
+      Data.AddPair('content', Qry.FieldByName('content').AsString);
+      Data.AddPair('content_length',
+        TJSONNumber.Create(Qry.FieldByName('content_length').AsInteger));
+      Result := MxSuccessResponse(Data);
+    except
+      Data.Free;
+      raise;
+    end;
   finally
     Qry.Free;
   end;

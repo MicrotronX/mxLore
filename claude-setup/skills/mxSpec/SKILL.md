@@ -4,12 +4,35 @@ description: Use when the user says "/spec", "/mxSpec", "write a spec", "write a
 allowed-tools: Read, Write, Edit, Grep, Glob
 ---
 
+## Output Format ⚡ (Bug#2989 F6 — Reasoning-Leak Fix)
+
+**FIRST line of every response = `### REPORT ###` EXACTLY. Position 0. Nothing before.**
+
+Forbidden pre-marker content: prosa, reasoning sentences, "I will now...", "All done.", "Producing final report.", blank lines, markdown heading prefixes. The marker IS the first character-run of the first line, or the report is INVALID.
+
+Why: Cross-skill reasoning-leak pattern — 5/5 mx*-Skill-Subagents leaked internal reasoning above report body in Live-Test Session 2026-04-15 (doc#3017). Observed even after partial rule introduction ("All done. Producing final report." pre-marker prosa). Strict Position-0 anchors the rule.
+
 # /mxSpec — Create/Update Specification (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
 > **Context:** ALWAYS as subagent(Agent-Tool) !main-context. Result: max 20 lines.
 > **Tokens ⚡:** mx_create_doc/mx_update_doc body >300 words → assemble in this subagent, !echo to parent. mx_detail server default = 600 tokens.
 
 Spec-Agent. Creates/updates specifications in Knowledge-DB via MCP.
+
+## Verification ⚡ (Bug#3010 F1-F4 + Bug#2989 F4)
+
+!invent structural facts. Every spec-body claim about the following MUST be verified via `Grep` or `Read` BEFORE writing — no exceptions:
+
+- **Class names** -> `Grep pattern='class <Name>\b' glob='*.php,*.pas,*.ts,*.js,*.py'` — must return at least one hit
+- **Method / function names** -> `Grep pattern='function <name>\b|def <name>\b|procedure <name>\b'` — must return a hit (storeTicket vs store, saveFoo vs persistFoo, etc.)
+- **File paths** (views, templates, controllers, units) -> `Glob pattern='<path>'` — must return a match. ⚡ Underscore vs hyphen matters: `notification_filters/create.php` != `notification-filters/form.php`. Never paraphrase a path from memory.
+- **i18n / language-key namespaces** -> `Grep pattern="'<prefix>\." glob='lang/**/*.php,locales/**/*.json,resources/lang/**'` — prefix must exist. `notification_filter.*` and `notification_filters.*` are NOT the same key.
+- **AC / test counts** when claiming "existing test has N cases" -> `Read` the test file AND count actual `it(`/`test(`/`assert` lines. !extrapolate from a summary or from memory.
+- **Plan / ADR / doc IDs** referenced in Related or body prose -> `mx_search` or `mx_detail` confirmation before writing the ID. Do not cite `Plan#145` unless you have just seen doc_id=145 exist.
+
+If verification fails -> EITHER drop the claim ENTIRELY, OR mark it explicitly as `**unverified:** <reason>` inline in the spec body. Never write a plausible-sounding name without proof. Downstream `/mxDesignChecker` catches unverified claims, but the first line of defense is here at write-time — do not outsource integrity to the reviewer.
+
+Why: Live-Test 2026-04-15 (WF-2026-04-15-007) documented 4 hallucinations in a single spec run — `storeTicket()` vs actual `store()`, `views/notification_filters/create.php` vs actual `views/notification-filters/form.php`, 18 vs actual 19 AC cases, `notification_filter.*` vs actual `notification_filters.*` namespace. Parallel run surfaced unverified `Plan#145` citation (Bug#2989 F4). Root cause: mxSpec did not Grep/Glob-verify names against filesystem before writing the body. See Bug#3010 F1-F4 + Bug#2989 F4.
 
 ## Init
 1. CLAUDE.md→`**Slug:**`=project-param. ∅slug→?user
