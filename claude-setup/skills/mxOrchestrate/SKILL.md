@@ -1,10 +1,7 @@
 ---
 name: mxOrchestrate
-description: "Persistent Session Orchestrator. Always-on via Hooks. Manages workflows (stack), ad-hoc tasks, team agents, and skill chains. Central coordinator for all session activities via MCP."
-user-invocable: true
-effort: medium
+description: Persistent session orchestrator for mxLore. This skill should be used when the user says "park", "resume", "what's my workflow status", "/mxOrchestrate start/track/park/resume/status/suggest", "start a new feature/bugfix workflow", "track this as ad-hoc", "spawn a team agent", or when a session begins and workflow state must be loaded. Always-on via SessionStart/UserPromptSubmit hooks. Manages workflow stack (LIFO), ad-hoc tasks, team agents, and skill chains.
 allowed-tools: Read, Write, Edit, Grep, Glob, Skill, Agent
-argument-hint: "init | start <type> | track <note> | park [reason] | resume [id] | status | suggest | --resume"
 ---
 
 # /mxOrchestrate — Persistent Session Orchestrator (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
@@ -16,6 +13,13 @@ Central session manager. Manages workflow stack, ad-hoc tasks, team agents.
 Skills **auto-execute fully**. Only ask user for **optional steps**.
 **Spec:** #1089 | **Plan:** #1090
 
+## Trigger phrases
+
+This skill fires on:
+- `/mxOrchestrate start <type>`, `/mxOrchestrate track <note>`, `/mxOrchestrate park`, `/mxOrchestrate resume [id]`, `/mxOrchestrate status`, `/mxOrchestrate suggest`
+- Natural language: "park this", "resume my workflow", "what's my workflow status", "start a new feature/bugfix", "track this as ad-hoc", "spawn a team agent for X"
+- Automatic: SessionStart, UserPromptSubmit (every prompt, 3-line context), [DORMANT] PreCompact/PostCompact
+
 ## Architecture
 ```
 SessionStart Hook → loads state, informs Claude (no questions!)
@@ -23,6 +27,7 @@ UserPromptSubmit Hook → injects 3-line context on every prompt
 mxOrchestrate Skill → brain: routing, tracking, control
 MCP = Source of Truth | .claude/orchestrate-state.json = Cache
 ```
+Full hook documentation + dormant PreCompact/PostCompact note → `references/hooks.md`.
 
 ## Init (Pre-Routing, EVERY call)
 1. CLAUDE.md→`**Slug:**`=project-param. ∅slug→?user
@@ -37,22 +42,8 @@ MCP = Source of Truth | .claude/orchestrate-state.json = Cache
 5. → Mode routing by argument
 
 ## Auto-Detect: Project Setup
-Runs in pre-routing after session setup. ⚡ 0 extra MCP calls — uses mx_session_start response + max 2x Glob.
 
-1. **CLAUDE.md check** (always, 1x Glob):
-   - Glob: `CLAUDE.md` in project root → ∅match = setup missing
-   - → User: "Project has no AI config. Run `/mxInitProject`? (1=yes/2=no)"
-   - ⚡ Only suggest, never auto-execute
-2. **MCP project check** (MCP-mode only, only if mx_session_start ran):
-   - mx_session_start response contains "project not found" → project not registered
-   - If CLAUDE.md present: → User: "Project not in MCP. `/mxInitProject` registers it. (1=yes/2=no)"
-   - If CLAUDE.md missing: integrate into suggestion from step 1
-3. **Local migration candidates** (MCP-mode only + project exists, 1x Glob):
-   - Glob: `docs/*.md` (NOT recursive)
-   - Allow-list: `status.md`, `workflows.md`
-   - Matches outside allow-list → User: "N local docs found (list). Run `/mxMigrateToDb`? (1=yes/2=no)"
-   - ⚡ Only suggest, never auto-execute
-4. **All checks OK → no message** (no noise for correctly configured projects)
+Runs in pre-routing after session setup. 0 extra MCP calls — uses `mx_session_start` response + up to 2 Globs. Checks CLAUDE.md presence, MCP project registration, local migration candidates. Full decision tree → `references/auto-detect.md`. ⚡ Only suggests, never auto-executes.
 
 ## Modes
 | Argument | Mode |
@@ -61,47 +52,29 @@ Runs in pre-routing after session setup. ⚡ 0 extra MCP calls — uses mx_sessi
 | `start <type>` (`new-feature`, `bugfix`, `decision`, `<custom>`) | 2: Start workflow (stack push) |
 | `track <note>` | 3: Log ad-hoc task |
 | `park [reason]` | 4: Park active WF (stack push-down) |
-| `resume [id]` | 5: Resume WF (stack pop / ID select) |
-| `--resume` | 5: Alias for resume (backward-compatible) |
+| `resume [id]` / `--resume` | 5: Resume WF (stack pop / ID select) |
 | `status` | 6: Full overview |
 | `suggest` | 7: Suggest next step |
 
+## Tool Budget per Mode
+
+⚡ Token discipline — main-context cost per mode:
+
+| Mode | MCP calls | State writes |
+|------|-----------|--------------|
+| init | 1 mx_session_start, 1 mx_ping (or skip if cached <12h) | 1 Write (full state) |
+| start | 1 mx_create_doc | 1 Edit (append WF to stack) |
+| track | 1 mx_create_doc | 1 Edit (append to adhoc_tasks) |
+| park | 0 | 1 Edit (status flip + reorder) |
+| resume | 1 mx_detail, conditional 1 mx_update_doc | 1 Edit (stack reorder + reconcile) |
+| status | 2 mx_search (plans/specs + notes) | 0 |
+| suggest | 0 | 0 |
+
+**Edit vs Write:** use Edit for 1-5 field changes (surgical). Background subagent Write for full rewrites only. NEVER full-rewrite state.json from main context.
+
 ## State File (.claude/orchestrate-state.json)
 
-**Schema v2 (Spec#1161):**
-```json
-{
-  "schema_version": 2,
-  "session_id": "<int|null>",
-  "workflow_stack": [{"id","name","doc_id","doc_revision","status","current_step","total_steps","started","unsynced"}],
-  "adhoc_tasks": [{"note","created","origin_workflow","mcp_note_id"}],
-  "team_agents": [{"id","task","origin_workflow","spawned","status","workflow_id"}],
-  "state_deltas": "<int>",
-  "last_save_deltas": "<int>",
-  "last_save": "<ISO|null>",
-  "last_reconciliation": "<ISO|null>",
-  "events_log": [{"ts","type","wf","detail","synced"}]
-}
-```
-
-**Field `last_save_deltas` (Compact-Cycle, Spec#2152):**
-- Pre-reset Snapshot des `state_deltas`-Werts direkt vor dem Reset in mxSave Step 4
-- Default `0` wenn Feld fehlt (alte State-Files sind abwaertskompatibel)
-- **Single Source of Truth:** Nur mxSave Step 4 schreibt dieses Feld
-- Konsumenten: mxSave Final-Block (2-Stufen-Threshold-Logik), PostCompact-Hook (Re-Brief-Last-Save-Zeile)
-
-**Stack rules:**
-- workflow_stack[0] = active workflow
-- park = move active WF to index 1+, new one at [0]
-- resume = bring WF to [0] (LIFO or by ID)
-- ⚡ Max 5 stack entries. >3 parked→warning "N parked WFs — recommend completing?"
-- state_deltas++: on every step-done, ad-hoc, park, resume, start
-- events_log: log every event immediately {ts, type, wf, detail}
-
-**State operations (internal):**
-- `loadState()`: Read+parse file. Corrupt/missing→return empty state+warning
-- `saveState(state)`: JSON.stringify→write file
-- `addEvent(type, wf, detail)`: Push event to events_log + state_deltas++
+Schema v2, stack rules, and internal operations → `references/state-schema.md`. Key invariant: `last_save_deltas` is owned by mxSave Step 4 (SSoT, Spec#2152). All state writes follow Edit-vs-Write discipline (see Tool Budget table above + Rules section).
 
 ## Mode 1: Init
 1. ⚡ **Forces mx_session_start** in pre-routing (step 3, ignores cached session_id)
@@ -133,11 +106,11 @@ Runs in pre-routing after session setup. ⚡ 0 extra MCP calls — uses mx_sessi
 2. Push to adhoc_tasks[]
 3. Persist to MCP: `mx_create_doc(project, doc_type='todo', title=note, content='Origin: <WF-ID>')`→set mcp_note_id. Error→null (local only)
 4. Log event (type='track_adhoc')
-4. **Escalation check** (Claude decides based on context):
+5. **Escalation check** (Claude decides based on context):
    - **note** (default): Only noted. Workflow continues.
    - **park+start**: Park current WF→Mode 4(park) + Mode 2(start)
    - **spawn**: Start team agent→Mode spawn (see Team Agents)
-5. Output: `Ad-hoc tracked: "<note>" (origin: <WF-ID>). Escalation: <note|park|spawn>.`
+6. Output: `Ad-hoc tracked: "<note>" (origin: <WF-ID>). Escalation: <note|park|spawn>.`
 
 ## Mode 4: Park
 1. Stack[0].status = 'parked', Stack[0].parked_reason = reason
@@ -152,19 +125,7 @@ Runs in pre-routing after session setup. ⚡ 0 extra MCP calls — uses mx_sessi
 2. **With ID:** Find WF by ID in stack→move to [0], shift rest down
 3. WF.status = 'active'
 4. Log event (type='resume')
-5. **⚡ Reconciliation (Session-Boundary Sync):**
-   - ⚡ Pre-check: `doc_id` must be positive integer. If not→remove WF from stack + warn user, skip to next WF
-   - `mx_detail(doc_id)`→parse response:
-     - **Error/NotFound:** remove WF from local stack + warn user "WF deleted in MCP"→skip
-     - **status='archived':** remove WF from local stack + warn user "WF already archived"→skip
-     - **OK:** parse step table→count done steps = `mcp_step`, count total rows = `mcp_total`
-   - Sanity: if local `current_step` > `total_steps`→clamp to `total_steps` + warn
-   - Compare: local `current_step` vs `mcp_step`
-   - If local > MCP (local is ahead): push ALL locally-done steps to MCP via `mx_update_doc(doc_id, content with Steps=done+Timestamps, change_reason='Reconcile: Steps N-M→done')` → update `doc_revision` from response → set `unsynced=false`
-   - If MCP > local (MCP is ahead): update local→`current_step=mcp_step`, `total_steps=mcp_total`, `doc_revision` from response, `unsynced=false`
-   - If both diverged (steps overlap with different results, e.g. team-agent vs local): WARN user, show both versions, ask which to keep before pushing
-   - If equal: no action needed
-   - Set `state.last_reconciliation = now()`
+5. **⚡ Reconciliation (Session-Boundary Sync):** `mx_detail` + compare local vs MCP, push/pull whichever is ahead, handle archived/diverged, clamp, set `state.last_reconciliation = now()`. Full decision tree → `references/reconciliation.md`.
 6. Identify next pending step from reconciled state
 7. Output: `WF "<Name>" resumed. Progress: <X>/<Y>. Next step: <Description>.`
 8. Auto-invoke next step
