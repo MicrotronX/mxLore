@@ -18,19 +18,21 @@ Spec-Agent. Creates/updates specifications in Knowledge-DB via MCP.
 ## Input
 Slug from command argument. ∅arg→?user.
 
-⚡ **Slug validation + normalization:** Before use, enforce `^[a-z0-9-]+$`. If the raw input contains uppercase, underscores, or other characters:
+⚡ **Slug validation + normalization (order matters):**
 1. Lowercase everything
 2. Replace `[^a-z0-9-]` with `-`
 3. Collapse multiple `-` and strip leading/trailing `-`
-4. If the normalized slug differs from input → show both and ask user to confirm before proceeding
-5. Server clamps slug to 100 chars (ClampSlug, Bug#2889) — truncate locally and warn if longer
+4. **Then** enforce length ≤100 chars — truncate at a `-` boundary if possible, strip any trailing `-` after truncation. (Server ClampSlug=100, Bug#2889 — do this locally AFTER normalization to avoid mid-truncation of multi-byte characters or stranded leading `-`.)
+5. Verify the result matches `^[a-z0-9-]+$`
+6. If the normalized slug differs from input → show both and ask user to confirm before proceeding
 
 ## Workflow
 
 ### 0) PRD Context
-- Brainstorming in session→derive PRD from chat, no follow-up questions
-- ∅Brainstorming→4 questions: (1) Problem? (2) Who benefits? (3) What if nothing done? (4) Partial solutions?
-- Updating existing spec→Phase 0 skip
+- **Full brainstorming in session** → derive PRD from chat, no follow-up questions
+- **Partial brainstorming** (some of the 4 PRD facets already surfaced) → identify which facets are missing and ask ONLY those; do NOT re-ask already-covered ground
+- **∅brainstorming** → ask all 4 questions: (1) Problem? (2) Who benefits? (3) What if nothing done? (4) Partial solutions that already exist?
+- **Updating existing spec** → Phase 0 skip entirely
 
 ### 1) Check existence
 
@@ -42,31 +44,32 @@ For each result, verify the slug field matches the normalized input EXACTLY (mx_
 
 ### 2) New Spec
 
-Template → `~/.claude/skills/mxSpec/assets/spec-template.md` (10 sections: Overview, Related, Goals, Non-goals, Requirements, Acceptance Criteria, Interfaces/Data, Edge Cases, Open Questions — plus title/meta lines). ⚡ **Absolute path** — the subagent CWD is the project root, not the skill dir, so a relative `assets/…` read silently fails. If the template file is unreadable, fall back to a minimal inline skeleton (Overview + Requirements + Acceptance Criteria) and warn the user.
+Template → `~/.claude/skills/mxSpec/assets/spec-template.md` (9 sections: Overview, Related, Goals, Non-goals, Requirements, Acceptance Criteria, Interfaces/Data, Edge Cases, Open Questions — plus title/meta lines). ⚡ **Absolute path** — the subagent CWD is the project root, not the skill dir, so a relative `assets/…` read silently fails. If the template file is unreadable, fall back to a minimal inline skeleton (Overview + Requirements + Acceptance Criteria) and warn the user.
 
 ⚡ **Title clamp:** server ClampTitle=255 (Bug#2889). Keep titles short.
 
 **MCP:** `mx_create_doc(project, doc_type='spec', slug='<slug>', title='SPEC: <Title>', content)` — pass `slug` as an explicit parameter (not only inside the content body) so the server can dedupe and the mx_search slug-exact check in step 1 actually works.
 
 **Related handling (iterate, do not stop at first):**
-1. Parse the Related section for ALL referenced ADRs + plans (multiple common)
-2. For each referenced item → `mx_search(project, doc_type='decision,plan', query='<title>', status='active', limit=3)` to resolve target_id
-3. For each resolved target → optional pre-check `mx_graph_query(source=<new spec>, target=<target>, relation_type='references')` to avoid duplicate edges
-4. `mx_add_relation(source=<new spec doc_id>, target=<target doc_id>, relation_type='references')` — ⚡ **Source is ALWAYS the new spec**, target is the referenced ADR/plan. Never reverse.
-5. Loop until all Related items processed.
+1. Parse the Related section for ALL referenced ADRs + plans. **Canonical reference format:** `[ADR-NNNN]` or `[PLAN-slug]` in brackets. Accept case-insensitive variants (`[adr-1234]`, `[Plan-foo]`) by normalizing to uppercase TYPE + original ID. Reject ambiguous formats like `ADR#123` or `adr 123` — log a warning and skip that reference (do not guess).
+2. For each referenced item → `mx_search(project, doc_type='decision,plan', query='<id-or-slug>', status='active', limit=3)` to resolve target_id
+3. For each resolved target → `mx_add_relation(source=<new spec doc_id>, target=<target doc_id>, relation_type='references')` — ⚡ **Source is ALWAYS the new spec**, target is the referenced ADR/plan. Never reverse. The server dedupes duplicate edges, so no pre-check required.
+4. Loop until all Related items processed.
 
-**Local (Fallback):** ensure `docs/specs/` exists (`mkdir -p docs/specs`); if absent create + initial `index.md`. Write `docs/specs/SPEC-<slug>.md` + append index entry + warning.
+**Local (Fallback):** ensure `docs/specs/` exists (`mkdir -p docs/specs`); if `index.md` is absent create it with a minimal header, otherwise APPEND the new entry to the existing index (never overwrite). Write `docs/specs/SPEC-<slug>.md` + warning. ⚡ This fallback violates the ADR-0004 "local docs/ = only CLAUDE.md+status.md" rule — only used when MCP is unavailable; re-sync via `/mxMigrateToDb` once MCP is back.
 
 ### 3) Update Spec
-**MCP:** `mx_detail(doc_id, max_content_tokens=0)` → modify only the target section(s) → update "Last Modified" to today → `mx_update_doc(doc_id, content, change_reason)`.
+**MCP:** `mx_detail(doc_id, max_content_tokens=0)` → modify only the target section(s) → update `Last Modified` to **today in UTC, `YYYY-MM-DD` format** (compute via system clock in UTC to avoid TZ-boundary churn across sessions) → `mx_update_doc(doc_id, content, change_reason)`.
+
+⚡ **TOCTOU guard also applies to Update path:** pin the doc_id from step 1 throughout step 3. Do not re-query by slug mid-update — if a parallel write happens, the reconciliation during the next step 1 will catch the divergence. If `mx_update_doc` returns a revision conflict, surface it to the user; do not silently retry.
 
 ⚡ **`max_content_tokens=0` is REQUIRED for updates** — the server default (600) silently truncates long spec bodies. Writing the truncated content back via `mx_update_doc` causes SILENT DATA LOSS of everything past the cut. The 600-token default is for queries, not edits.
 
 ⚡ **Preserve all headers and existing sections**; edit in place. Editing rules:
 - **Add a requirement / AC:** append a new numbered line under `## Requirements` or a new `- [ ]` under `## Acceptance Criteria`; do NOT replace the whole section.
 - **Complete an AC:** flip `- [ ]` to `- [x]` (or `- [X]`); do NOT remove the line.
-- **Remove an obsolete AC:** annotate as `- [x] ~~original text~~ (dropped)` rather than deleting the line — the strike-through preserves audit history and still counts toward "all done" in the status transition. Do NOT delete AC lines silently.
-- **Resolve an Open Question:** prepend `[resolved] ` and the resolution text; keep the original line.
+- **Remove an obsolete AC:** annotate as `- [x] ~~original text~~ (dropped)` rather than deleting the line. The strike-through preserves audit history. ⚡ **Dropped AC do NOT count toward `M` or `N`** — they are excluded from the status-transition totals (see step 4). Do NOT delete AC lines silently.
+- **Resolve an Open Question:** prepend `[resolved] ` (case-insensitive — `[Resolved]`, `[RESOLVED]`, `[done]`, `[DONE]` all accepted) and the resolution text; keep the original line. The status-transition check matches any of these prefixes as resolved.
 
 ⚡ **Server clamp limits (Bug#2889 ClampVarchar family):** title=255, slug=100, change_reason=500. Keep change_reason concise but the budget is 500 chars. Long values past the limit are silently truncated.
 
@@ -75,21 +78,34 @@ Template → `~/.claude/skills/mxSpec/assets/spec-template.md` (10 sections: Ove
 ### 4) Status Transition (on update)
 After step 3: count Acceptance Criteria lines in the `## Acceptance Criteria` section.
 
-⚡ **AC regex — case-insensitive, column-zero, outside code blocks:**
-- Matches: `^- \[[ xX]\] ` at the start of a line (no indentation), outside fenced code blocks (```...```), and only within the `## Acceptance Criteria` section (not Requirements or Notes).
-- Done: `- [x]` OR `- [X]` (uppercase accepted).
-- Open: `- [ ]` (single space only).
-- Exclude: tab-indented AC, nested-section AC, any `- [ ]` inside ```code blocks```.
+⚡ **AC counting algorithm (explicit, so all agents count the same way):**
+
+```
+in_fence = false
+in_ac_section = false
+M = 0; N = 0
+for each line in content:
+  if line.trim() starts with "```": in_fence = !in_fence; continue
+  if in_fence: continue
+  if line starts with "## ": in_ac_section = (line == "## Acceptance Criteria"); continue
+  if !in_ac_section: continue
+  if line matches /^- \[[ xX]\] / (no leading whitespace):
+    if line contains "~~" AND "(dropped)": continue  # exclude dropped AC
+    M += 1
+    if line matches /^- \[[xX]\] /: N += 1
+```
 
 Counts:
-- **M = total AC** (open + done). **⚡ If M == 0 → skip transition** (empty AC list is not "implemented"; output `Spec has no acceptance criteria yet`).
+- **M = total live AC** (excluding dropped). **⚡ If M == 0 → skip transition** (empty AC list is not "implemented"; output `Spec has no acceptance criteria yet`).
 - **Status whitelist:** auto-transition only applies when current status is `active`. Skip for `superseded`, `rejected`, `blocked`, or any other non-active status.
+- **Open Questions regex (case-insensitive):** a question is "resolved" if it matches `^\s*\[(resolved|done)\]` (any case). Any line NOT matching is an unresolved question.
 - **M > 0 AND N = M (all done) AND no unresolved Open Questions AND current status == `active`**:
   - Content: add `**Status:** implemented` (after Last Modified)
   - `mx_update_doc(doc_id, content, status='archived', change_reason='All AC fulfilled')`
   - Output: `Spec #<doc_id> archived — all Acceptance Criteria fulfilled`
 - **Mixed (N < M):** ∅change, info only: `<N>/<M> AC fulfilled`
-- **Open Questions present (any line NOT prefixed with `[resolved]`):** ∅archive, even if AC complete. Note: `AC complete but open questions remain`
+- **Open Questions present (unresolved):** ∅archive, even if AC complete. Note: `AC complete but open questions remain`
+- **Dropped-AC safety:** if any AC is marked `(dropped)` AND the remaining live AC are all done, warn user: `Auto-archive skipped — spec has <K> dropped AC. Confirm intent before archiving.` Only archive after user confirmation.
 - ⚡ Only for clearly implemented specs with status=`active`. Doubt → leave open + ?user
 
 ## Rules

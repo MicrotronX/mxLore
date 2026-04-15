@@ -46,9 +46,8 @@ Template → `~/.claude/skills/mxPlan/assets/plan-template.md` (7 sections: Goal
 **Related handling (iterate, do not stop at first):**
 1. Parse the Related section for ALL referenced specs + decisions (multiple common)
 2. For each referenced item → `mx_search(project, doc_type='spec,decision', query='<title>', status='active', limit=3)` to resolve target_id
-3. For each resolved target → optional pre-check `mx_graph_query(source=<new plan>, target=<target>, relation_type='references')` to avoid duplicate edges
-4. `mx_add_relation(source=<new plan doc_id>, target=<target doc_id>, relation_type='references')` — ⚡ **Source is ALWAYS the new plan**, target is the referenced spec/decision. Never reverse.
-5. Loop until all Related items processed.
+3. For each resolved target → `mx_add_relation(source=<new plan doc_id>, target=<target doc_id>, relation_type='references')` — ⚡ **Source is ALWAYS the new plan**, target is the referenced spec/decision. Never reverse. The server dedupes duplicate edges, so no pre-check required.
+4. Loop until all Related items processed.
 
 **Local (Fallback):** ensure `docs/plans/` exists (`mkdir -p docs/plans`); if absent create + initial `index.md`. Write `docs/plans/PLAN-<slug>.md` + append index entry + warning.
 

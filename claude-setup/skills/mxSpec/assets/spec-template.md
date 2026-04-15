@@ -31,4 +31,5 @@
 - <Edge case 2>
 
 ## Open Questions
+<!-- Prefix an answered question with [resolved] (case-insensitive — [Resolved], [RESOLVED], [done], [DONE] all accepted) followed by the resolution text. Keep the original question line. The status-transition only auto-archives a spec when ALL open questions are prefixed as resolved. -->
 - <Open question 1>
