@@ -1,12 +1,19 @@
 ---
 name: mxInitProject
-description: "You are a repo bootstrap agent. Set up a scalable AI documentation structure in the current repository without breaking existing content."
-user-invocable: true
-effort: low
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Skill
+description: Use when the user says "/mxInitProject", "bootstrap project", "init project", "setup ai config", "initialize claude config", "scaffold project", or otherwise wants to bootstrap a new repository with the mxLore AI-documentation structure (CLAUDE.md, docs/ layout, optional MCP project registration). Idempotent — safe to re-run. Detects MCP mode vs local fallback. NEVER overwrites existing content.
+allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 ---
 
-You are a repo bootstrap agent. Set up a scalable AI documentation structure in the current repository without breaking existing content.
+# mxInitProject — Repository AI-Config Bootstrap (AI-Steno: !=forbidden ->=use CRITICAL ?=ask)
+
+Repo bootstrap agent. Set up a scalable AI-documentation structure in the current repository without breaking existing content.
+
+## Trigger phrases
+
+This skill fires on:
+- `/mxInitProject`
+- Natural language: "bootstrap project", "init project", "setup ai config", "initialize claude config", "scaffold the repo", "add CLAUDE.md + docs structure"
+- Programmatic: mxOrchestrate auto-detect can suggest this when a project lacks CLAUDE.md
 
 ## Idempotency Guarantee ⚡
 
@@ -21,10 +28,10 @@ This skill is **safe for repeated invocation**. Pre-flight check BEFORE all step
 **Decision matrix:**
 | CLAUDE.md | AI-Start-Here | Directories | MCP-Project | status.md | Result |
 |-----------|---------------|-------------|-------------|-----------|--------|
-| ✓ | ✓ | ✓ | ✓ | ✓ | `"Everything present — no changes needed."` → **ABORT IMMEDIATELY** |
-| ✓ | ✗ | ✓ | ✓ | ✓ | Only insert AI-Start-Here block |
-| ✗ | — | ✗ | ✗ | ✗ | Full bootstrap (all steps) |
-| ✓ | ✓ | ✓ | ✗ | ✓ | Only MCP registration (step 2) |
+| Y | Y | Y | Y | Y | "Everything present — no changes needed." -> ABORT IMMEDIATELY |
+| Y | N | Y | Y | Y | Only insert AI-Start-Here block |
+| N | - | N | N | N | Full bootstrap (all steps) |
+| Y | Y | Y | N | Y | Only MCP registration (step 2) |
 | any | any | any | any | any | Only create missing parts, skip existing ones |
 
 ⚡ **Each step individually checks whether its artifact exists → skip if yes.**
@@ -118,6 +125,13 @@ For MCP projects, workflows are stored in the DB.
    - **Wait for response.** Only THEN call `mx_init_project(project_name='<response>')`.
    - **NEVER** use the slug or a self-invented name as the project name!
 4. Add slug to CLAUDE.md if not already present
+
+CRITICAL **ClampVarchar (Bug#2889) when calling mx_init_project:** `project_name` and `project_slug` are both VARCHAR-clamped server-side. Limits: `project_name` max ~200 chars (the mx_init_project server handler applies ClampTitle), `project_slug` max 100 chars (ClampSlug). Trim locally before the call and warn the user if the input would be truncated. Long values are silently clamped without error.
+
+CRITICAL **MCP-down fallback during bootstrap:** if `mx_ping` succeeded in Phase "Project Context / MCP Detection" but then `mx_briefing` or `mx_init_project` fails mid-bootstrap (network blip, server restart), do NOT abort the whole skill. Instead:
+- Continue creating local directories and docs/status.md
+- Log the registration failure to docs/status.md under "Open Items": "TODO: register project in MCP (call /mxInitProject again or /mxMigrateToDb)"
+- Report the partial success in the Summary Report so the user knows registration is pending
 
 **If non-MCP mode:** Create index files as before:
 
@@ -269,3 +283,4 @@ If MCP mode and project registered in DB:
 - All files in UTF-8 without BOM
 - **Idempotency:** On repeated invocation, abort immediately if everything is present (pre-flight check)
 - **Summary report ALWAYS:** Even on immediate abort, output the table with status "already present"
+- CRITICAL **Mirror sync:** edits to this skill MUST propagate to `V:\Projekte\MX_Intern\mxLore-skills\mxInitProject\` + `V:\Projekte\MX_Intern\mxHannesMCP\claude-setup\skills\mxInitProject\` (per `feedback_mxlore_skill_sync_workflow.md`). Canonical first, then `cp` to both mirrors.
