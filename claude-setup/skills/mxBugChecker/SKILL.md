@@ -47,7 +47,7 @@ Category catalog (pick max 5 most relevant to the focus files): full description
 7. **Security** — SQL injection, command injection, XSS, path traversal, hardcoded credentials
 8. **Performance** (only when bug-relevant) — N+1 queries, unbounded data, blocking UI calls
 
-Technology-specific rules: Delphi → `references/delphi-rules.md` | web (PHP/JS/HTML) → `references/web-rules.md`
+Technology-specific rules live under `mxDesignChecker/references/` (delphi-rules.md, web-rules.md, general-rules.md) — mxBugChecker inherits the same taxonomy but does not duplicate the files. If detailed Delphi/web patterns are needed during analysis, cross-read from `~/.claude/skills/mxDesignChecker/references/`.
 
 **Subagent verification:** if the Agent tool is used for large files:
 - Copy the Golden Rule into the subagent prompt

@@ -269,10 +269,10 @@ Output a table with all created/modified files and the respective action (create
 
 If MCP mode and project registered in DB:
 - Check if `docs/status.md` contains migratable task lists (backlog, ToDo, open tasks, etc.)
-  - If yes: Automatically run `/mxMigrateToDb --extract-backlog` via Skill tool
+  - If yes: emit a recommendation in the Summary Report: `Recommendation: run /mxMigrateToDb --extract-backlog to migrate the N legacy backlog entries detected in docs/status.md.` Do NOT auto-invoke — this skill runs as a subagent and cannot spawn nested subagents, plus the user should see the migration report separately.
   - If no task lists: "No legacy backlogs found — extraction skipped."
 - Check if `docs/` contains local .md files (PLAN-*, SPEC-*, ADR-*, session-notes-*)
-  - If yes: Automatically run `/mxMigrateToDb --sync` via Skill tool
+  - If yes: emit a recommendation: `Recommendation: run /mxMigrateToDb --sync to import N local documents into the Knowledge-DB.`
   - If no migratable files: "No local documents found for migration."
 
 ## Important Rules
