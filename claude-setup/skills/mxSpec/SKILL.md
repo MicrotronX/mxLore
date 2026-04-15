@@ -22,7 +22,7 @@ Slug from command argument. ∅arg→?user.
 1. Lowercase everything
 2. Replace `[^a-z0-9-]` with `-`
 3. Collapse multiple `-` and strip leading/trailing `-`
-4. **Then** enforce length ≤100 chars — truncate at a `-` boundary if possible, strip any trailing `-` after truncation. (Server ClampSlug=100, Bug#2889 — do this locally AFTER normalization to avoid mid-truncation of multi-byte characters or stranded leading `-`.)
+4. **Then** enforce length max 100 chars — truncate at a `-` boundary if possible, strip any trailing `-` after truncation. (Server ClampSlug=100, Bug#2889 — do this locally AFTER normalization to avoid mid-truncation of multi-byte characters or stranded leading `-`.)
 5. Verify the result matches `^[a-z0-9-]+$`
 6. If the normalized slug differs from input → show both and ask user to confirm before proceeding
 
