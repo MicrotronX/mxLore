@@ -1,73 +1,73 @@
-# Allgemeine Pruefregeln (alle Sprachen/Technologien)
+# General Review Rules (all languages / technologies)
 
-## 1. Nil/Null-Safety
+## 1. Nil / Null Safety
 
-- **Pruefe**: Werden Rueckgabewerte von Funktionen/Methoden auf nil/null geprueft bevor sie verwendet werden?
-- **Typische Fehler**:
-  - API-Aufruf gibt nil zurueck → Zugriff auf Property → Access Violation / NullPointerException
-  - Factory-Methoden die nil bei Fehler zurueckgeben statt Exception
-  - Optional-Typen die nicht geprueft werden
-- **Severity**: CRITICAL wenn ein Crash wahrscheinlich ist, WARNING wenn theoretisch moeglich
+- **Check**: Are return values from functions / methods checked for nil / null before being used?
+- **Typical failures**:
+  - API call returns nil, caller dereferences a property -> Access Violation / NullPointerException
+  - Factory methods that return nil on error instead of raising an exception
+  - Optional types that are not checked before unwrapping
+- **Severity**: CRITICAL if a crash is likely, WARNING if only theoretically possible
 
 ## 2. Resource Leaks
 
-- **Pruefe**: Werden alle allozierten Ressourcen in einem finally-Block freigegeben?
-- **Typische Fehler**:
-  - Objekt erstellt, Exception vor Free → Leak
-  - Stream/Connection geoeffnet, kein Close im finally
-  - Tempfile erstellt, nicht aufgeraeumt
-- **Severity**: CRITICAL bei Connection/Handle-Leaks, WARNING bei Memory-Leaks
+- **Check**: Are all allocated resources released in a finally block?
+- **Typical failures**:
+  - Object created, exception thrown before Free -> leak
+  - Stream / connection opened, no Close in finally
+  - Tempfile created, never cleaned up
+- **Severity**: CRITICAL for connection / handle leaks, WARNING for memory leaks
 
 ## 3. Exception Safety
 
-- **Pruefe**: Werden Exceptions korrekt behandelt?
-- **Typische Fehler**:
-  - Leere catch/except-Bloecke die Fehler verschlucken
-  - Exception-Handler der den Fehler loggt aber trotzdem weitermacht in inkonsistentem Zustand
-  - Finally-Block der selbst eine Exception werfen kann
-- **Severity**: WARNING bei Exception-Swallowing, CRITICAL bei inkonsistentem Zustand
+- **Check**: Are exceptions handled correctly?
+- **Typical failures**:
+  - Empty catch / except blocks that swallow errors
+  - Exception handler that logs the failure but continues in an inconsistent state
+  - Finally block that can itself raise an exception and mask the original
+- **Severity**: WARNING for exception swallowing, CRITICAL for inconsistent state
 
-## 4. Abwaertskompatibilitaet
+## 4. Backward Compatibility
 
-- **Pruefe**: Aendert die vorgeschlagene Aenderung bestehende Schnittstellen oder Datenformate?
-- **Typische Fehler**:
-  - Methodensignatur geaendert → alle Aufrufer muessen angepasst werden
-  - Dateiformat/Registry-Schema geaendert → alte Daten werden nicht mehr gelesen
-  - Default-Werte geaendert → implizites Verhalten aendert sich
-- **Severity**: CRITICAL bei Schema-Inkompatibilitaet, WARNING bei Signatur-Aenderungen
+- **Check**: Does the proposed change alter existing interfaces or data formats?
+- **Typical failures**:
+  - Method signature changed -> all callers must be updated
+  - File format / registry schema changed -> old data can no longer be read
+  - Default values changed -> implicit behavior changes silently
+- **Severity**: CRITICAL for schema incompatibility, WARNING for signature changes
 
-## 5. Encoding-Risiken
+## 5. Encoding Risks
 
-- **Pruefe**: Werden Dateien im korrekten Encoding gelesen/geschrieben?
-- **Typische Fehler**:
-  - ANSI-Datei mit UTF-8-Tool bearbeitet → Sonderzeichen zerstoert
-  - BOM hinzugefuegt/entfernt → Parser-Probleme
-  - String-Literale mit Sonderzeichen in falscher Kodierung
-- **Severity**: CRITICAL wenn Datenverlust, WARNING wenn nur kosmetisch
+- **Check**: Are files read / written in the correct encoding?
+- **Typical failures**:
+  - ANSI file edited with a UTF-8 tool -> special characters destroyed
+  - BOM added / removed -> parser problems
+  - String literals with special characters in the wrong encoding
+- **Severity**: CRITICAL when data loss occurs, WARNING when only cosmetic
 
-## 6. Concurrency / Thread-Safety
+## 6. Concurrency / Thread Safety
 
-- **Pruefe**: Werden geteilte Ressourcen thread-safe zugegriffen?
-- **Typische Fehler**:
-  - Globale Variable ohne Lock
-  - UI-Zugriff aus Worker-Thread
-  - Race Condition bei Initialisierung
-- **Severity**: CRITICAL bei Race Conditions, WARNING bei theoretischen Risiken
+- **Check**: Are shared resources accessed in a thread-safe way?
+- **Typical failures**:
+  - Global variable without a lock
+  - UI access from a worker thread
+  - Race condition during initialization
+- **Severity**: CRITICAL for race conditions, WARNING for theoretical risks
 
-## 7. API-Vertraege
+## 7. API Contracts
 
-- **Pruefe**: Werden API-Vertraege (Parameter-Bedeutung, Rueckgabewerte, Seiteneffekte) eingehalten?
-- **Typische Fehler**:
-  - Funktion erwartet absoluten Pfad, bekommt relativen
-  - Rueckgabewert ignoriert (z.B. IncMilliSecond in Delphi)
-  - Parameter-Reihenfolge vertauscht bei aehnlichen Typen
-- **Severity**: CRITICAL bei stillem Fehlverhalten, WARNING bei offensichtlichem Fehler
+- **Check**: Are API contracts (parameter meaning, return values, side effects) respected?
+- **Typical failures**:
+  - Function expects an absolute path but receives a relative one
+  - Return value ignored (e.g. `IncMilliSecond` in Delphi)
+  - Parameter order swapped for similar types
+- **Severity**: CRITICAL for silent misbehavior, WARNING for obvious errors
 
-## 8. Sentinel/Magic-Value-Risiken
+## 8. Sentinel / Magic Value Risks
 
-- **Pruefe**: Werden Sentinel-Werte verwendet die mit echten Daten kollidieren koennen?
-- **Typische Fehler**:
-  - `$fff` (4095) als "nicht vorhanden" Marker — aber 4095 ist eine gueltige Bildschirm-Koordinate
-  - `-1` als Fehler-Rueckgabe — aber -1 ist ein gueltiger Index in manchen Kontexten
-  - `""` als "kein Wert" — aber leerer String kann ein gueltiger Wert sein
-- **Severity**: WARNING (oft pre-existing, dokumentieren statt aendern)
+- **Check**: Are sentinel values used that can collide with real data?
+- **Typical failures**:
+  - `$fff` (4095) as a "not present" marker — but 4095 is a valid screen coordinate
+  - `-1` as an error return — but -1 is a valid index in some contexts
+  - `""` as "no value" — but an empty string may itself be a valid value
+- **Severity**: WARNING (often pre-existing, document rather than change)

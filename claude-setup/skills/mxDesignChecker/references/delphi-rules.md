@@ -1,220 +1,220 @@
-# Delphi / Object Pascal / VCL Pruefregeln
+# Delphi / Object Pascal / VCL Review Rules
 
 ## 1. Ownership / Lifecycle
 
-- **Pruefe**: Ist der TComponent-Owner korrekt gesetzt? Wird Free/FreeAndNil korrekt verwendet?
-- **Typische Fehler**:
-  - Objekt mit Owner erstellt aber manuell gefreed → Owner versucht spaeter nochmal zu freeen → Double-Free
-  - Objekt ohne Owner erstellt, kein try/finally → Memory Leak
-  - FreeNotification/RemoveFreeNotification fehlt bei Referenz-Properties
-  - `FreeAndNil` in Destructor verwendet wo `Free` reicht (aber FreeAndNil ist nie falsch, nur ueberflussig)
-- **Severity**: CRITICAL bei Double-Free, WARNING bei Leaks
+- **Check**: Is the `TComponent` owner set correctly? Are `Free` / `FreeAndNil` used correctly?
+- **Typical failures**:
+  - Object created with an owner but freed manually -> owner tries to free again later -> double-free
+  - Object created without an owner, no `try / finally` -> memory leak
+  - `FreeNotification` / `RemoveFreeNotification` missing on reference properties
+  - `FreeAndNil` used in a destructor where `Free` suffices (but `FreeAndNil` is never wrong, only redundant)
+- **Severity**: CRITICAL for double-free, WARNING for leaks
 
 ## 2. VCL FormState / Component Lifecycle
 
-- **Pruefe**: Werden FormState und ComponentState korrekt abgefragt?
-- **Typische Fehler**:
-  - Zugriff auf `Handle` bevor das Handle erstellt wurde (vor `CreateWnd`)
-  - Zugriff auf Komponenten im `Destroy` obwohl `csDestroying` gesetzt ist
-  - `if not assigned(self)` — wirkungslos, self ist immer zugewiesen wenn die Methode aufgerufen wird
-  - FormState-Flags (fsVisible, fsShowing, fsCreating) nicht geprueft vor Operationen
-- **Severity**: CRITICAL bei Handle-Zugriff vor Erstellung, WARNING bei fehlenden State-Checks
+- **Check**: Are `FormState` and `ComponentState` queried correctly?
+- **Typical failures**:
+  - Accessing `Handle` before the handle was created (before `CreateWnd`)
+  - Accessing components in `Destroy` even though `csDestroying` is set
+  - `if not Assigned(self)` — has no effect, `self` is always assigned inside a method call
+  - `FormState` flags (`fsVisible`, `fsShowing`, `fsCreating`) not checked before operations
+- **Severity**: CRITICAL for handle access before creation, WARNING for missing state checks
 
 ## 3. ANSI / UTF-8 Encoding
 
-- **Pruefe**: Werden .pas/.dfm/.dpr/.dpk Dateien im korrekten Encoding bearbeitet?
-- **Typische Fehler**:
-  - Edit-Tool konvertiert ANSI nach UTF-8 → Umlaute in String-Literalen zerstoert (0xFC → 0xEF 0xBF 0xBD)
-  - Datei hat Nicht-ASCII-Bytes (>127) aber wird mit UTF-8-Tool bearbeitet
-  - PowerShell-Skripte fuer Datei-Manipulation → stille Encoding-Konvertierung
-- **Pruefpunkte**:
-  - Enthaelt die zu bearbeitende Datei Umlaute, ss, Euro, Paragraph, Ampersand in STRINGS (nicht nur Kommentaren)?
-  - Falls ja: WARNUNG ausgeben, Edit-Tool kann ANSI-Bytes zerstoeren
-  - Falls nur in Kommentaren: INFO, geringes Risiko
-- **Severity**: CRITICAL wenn String-Literale betroffen, WARNING wenn nur Kommentare
+- **Check**: Are `.pas` / `.dfm` / `.dpr` / `.dpk` files edited in the correct encoding?
+- **Typical failures**:
+  - Edit tool converts ANSI to UTF-8 -> umlauts in string literals destroyed (0xFC -> 0xEF 0xBF 0xBD)
+  - File has non-ASCII bytes (>127) but is edited with a UTF-8 tool
+  - PowerShell scripts used for file manipulation -> silent encoding conversion
+- **Check points**:
+  - Does the file being edited contain umlauts, sz, Euro, paragraph, ampersand in STRINGS (not only comments)?
+  - If yes: emit a WARNING — the Edit tool can destroy ANSI bytes
+  - If only in comments: INFO, low risk
+- **Severity**: CRITICAL when string literals are affected, WARNING when only comments
 
 ## 4. Conditional Compilation
 
-- **Pruefe**: Sind {$ifdef}/{$endif}-Guards korrekt und vollstaendig?
-- **Typische Fehler**:
-  - Code der Framework_VCL braucht aber unter Framework_FMX kompiliert wird
-  - ifdef mxerpbin Code der Zugriff auf Units hat die nur im ERP-Build verfuegbar sind
-  - Fehlende else-Zweige bei ifdef (was passiert wenn der Schalter NICHT gesetzt ist?)
-  - ifdef-Verschachtelung unklar oder inkonsistent
-- **Severity**: CRITICAL wenn Code nicht kompiliert, WARNING bei totem Code
+- **Check**: Are `{$ifdef}` / `{$endif}` guards correct and complete?
+- **Typical failures**:
+  - Code that needs `Framework_VCL` but is compiled under `Framework_FMX`
+  - `ifdef mxerpbin` code that accesses units only available in the ERP build
+  - Missing `else` branches in `ifdef` (what happens when the switch is NOT set?)
+  - `ifdef` nesting unclear or inconsistent
+- **Severity**: CRITICAL when code fails to compile, WARNING for dead code
 
-## 5. Registry-Kompatibilitaet
+## 5. Registry Compatibility
 
-- **Pruefe**: Aendern sich Registry-Pfade oder Wert-Typen?
-- **Typische Fehler**:
-  - Registry-Pfad geaendert → alte gespeicherte Werte werden nicht mehr gefunden
-  - Wert-Typ geaendert (REG_SZ → REG_DWORD) → ReadInteger liest falschen Typ
-  - TRegIniFile vs TRegistry: unterschiedliches Pfad-Handling (Section vs Key)
-  - Registry-Key-Erstellung: `OpenKey(path, true)` erstellt Keys, `OpenKey(path, false)` nicht
-- **Severity**: CRITICAL bei Pfad-Inkompatibilitaet, WARNING bei Typ-Aenderungen
+- **Check**: Do registry paths or value types change?
+- **Typical failures**:
+  - Registry path changed -> previously saved values are no longer found
+  - Value type changed (REG_SZ -> REG_DWORD) -> `ReadInteger` reads the wrong type
+  - `TRegIniFile` vs `TRegistry`: different path handling (section vs key)
+  - Registry key creation: `OpenKey(path, true)` creates keys, `OpenKey(path, false)` does not
+- **Severity**: CRITICAL for path incompatibility, WARNING for type changes
 
 ## 6. Application.MainForm
 
-- **Pruefe**: Wird `Application.MainForm` vor Zugriff auf nil geprueft?
-- **Typische Fehler**:
-  - Zugriff auf `Application.MainForm.ClientRect` ohne nil-Check
-  - Fruehe Startup-Phase: MainForm ist noch nicht erstellt
-  - DLL-Kontext: Application.MainForm kann nil sein
-  - MDI-Child greift auf MainForm zu: `Application.MainForm.FormStyle = fsMDIForm` ohne Check
-- **Severity**: CRITICAL bei fehlendem nil-Check in haeufig aufgerufenem Code
+- **Check**: Is `Application.MainForm` checked against nil before access?
+- **Typical failures**:
+  - Access to `Application.MainForm.ClientRect` without a nil check
+  - Early startup phase: `MainForm` is not yet created
+  - DLL context: `Application.MainForm` can be nil
+  - MDI child accesses main form: `Application.MainForm.FormStyle = fsMDIForm` without check
+- **Severity**: CRITICAL for missing nil check in frequently-called code
 
 ## 7. Monitor / Multi-Monitor / DPI
 
-- **Pruefe**: Werden Monitor-APIs korrekt verwendet?
-- **Typische Fehler**:
-  - `Screen.MonitorFromPoint` / `Screen.MonitorFromRect` kann nil zurueckgeben
-  - Monitor.BoundsRect vs Monitor.WorkareaRect: WorkareaRect beruecksichtigt Taskbar
-  - DPI-Aenderungen zur Laufzeit (Windows DPI Awareness)
-  - Absolute vs relative Koordinaten bei Multi-Monitor (negative Koordinaten auf linkem Monitor)
-  - `MoveWindow` vs `SetWindowPlacement` vs `BoundsRect := ...` — unterschiedliches Verhalten
-- **Severity**: CRITICAL bei nil-Dereference, WARNING bei falscher Rect-Verwendung
+- **Check**: Are monitor APIs used correctly?
+- **Typical failures**:
+  - `Screen.MonitorFromPoint` / `Screen.MonitorFromRect` can return nil
+  - `Monitor.BoundsRect` vs `Monitor.WorkareaRect`: `WorkareaRect` excludes the taskbar
+  - DPI changes at runtime (Windows DPI awareness)
+  - Absolute vs relative coordinates on multi-monitor (negative coordinates on a left-hand monitor)
+  - `MoveWindow` vs `SetWindowPlacement` vs `BoundsRect := ...` — different behavior
+- **Severity**: CRITICAL for nil dereference, WARNING for wrong Rect usage
 
-## 8. Memory Management (Delphi-spezifisch)
+## 8. Memory Management (Delphi-specific)
 
-- **Pruefe**: Sind alle Create/Free-Paare korrekt?
-- **Typische Fehler**:
-  - `TStringList.Create` ohne try/finally/Free
-  - `TStream.Create` ohne try/finally/Free
-  - Interface-Referenz und Objekt-Referenz auf gleiche Instanz → Reference-Count-Probleme
-  - `Result` eines Funktionsaufrufs nicht gefreed wenn Caller Ownership hat
-- **Severity**: CRITICAL bei Leak in haeufig aufgerufenem Code, WARNING sonst
+- **Check**: Are all `Create` / `Free` pairs correct?
+- **Typical failures**:
+  - `TStringList.Create` without `try / finally / Free`
+  - `TStream.Create` without `try / finally / Free`
+  - Interface reference and object reference to the same instance -> ref-count problems
+  - `Result` of a function call not freed when the caller has ownership
+- **Severity**: CRITICAL for leaks in frequently-called code, WARNING otherwise
 
-## 9. GetWindowPlacement / Window-API
+## 9. GetWindowPlacement / Window API
 
-- **Pruefe**: Werden Windows-API-Aufrufe korrekt verwendet?
-- **Typische Fehler**:
-  - `Placement.length` nicht gesetzt vor `GetWindowPlacement` → undefined behavior
-  - `MoveWindow` mit falschen Koordinaten (Width/Height statt Right/Bottom)
-  - `IsWindowVisible` vs `Form.Visible` — unterschiedliche Semantik
-  - `Handle`-Zugriff erzeugt Fenster wenn es noch nicht existiert (Seiteneffekt!)
-- **Severity**: CRITICAL bei undefined behavior, WARNING bei Semantik-Unterschieden
+- **Check**: Are Windows API calls used correctly?
+- **Typical failures**:
+  - `Placement.length` not set before `GetWindowPlacement` -> undefined behavior
+  - `MoveWindow` with wrong coordinates (Width / Height instead of Right / Bottom)
+  - `IsWindowVisible` vs `Form.Visible` — different semantics
+  - `Handle` access creates the window if it does not yet exist (side effect!)
+- **Severity**: CRITICAL for undefined behavior, WARNING for semantic differences
 
-## 10. Delphi-Version-Kompatibilitaet
+## 10. Delphi Version Compatibility
 
-- **Pruefe**: Sind alle verwendeten APIs in der aktiven Delphi-Version verfuegbar?
-- **Typische Fehler**:
-  - Generics-Features die erst ab XE7 verfuegbar sind
-  - `System.Threading` erst ab XE7
-  - `TMonitor.PixelsPerInch` erst ab XE8
-  - `ARect.Height := value` (setter) erst ab bestimmter Version
-- **Hinweis**: Aktive Version aus CLAUDE.md lesen (aktuell: Delphi 13)
-- **Severity**: CRITICAL wenn API nicht verfuegbar
+- **Check**: Are all used APIs available in the active Delphi version?
+- **Typical failures**:
+  - Generics features only available starting from XE7
+  - `System.Threading` only starting from XE7
+  - `TMonitor.PixelsPerInch` only starting from XE8
+  - `ARect.Height := value` (setter) only starting from a certain version
+- **Note**: Read the active version from CLAUDE.md (current: Delphi 13)
+- **Severity**: CRITICAL if the API is not available
 
 ## 11. Threading / Concurrency / Race Conditions
 
-- **Pruefe**: Werden Threads korrekt und sicher verwendet?
-- **Typische Fehler**:
-  - **VCL-Zugriff aus Worker-Thread**: Jeder Zugriff auf VCL-Komponenten (Controls, Forms, Properties) MUSS ueber `TThread.Synchronize` oder `TThread.Queue` laufen
-  - **Globale Variablen ohne Lock**: Geteilte Variablen (globale Vars, Singleton-Felder) werden aus mehreren Threads gelesen/geschrieben ohne `TCriticalSection`, `TMonitor.Enter/Exit` oder `TInterlocked`
-  - **Race Condition bei Initialisierung**: Lazy-Init-Pattern (`if FInstance = nil then FInstance := TFoo.Create`) ohne Lock → zwei Threads erstellen gleichzeitig die Instanz
-  - **TThread.WaitFor im Main-Thread**: Blockiert den UI-Thread → Deadlock wenn der Worker-Thread `Synchronize` aufruft
-  - **TEvent/TSignal nicht korrekt**: `WaitFor` ohne Timeout → haengt ewig wenn Signal nie kommt
-  - **TStringList/TList nicht thread-safe**: Standard-Containerklassen sind NICHT thread-safe — paralleler Zugriff ohne Lock fuehrt zu Korruption
-  - **FreeOnTerminate + Referenz**: `TThread.FreeOnTerminate := True` aber anderer Code haelt noch eine Referenz auf den Thread → Access Violation nach Beendigung
-  - **Synchronize in DLL**: `TThread.Synchronize` funktioniert nur korrekt wenn `Application.Handle` korrekt gesetzt ist — in DLLs oft nicht der Fall
-- **Severity**: CRITICAL bei VCL-Zugriff aus Worker-Thread und Race Conditions, WARNING bei fehlenden Timeouts
+- **Check**: Are threads used correctly and safely?
+- **Typical failures**:
+  - **VCL access from a worker thread**: every access to VCL components (controls, forms, properties) MUST go through `TThread.Synchronize` or `TThread.Queue`
+  - **Global variables without a lock**: shared variables (global vars, singleton fields) read / written from multiple threads without `TCriticalSection`, `TMonitor.Enter / Exit`, or `TInterlocked`
+  - **Race condition during initialization**: lazy-init pattern (`if FInstance = nil then FInstance := TFoo.Create`) without a lock -> two threads create the instance simultaneously
+  - **TThread.WaitFor in the main thread**: blocks the UI thread -> deadlock if the worker thread calls `Synchronize`
+  - **TEvent / TSignal not correct**: `WaitFor` without timeout -> hangs forever if the signal never comes
+  - **TStringList / TList not thread-safe**: the standard container classes are NOT thread-safe — parallel access without a lock causes corruption
+  - **FreeOnTerminate + lingering reference**: `TThread.FreeOnTerminate := True` while other code still holds a reference -> Access Violation after termination
+  - **Synchronize inside a DLL**: `TThread.Synchronize` only works correctly if `Application.Handle` is set — often not the case in DLLs
+- **Severity**: CRITICAL for VCL access from a worker thread and race conditions, WARNING for missing timeouts
 
-## 12. String-Handling / Unicode
+## 12. String Handling / Unicode
 
-- **Pruefe**: Werden Strings korrekt konvertiert und verglichen?
-- **Typische Fehler**:
-  - `AnsiString` und `UnicodeString` gemischt ohne explizite Konvertierung → stille Datenverluste ab Delphi 2009
-  - `PChar`/`PAnsiChar` Verwechslung → Compiler-Warnung ignoriert, zur Laufzeit Crash oder Muell
-  - `Copy(s, i, n)` mit Byte-Index statt Zeichen-Index bei UTF-16-Strings
-  - `Length(s)` gibt Zeichen (nicht Bytes) zurueck — bei externen APIs (WinAPI, Datenbank) Bytes erwartet
-  - `CompareStr` (case-sensitive) vs `CompareText` (case-insensitive) vs `AnsiCompareText` (Locale-aware) — falscher Vergleich
-  - `Pos()` / `StringReplace` Case-Sensitivity nicht beachtet
-- **Severity**: CRITICAL bei Datenverlust durch stille Konvertierung, WARNING bei falschen Vergleichen
+- **Check**: Are strings converted and compared correctly?
+- **Typical failures**:
+  - `AnsiString` and `UnicodeString` mixed without explicit conversion -> silent data loss from Delphi 2009 on
+  - `PChar` / `PAnsiChar` confusion -> compiler warning ignored, runtime crash or garbage
+  - `Copy(s, i, n)` with a byte index instead of a character index on UTF-16 strings
+  - `Length(s)` returns characters (not bytes) — external APIs (WinAPI, database) may expect bytes
+  - `CompareStr` (case-sensitive) vs `CompareText` (case-insensitive) vs `AnsiCompareText` (locale-aware) — wrong comparison chosen
+  - `Pos()` / `StringReplace` case-sensitivity not considered
+- **Severity**: CRITICAL for data loss from silent conversion, WARNING for wrong comparisons
 
-## 13. Exception-Handling (Delphi-spezifisch)
+## 13. Exception Handling (Delphi-specific)
 
-- **Pruefe**: Werden Exceptions korrekt gefangen und behandelt?
-- **Typische Fehler**:
-  - Leerer `except`-Block (`except end;`) verschluckt ALLE Exceptions inkl. `EAccessViolation` — nur akzeptabel wenn bewusst dokumentiert
-  - `except on E: Exception` statt spezifischer Exception-Klasse → faengt zu viel
-  - `raise` vs `raise Exception.Create` — bei Re-Raise MUSS `raise;` ohne Parameter verwendet werden (sonst geht Stack-Trace verloren)
-  - Exception im `finally`-Block: ueberschreibt die urspruengliche Exception still
-  - `ShowMessage` im Exception-Handler: blockiert bei nicht-sichtbarer Form → haengt
-  - `EAbort` / `Abort` wird von leeren except-Bloecken verschluckt — Programmfluss unberechenbar
-- **Severity**: CRITICAL bei verschluckten Exceptions in kritischem Code, WARNING bei zu breiten Exception-Handlern
+- **Check**: Are exceptions caught and handled correctly?
+- **Typical failures**:
+  - Empty `except` block (`except end;`) swallows ALL exceptions including `EAccessViolation` — only acceptable when deliberately documented
+  - `except on E: Exception` instead of a specific exception class -> catches too much
+  - `raise` vs `raise Exception.Create` — for a re-raise you MUST use `raise;` without parameters (otherwise the stack trace is lost)
+  - Exception inside a `finally` block: silently overwrites the original exception
+  - `ShowMessage` in an exception handler: blocks when the form is not visible -> hang
+  - `EAbort` / `Abort` is swallowed by empty except blocks — program flow becomes unpredictable
+- **Severity**: CRITICAL for swallowed exceptions in critical code, WARNING for overly broad exception handlers
 
-## 14. Datenbank / SQL (Delphi-Kontext)
+## 14. Database / SQL (Delphi context)
 
-- **Pruefe**: Werden Datenbank-Operationen korrekt und sicher verwendet?
-- **Typische Fehler**:
-  - SQL-Injection: String-Konkatenation statt parametrisierte Queries (`SQL.Text := 'SELECT * FROM t WHERE id=' + id`)
-  - Transaktion nicht korrekt: `StartTransaction` ohne `Commit`/`Rollback` im try/finally
-  - `DisableControls`/`EnableControls` nicht im try/finally → Controls bleiben deaktiviert nach Exception
-  - `Active := True` statt `Open` — semantisch gleich, aber `Open` ist expliziter
-  - Cursor nach Query nicht auf `First` gesetzt → erster Record wird uebersprungen
-  - `RecordCount` auf grossen Datasets: bei einigen DB-Engines (ADS) liest das ALLE Records → Performance-Desaster
-  - `Locate()` vs `FindKey()` — unterschiedliche Semantik bei Teiluebereinstimmungen
-  - N+1 Query-Problem: Query in Schleife statt JOIN oder Batch-Query
-- **Severity**: CRITICAL bei SQL-Injection und fehlenden Transaktionen, WARNING bei Performance-Problemen
+- **Check**: Are database operations used correctly and safely?
+- **Typical failures**:
+  - SQL injection: string concatenation instead of parameterized queries (`SQL.Text := 'SELECT * FROM t WHERE id=' + id`)
+  - Transaction not correct: `StartTransaction` without `Commit` / `Rollback` inside `try / finally`
+  - `DisableControls` / `EnableControls` not in `try / finally` -> controls stay disabled after an exception
+  - `Active := True` instead of `Open` — semantically the same, but `Open` is more explicit
+  - Cursor after a query not reset to `First` -> the first record is skipped
+  - `RecordCount` on large datasets: on some DB engines (ADS) this reads ALL records -> performance disaster
+  - `Locate()` vs `FindKey()` — different semantics on partial matches
+  - N+1 query problem: query inside a loop instead of a JOIN or batch query
+- **Severity**: CRITICAL for SQL injection and missing transactions, WARNING for performance problems
 
-## 15. Property-Setter Seiteneffekte
+## 15. Property Setter Side Effects
 
-- **Pruefe**: Haben Property-Setter unerwartete Seiteneffekte?
-- **Typische Fehler**:
-  - Property-Write loest Notification/Change-Event aus → rekursiver Aufruf
-  - Setter ruft `Invalidate`/`Repaint` auf → Performance bei Batch-Updates (100x Setter = 100x Repaint)
-  - Setter prueft `FValue <> Value` nicht → unnoetige Arbeit und Events
-  - Setter im Constructor: Component ist noch nicht vollstaendig geladen (`csLoading` nicht geprueft)
-  - `Assign` vs direkter Property-Zugriff: `Assign` kopiert, direkter Zugriff kann Referenz-Probleme erzeugen
-- **Severity**: WARNING bei fehlenden Guard-Checks, CRITICAL bei Endlosrekursion
+- **Check**: Do property setters have unexpected side effects?
+- **Typical failures**:
+  - Property write triggers notification / change event -> recursive call
+  - Setter calls `Invalidate` / `Repaint` -> performance hit on batch updates (100x setter = 100x repaint)
+  - Setter does not check `FValue <> Value` -> unnecessary work and events
+  - Setter in the constructor: the component is not fully loaded (`csLoading` not checked)
+  - `Assign` vs direct property access: `Assign` copies, direct access can create reference problems
+- **Severity**: WARNING for missing guard checks, CRITICAL for infinite recursion
 
-## 16. Variant / OleVariant Risiken
+## 16. Variant / OleVariant Risks
 
-- **Pruefe**: Werden Variant-Typen sicher verwendet?
-- **Typische Fehler**:
-  - Zugriff auf Variant ohne VarType-Pruefung → `EVariantTypeCastError` bei `Null` oder falschem Typ
-  - `VarIsNull` vs `VarIsEmpty` vs `VarIsClear` — unterschiedliche Semantik
-  - Variant-Array ohne korrekte Bounds-Pruefung
-  - `c__triggerconstants.getvalue()` gibt Variant zurueck → `.S()`, `.I()`, `.F()`, `.B()` verwenden statt direkt casten
-  - OleVariant in Nicht-COM-Kontext: unnoetige Overhead und Einschraenkungen
-- **Severity**: CRITICAL bei Variant-Null-Crash, WARNING bei Performance-Impact
+- **Check**: Are variant types used safely?
+- **Typical failures**:
+  - Access to a variant without a `VarType` check -> `EVariantTypeCastError` on `Null` or wrong type
+  - `VarIsNull` vs `VarIsEmpty` vs `VarIsClear` — different semantics
+  - Variant array without a correct bounds check
+  - `c__triggerconstants.getvalue()` returns a variant -> use `.S()`, `.I()`, `.F()`, `.B()` instead of casting directly
+  - `OleVariant` in a non-COM context: unnecessary overhead and restrictions
+- **Severity**: CRITICAL for variant-null crashes, WARNING for performance impact
 
-## 17. Timer / Message-Handling
+## 17. Timer / Message Handling
 
-- **Pruefe**: Werden Timer und Windows-Messages korrekt verwendet?
-- **Typische Fehler**:
-  - `TTimer.Enabled := True` ohne vorheriges `Enabled := False` → Timer laeuft doppelt
-  - Timer-Event greift auf freigegebene Objekte zu (Timer feuert waehrend `Destroy`)
-  - `PostMessage` vs `SendMessage`: PostMessage ist asynchron — Objekt kann zwischen Post und Verarbeitung freigegeben werden
-  - Custom Messages (`WM_USER + x`): Kollision mit Framework-Messages wenn Offset zu klein
-  - `Application.ProcessMessages` in Schleifen: Reentrancy-Risiko (Button-Click waehrend Verarbeitung)
-- **Severity**: CRITICAL bei Reentrancy und Use-After-Free, WARNING bei Timer-Duplikaten
+- **Check**: Are timers and Windows messages used correctly?
+- **Typical failures**:
+  - `TTimer.Enabled := True` without a preceding `Enabled := False` -> timer runs twice
+  - Timer event accesses freed objects (timer fires during `Destroy`)
+  - `PostMessage` vs `SendMessage`: `PostMessage` is asynchronous — the object can be freed between post and processing
+  - Custom messages (`WM_USER + x`): collision with framework messages if the offset is too small
+  - `Application.ProcessMessages` in loops: reentrancy risk (button click during processing)
+- **Severity**: CRITICAL for reentrancy and use-after-free, WARNING for timer duplicates
 
-## 18. Typecast-Sicherheit
+## 18. Typecast Safety
 
-- **Pruefe**: Werden Typecasts sicher durchgefuehrt?
-- **Typische Fehler**:
-  - Hard-Cast `TFoo(obj)` statt `obj as TFoo` → kein Runtime-Check, AV bei falschem Typ
-  - `is`/`as`-Check auf nil-Objekt: `nil is TFoo` gibt `False`, aber `nil as TFoo` wirft Exception
-  - `Sender as TButton` im OnClick ohne vorherige `is`-Pruefung → AV wenn Event von anderem Control kommt
-  - Integer-Typecast auf Pointer: `Integer(Pointer)` ist 32-Bit, auf 64-Bit-Plattform abgeschnitten → `NativeInt` verwenden
-- **Severity**: CRITICAL bei Hard-Casts auf ungepruefte Typen, WARNING bei fehlender is-Pruefung
+- **Check**: Are typecasts performed safely?
+- **Typical failures**:
+  - Hard cast `TFoo(obj)` instead of `obj as TFoo` -> no runtime check, Access Violation on wrong type
+  - `is` / `as` check on a nil object: `nil is TFoo` returns `False`, but `nil as TFoo` raises an exception
+  - `Sender as TButton` in an `OnClick` without a prior `is` check -> Access Violation when the event comes from another control
+  - Integer typecast to pointer: `Integer(Pointer)` is 32-bit; on a 64-bit platform it is truncated — use `NativeInt`
+- **Severity**: CRITICAL for hard casts on unchecked types, WARNING for missing `is` checks
 
-## 19. Anonymous Methods / Closures + var-Parameter Konflikt
+## 19. Anonymous Methods / Closures + `var` Parameter Conflict
 
-- **Pruefe**: Wird dieselbe Variable sowohl als `var`-Parameter uebergeben ALS AUCH von einer Anonymous Method captured?
-- **Hintergrund**: Delphi-Compiler verschiebt gecapturte Variablen auf einen Heap-Frame. Wird dieselbe Variable gleichzeitig als `var`-Parameter gebunden, kann der Compiler den `var`-Parameter auf die alte Stack-Adresse binden → Schreibvorgaenge ueber `var` werden von der Closure nicht gesehen (und umgekehrt).
-- **Typische Fehler**:
-  - `Foo(myVar, procedure begin Bar(myVar); end)` wo `Foo` den ersten Parameter als `var` nimmt → `myVar` wird sowohl `var`-gebunden als auch captured
-  - DataSnap/REST-Proxy-Calls mit `var`-Parametern in Closures → Proxy ersetzt Object via UnMarshal, aber `var`-Parameter sieht die Aenderung nicht
-  - Symptom: "Im Debugger korrekt, aber nach Rueckkehr falscher Wert" — intermittent, haeuft sich bei grossen Daten
-- **Fix-Pattern**: Variable NICHT capturen, sondern als **expliziten Parameter** der Anonymous Method durchreichen:
+- **Check**: Is the same variable passed both as a `var` parameter AND captured by an anonymous method?
+- **Background**: The Delphi compiler moves captured variables to a heap frame. If the same variable is simultaneously bound as a `var` parameter, the compiler can bind the `var` parameter to the old stack address -> writes via `var` are not seen by the closure (and vice versa).
+- **Typical failures**:
+  - `Foo(myVar, procedure begin Bar(myVar); end)` where `Foo` takes the first parameter as `var` -> `myVar` is both `var`-bound and captured
+  - DataSnap / REST proxy calls with `var` parameters inside closures -> proxy replaces the object via unmarshal, but the `var` parameter does not see the change
+  - Symptom: "correct in the debugger, but wrong after return" — intermittent, more frequent with large payloads
+- **Fix pattern**: Do NOT capture the variable; pass it as an **explicit parameter** of the anonymous method instead:
   ```pascal
-  // FALSCH:
+  // WRONG:
   SafeCall(v, procedure begin Proxy.Method(v); end);  // v captured + var
-  // RICHTIG:
+  // RIGHT:
   type TSafeProc = reference to procedure(var vTP: TMyClass);
-  SafeCall(v, procedure(var vTP: TMyClass) begin Proxy.Method(vTP); end);  // kein Capture
+  SafeCall(v, procedure(var vTP: TMyClass) begin Proxy.Method(vTP); end);  // no capture
   ```
-- **Design-Prinzip**: Wenn eine Abstraktion ein Compiler-Problem aufdeckt → Schnittstelle reparieren (Proc-Signatur aendern), NICHT Abstraktion wegwerfen und inline ersetzen
-- **Severity**: CRITICAL — fuehrt zu stillem Datenverlust, schwer reproduzierbar, leicht zu uebersehen
+- **Design principle**: When an abstraction exposes a compiler problem -> fix the interface (change the proc signature), do NOT throw the abstraction away and inline-replace it
+- **Severity**: CRITICAL — leads to silent data loss, hard to reproduce, easy to overlook

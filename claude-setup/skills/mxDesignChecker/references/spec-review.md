@@ -1,81 +1,81 @@
-# Spezifikation / PRD Pruefregeln
+# Specification / PRD Review Rules
 
-Diese Regeln werden geladen wenn mxDesignChecker eine `SPEC-*.md` Datei prueft.
+These rules are loaded when mxDesignChecker reviews a `SPEC-*.md` file.
 
-## 1. Klarheit der Requirements
+## 1. Requirement Clarity
 
-- **Pruefe**: Ist jedes Requirement in 1-2 Saetzen verstaendlich? Gibt es Mehrdeutigkeiten?
-- **Typische Fehler**:
-  - Vage Formulierungen: "System soll benutzerfreundlich sein" (nicht messbar)
-  - Implizite Annahmen: "Wie gewohnt verarbeiten" (wer gewohnt? wie genau?)
-  - Mehrfach-Bedeutungen: "Schnell" kann Ladezeit, Durchsatz oder Reaktionszeit meinen
-  - Abkuerzungen ohne Erklaerung, die nicht im Projekt-Glossar stehen
-- **Pruefmethode**: Lese jedes Requirement einzeln. Kann ein Entwickler der nur die Spec liest (ohne den Chat) verstehen was gemeint ist?
-- **Severity**: CRITICAL wenn Mehrdeutigkeit zu falscher Implementierung fuehren kann, WARNING wenn unklar aber kontextabhebbar
+- **Check**: Is every requirement understandable in 1-2 sentences? Are there ambiguities?
+- **Typical failures**:
+  - Vague wording: "The system should be user-friendly" (not measurable)
+  - Implicit assumptions: "Process as usual" (usual for whom? how exactly?)
+  - Multiple meanings: "Fast" can mean load time, throughput, or reaction time
+  - Abbreviations without explanation that are not in the project glossary
+- **Review method**: Read each requirement individually. Can a developer who only has the spec (no chat context) understand what is meant?
+- **Severity**: CRITICAL if ambiguity can lead to wrong implementation, WARNING if unclear but context-recoverable
 
-## 2. Testbarkeit der Acceptance Criteria
+## 2. Testability of Acceptance Criteria
 
-- **Pruefe**: Kann man fuer jedes Acceptance Criterion einen konkreten Test formulieren?
-- **Typische Fehler**:
-  - Nicht messbar: "Soll performant sein" → Besser: "Antwortzeit unter X ms"
-  - Zu allgemein: "Daten werden korrekt gespeichert" → Besser: "Pflichtfelder Name, E-Mail werden in Tabelle X persistiert und bei erneutem Laden angezeigt"
-  - Fehlende Grenzwerte: "Grosse Datenmengen verarbeiten" → Wie gross genau?
-  - Fehlende Negativtests: Nur Happy-Path beschrieben, keine Fehlerfaelle
-- **Pruefmethode**: Fuer jedes Kriterium fragen: "Wie wuerde ich das testen? Welchen Input, welches erwartete Ergebnis?"
-- **Severity**: WARNING bei untestbaren Kriterien, INFO bei fehlenden Negativtests
+- **Check**: Can a concrete test be formulated for every acceptance criterion?
+- **Typical failures**:
+  - Not measurable: "Should be performant" -> better: "Response time under X ms"
+  - Too general: "Data is saved correctly" -> better: "Mandatory fields Name, Email are persisted in table X and displayed after reload"
+  - Missing boundary values: "Handle large datasets" -> how large exactly?
+  - Missing negative tests: only happy path described, no error cases
+- **Review method**: For every criterion ask: "How would I test this? What input, what expected result?"
+- **Severity**: WARNING for untestable criteria, INFO for missing negative tests
 
-## 3. Vollstaendigkeit
+## 3. Completeness
 
-- **Pruefe**: Sind alle besprochenen Anforderungen in der Spec abgedeckt?
-- **Typische Fehler**:
-  - Brainstorming-Ergebnis teilweise vergessen
-  - Edge Cases nur muendlich besprochen aber nicht in Spec dokumentiert
-  - Error-Handling nicht spezifiziert (was passiert bei Fehler X?)
-  - Berechtigungen/Rollen nicht definiert (wer darf was?)
-- **Pruefmethode**: Chat-Verlauf (falls verfuegbar) oder Overview/Goals mit Requirements abgleichen. Jedes Goal muss durch mindestens ein Requirement abgedeckt sein.
-- **WICHTIG**: NUR pruefen was tatsaechlich im Chat besprochen oder in der Spec dokumentiert ist. NICHT vermuten welche Anforderungen "wahrscheinlich noch fehlen". Die Goldene Regel gilt: Kein Finding ohne Beweis.
-- **Severity**: WARNING bei fehlender Abdeckung eines Goals, INFO bei fehlenden Error-Handling-Details
+- **Check**: Are all discussed requirements covered in the spec?
+- **Typical failures**:
+  - Brainstorming output partially forgotten
+  - Edge cases only discussed verbally but not documented in the spec
+  - Error handling not specified (what happens on error X?)
+  - Permissions / roles not defined (who may do what?)
+- **Review method**: Reconcile the chat history (if available) or the Overview / Goals with the Requirements. Every goal must be covered by at least one requirement.
+- **IMPORTANT**: Only check what is actually discussed in the chat or documented in the spec. Do NOT speculate about which requirements "are probably still missing". The Golden Rule applies: no finding without proof.
+- **Severity**: WARNING for missing coverage of a goal, INFO for missing error-handling details
 
-## 4. Konsistenz
+## 4. Consistency
 
-- **Pruefe**: Gibt es Widersprueche innerhalb der Spec oder zu bestehenden Dokumenten?
-- **Typische Fehler**:
-  - Requirement 3 widerspricht Requirement 7
-  - Spec sagt "nur fuer Admins", bestehende ADR sagt "fuer alle Benutzer"
-  - Non-goals Liste enthaelt etwas das in Requirements steht
-  - Acceptance Criteria decken ein Requirement nicht ab (AC testet etwas anderes als Req definiert)
-- **Pruefmethode**: Requirements durchnummeriert lesen, auf Ueberlappungen und Widersprueche pruefen. Falls Related-Links existieren: Ziel-Dokument lesen und abgleichen.
-- **Severity**: CRITICAL bei Widerspruechen, WARNING bei fehlender AC-Abdeckung
+- **Check**: Are there contradictions within the spec or with existing documents?
+- **Typical failures**:
+  - Requirement 3 contradicts requirement 7
+  - Spec says "admins only", existing ADR says "all users"
+  - Non-goals list contains something that also appears in requirements
+  - Acceptance criteria do not cover a requirement (AC tests something different than the requirement defines)
+- **Review method**: Read requirements numbered, check for overlaps and contradictions. If Related links exist, read the target document and reconcile.
+- **Severity**: CRITICAL for contradictions, WARNING for missing AC coverage
 
-## 5. Abgrenzung (Scope)
+## 5. Scope / Boundaries
 
-- **Pruefe**: Sind Non-goals definiert? Ist der Scope klar begrenzt?
-- **Typische Fehler**:
-  - Non-goals Sektion fehlt oder leer
-  - Scope schleichend zu gross ("und ausserdem noch X und Y")
-  - Abhaengigkeiten zu anderen Features nicht dokumentiert
-  - Migrationsbedarf nicht erwaehnt (bestehende Daten, bestehende APIs)
-- **Pruefmethode**: Non-goals lesen. Fragen: "Kann jemand denken, dass X auch dazugehoert obwohl es nicht soll?" Falls ja, muss X in Non-goals stehen.
-- **Severity**: WARNING bei fehlender Abgrenzung, INFO bei fehlenden Abhaengigkeiten
+- **Check**: Are non-goals defined? Is the scope clearly bounded?
+- **Typical failures**:
+  - Non-goals section missing or empty
+  - Scope creeping too large ("and also X and Y")
+  - Dependencies to other features not documented
+  - Migration need not mentioned (existing data, existing APIs)
+- **Review method**: Read the Non-goals section. Ask: "Could someone reasonably assume X is in scope even though it should not be?" If yes, X must be listed in Non-goals.
+- **Severity**: WARNING for missing boundaries, INFO for missing dependencies
 
 ## 6. Edge Cases
 
-- **Pruefe**: Sind offensichtliche Sonderfaelle dokumentiert?
-- **Typische Fehler**:
-  - Leere Eingaben nicht beruecksichtigt (leerer String, leere Liste, keine Auswahl)
-  - Berechtigungsgrenzen: Was passiert wenn ein Benutzer ohne Berechtigung zugreift?
-  - Gleichzeitige Bearbeitung: Was wenn zwei Benutzer dasselbe editieren?
-  - Datenvolumen: Verhaelt sich das System bei 1 Eintrag gleich wie bei 10.000?
-- **Pruefmethode**: NUR Edge Cases melden die sich direkt aus den Requirements ergeben. KEINE theoretischen Edge Cases erfinden die zum Requirement-Kontext nicht passen.
-- **Severity**: WARNING bei fehlenden offensichtlichen Edge Cases, INFO bei theoretischen
+- **Check**: Are obvious edge cases documented?
+- **Typical failures**:
+  - Empty inputs not considered (empty string, empty list, no selection)
+  - Permission boundaries: what happens when an unauthorized user accesses?
+  - Concurrent editing: what if two users edit the same thing?
+  - Data volume: does the system behave the same at 1 entry as at 10,000?
+- **Review method**: Only report edge cases that arise directly from the requirements. Do NOT invent theoretical edge cases that do not fit the requirement context.
+- **Severity**: WARNING for missing obvious edge cases, INFO for theoretical ones
 
-## 7. Umsetzbarkeit
+## 7. Feasibility
 
-- **Pruefe**: Sind die Requirements technisch machbar im Projektkontext?
-- **Typische Fehler**:
-  - Feature erfordert eine Technologie die laut CLAUDE.md nicht verwendet wird (z.B. WebSocket in einem PHP-only-Projekt)
-  - Performance-Anforderung unrealistisch fuer den Tech-Stack
-  - Abhaengigkeit von externem Service der nicht verfuegbar ist
-  - Komplexitaet eines Requirements uebersteigt den geplanten Aufwand massiv
-- **Pruefmethode**: Requirements gegen CLAUDE.md Tech-Stack pruefen. NUR offensichtliche Konflikte melden, KEINE spekulativen Machbarkeitsbedenken.
-- **Severity**: CRITICAL bei technischer Unmachbarkeit, WARNING bei hoher Komplexitaet
+- **Check**: Are the requirements technically feasible in the project context?
+- **Typical failures**:
+  - Feature requires a technology that per CLAUDE.md is not used (e.g. WebSocket in a PHP-only project)
+  - Performance requirement unrealistic for the tech stack
+  - Dependency on an external service that is not available
+  - Complexity of a requirement massively exceeds the planned effort
+- **Review method**: Check requirements against the CLAUDE.md tech stack. Only report obvious conflicts; NO speculative feasibility concerns.
+- **Severity**: CRITICAL for technical infeasibility, WARNING for high complexity

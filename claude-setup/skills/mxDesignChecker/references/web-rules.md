@@ -1,87 +1,87 @@
-# Web / PHP / JavaScript / HTML Pruefregeln
+# Web / PHP / JavaScript / HTML Review Rules
 
 ## 1. XSS (Cross-Site Scripting)
 
-- **Pruefe**: Werden alle User-Inputs vor der Ausgabe escaped/sanitized?
-- **Typische Fehler**:
-  - `echo $_GET['param']` ohne htmlspecialchars()
-  - innerHTML mit User-Input ohne Sanitization
-  - Template-Engine ohne Auto-Escaping
-  - URL-Parameter in href/src ohne Validierung (javascript:-Protokoll)
+- **Check**: Are all user inputs escaped / sanitized before output?
+- **Typical failures**:
+  - `echo $_GET['param']` without `htmlspecialchars()`
+  - `innerHTML` with user input without sanitization
+  - Template engine without auto-escaping
+  - URL parameters in `href` / `src` without validation (`javascript:` protocol)
 - **Severity**: CRITICAL
 
 ## 2. SQL Injection
 
-- **Pruefe**: Werden Prepared Statements / parametrisierte Queries verwendet?
-- **Typische Fehler**:
-  - String-Konkatenation in SQL: `"SELECT * FROM users WHERE id=" + id`
-  - `mysqli_query()` mit nicht-escaptem Input
-  - ORM-Bypass mit Raw-Queries ohne Parameter
+- **Check**: Are prepared statements / parameterized queries used?
+- **Typical failures**:
+  - String concatenation in SQL: `"SELECT * FROM users WHERE id=" + id`
+  - `mysqli_query()` with un-escaped input
+  - ORM bypass with raw queries without parameters
 - **Severity**: CRITICAL
 
 ## 3. CSRF (Cross-Site Request Forgery)
 
-- **Pruefe**: Haben alle state-aendernden Endpunkte CSRF-Schutz?
-- **Typische Fehler**:
-  - POST/PUT/DELETE ohne CSRF-Token
-  - Token nur im Cookie, nicht im Header/Form (Cookie-only ist nicht sicher)
-  - SameSite-Cookie-Attribut fehlt
-- **Severity**: CRITICAL bei Admin-Aktionen, WARNING bei normalen Aktionen
+- **Check**: Do all state-changing endpoints have CSRF protection?
+- **Typical failures**:
+  - POST / PUT / DELETE without CSRF token
+  - Token only in cookie, not in header / form (cookie-only is not safe)
+  - `SameSite` cookie attribute missing
+- **Severity**: CRITICAL for admin actions, WARNING for normal actions
 
-## 4. Session-Handling
+## 4. Session Handling
 
-- **Pruefe**: Sind Sessions sicher konfiguriert?
-- **Typische Fehler**:
-  - Session-ID in URL statt Cookie
-  - Fehlende `HttpOnly`/`Secure`/`SameSite` Flags
-  - Kein Session-Timeout
-  - Session-Fixation: Session-ID nicht nach Login erneuert
-- **Severity**: CRITICAL bei fehlenden Basis-Flags, WARNING bei fehlender Erneuerung
+- **Check**: Are sessions configured securely?
+- **Typical failures**:
+  - Session ID in URL instead of cookie
+  - Missing `HttpOnly` / `Secure` / `SameSite` flags
+  - No session timeout
+  - Session fixation: session ID not rotated after login
+- **Severity**: CRITICAL for missing base flags, WARNING for missing rotation
 
 ## 5. CORS (Cross-Origin Resource Sharing)
 
-- **Pruefe**: Ist CORS korrekt konfiguriert?
-- **Typische Fehler**:
-  - `Access-Control-Allow-Origin: *` mit Credentials
-  - Origin nicht validiert (reflektiert jeden Origin)
-  - Preflight-Requests nicht korrekt behandelt
-- **Severity**: CRITICAL bei Wildcard + Credentials, WARNING bei zu offener Config
+- **Check**: Is CORS configured correctly?
+- **Typical failures**:
+  - `Access-Control-Allow-Origin: *` together with credentials
+  - Origin not validated (reflects any origin)
+  - Preflight requests not handled correctly
+- **Severity**: CRITICAL for wildcard + credentials, WARNING for overly open config
 
-## 6. Input-Validierung
+## 6. Input Validation
 
-- **Pruefe**: Werden alle externen Inputs validiert?
-- **Typische Fehler**:
-  - Datei-Upload ohne Extension/MIME-Typ-Pruefung
-  - Numerische Parameter nicht auf Range geprueft
-  - Path-Traversal: `../../../etc/passwd` nicht blockiert
-  - JSON/XML-Parsing ohne Size-Limit
-- **Severity**: CRITICAL bei Path-Traversal/Injection, WARNING bei fehlender Range-Pruefung
+- **Check**: Are all external inputs validated?
+- **Typical failures**:
+  - File upload without extension / MIME-type check
+  - Numeric parameters not range-checked
+  - Path traversal: `../../../etc/passwd` not blocked
+  - JSON / XML parsing without a size limit
+- **Severity**: CRITICAL for path traversal / injection, WARNING for missing range checks
 
-## 7. API-Design
+## 7. API Design
 
-- **Pruefe**: Ist das API-Design konsistent und sicher?
-- **Typische Fehler**:
-  - Fehler-Responses geben Stack-Traces oder interne Details preis
-  - Keine Versionierung (Breaking Changes brechen Clients)
-  - Rate-Limiting fehlt auf oeffentlichen Endpunkten
-  - Pagination fehlt bei Listen-Endpunkten (Memory-Explosion bei grossen Datasets)
+- **Check**: Is the API design consistent and secure?
+- **Typical failures**:
+  - Error responses leak stack traces or internal details
+  - No versioning (breaking changes break clients silently)
+  - Rate limiting missing on public endpoints
+  - No pagination on list endpoints (memory blow-up on large datasets)
 - **Severity**: WARNING
 
-## 8. Browser-Kompatibilitaet
+## 8. Browser Compatibility
 
-- **Pruefe**: Funktioniert der Code in den Ziel-Browsern?
-- **Typische Fehler**:
-  - ES6+-Syntax ohne Transpilation fuer IE11
-  - CSS-Features ohne Fallback (Grid, Container Queries)
-  - WebAPI ohne Verfuegbarkeits-Check (z.B. `navigator.clipboard`)
-- **Severity**: WARNING (abhaengig von Zielgruppe)
+- **Check**: Does the code work in the target browsers?
+- **Typical failures**:
+  - ES6+ syntax without transpilation for IE11
+  - CSS features without fallback (Grid, Container Queries)
+  - Web API without availability check (e.g. `navigator.clipboard`)
+- **Severity**: WARNING (depends on target audience)
 
 ## 9. Performance
 
-- **Pruefe**: Gibt es offensichtliche Performance-Probleme?
-- **Typische Fehler**:
-  - N+1 Queries in Schleifen
-  - Keine Pagination bei grossen Datenmengen
-  - Synchrone Operationen die den Main-Thread blockieren
-  - Fehlende Caching-Header
-- **Severity**: WARNING bei N+1, INFO bei fehlenden Optimierungen
+- **Check**: Are there obvious performance problems?
+- **Typical failures**:
+  - N+1 queries in loops
+  - No pagination on large datasets
+  - Synchronous operations that block the main thread
+  - Missing caching headers
+- **Severity**: WARNING for N+1, INFO for missing optimizations
