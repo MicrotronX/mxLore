@@ -1,6 +1,7 @@
 ---
 name: mxHelp
 description: Use when the user says "/mxHelp", "/mxHelp <name>", or asks which mx-skill does what. Lists all installed mx*-skills grouped by category, or explains one skill in detail. Pure reader — no side effects.
+allowed-tools: Glob, Grep, Read
 ---
 
 # /mxHelp — mx-Skill Discoverability (AI-Steno: !=forbidden →=use ⚡=critical)
@@ -17,20 +18,28 @@ description: Use when the user says "/mxHelp", "/mxHelp <name>", or asks which m
 
 ## Mode 1: List (default, `--verbose` for full descriptions)
 
-- **Zero-result handling:** If the glob returns zero matches OR all matches are filtered out by the allowlist, render exactly: `No public mx*-skills installed. Run /mxSetup to install the mxLore-skills bundle.` and return. Do NOT render empty category headers.
+⚡ **Tool budget: max 2 tool calls (1× Glob + 1× Grep). NO per-file Reads. NO Bash.** Each Read on a fresh session triggers a permission prompt — multiplied by N skills this is unusable. Stay within Glob+Grep.
 
-1. Glob: `~/.claude/skills/mx*/SKILL.md` (glob is case-insensitive on Windows NTFS; matches mxPlan, mxsave, MXSPEC alike. On case-sensitive Linux FS, exact casing required — but mxLore canonical is Windows-only.)
-2. For each match: Read first ~15 lines, extract YAML frontmatter fields `name` and `description`.
-   **Malformed frontmatter handling:** If a SKILL.md has no `---` block, broken YAML, or missing `name`/`description` fields → render as `<dirname> — (no frontmatter)` and continue. NEVER abort the entire list. NEVER hallucinate field values.
-3. For each glob match, compare frontmatter name against the Public Skill Allowlist (case-insensitive). Skills NOT in allowlist → silently skip (private/customer-only). Skills in allowlist → group by their category from the allowlist table.
-4. Render compact bulleted list grouped by category:
+- **Zero-result handling:** If Glob returns zero matches OR all matches are filtered out by the allowlist, render exactly: `No public mx*-skills installed. Run /mxSetup to install the mxLore-skills bundle.` and return. Do NOT render empty category headers.
+
+1. **Glob (1 call):** `~/.claude/skills/mx*/SKILL.md` — case-insensitive on Windows NTFS. Confirms which skills exist on disk.
+2. **Grep (1 call) — extract all frontmatter at once:**
+   - `pattern: '^(name|description):'`
+   - `path: '~/.claude/skills'`
+   - `glob: 'mx*/SKILL.md'`
+   - `output_mode: 'content'`
+   - `-n: true` (line numbers)
+   - Result: every `name:` and `description:` line for ALL mx-skills in a single tool call. Format: `<filepath>:<lineno>:<content>`
+   - **Malformed frontmatter handling:** if a SKILL.md is missing `name:` or `description:` → render as `<dirname> — (no frontmatter)` and continue. NEVER abort the entire list. NEVER hallucinate field values.
+3. **Filter against allowlist:** parse the grep output, group `name`/`description` pairs by file path. For each, compare the `name` value against the Public Skill Allowlist (case-insensitive). Skills NOT in allowlist → silently skip (private/customer-only).
+4. **Render** compact bulleted list grouped by category from the allowlist:
    ```
    ## Core workflow
    - **mxPlan** — <first sentence of description>
    - **mxSpec** — ...
    ```
-5. Default truncation: stop at first '.', '!', '?' OR at 120 UTF-8 characters (NEVER split a multi-byte sequence — use codepoint count, not byte count). Whichever comes first.
-6. With `--verbose`: full description, no truncation
+5. Default truncation: stop at first '.', '!', '?' OR at 120 UTF-8 codepoints (NEVER split a multi-byte sequence). Whichever comes first.
+6. With `--verbose`: full description, no truncation.
 7. Footer: `Tip: /mxHelp <name> for details on one skill.`
 
 ### Public Skill Allowlist
@@ -70,8 +79,8 @@ description: Use when the user says "/mxHelp", "/mxHelp <name>", or asks which m
 ⚡ Detail mode is read-only. NO side effects. NO state writes. NO MCP calls.
 
 ## Rules
-- Token discipline: List mode reads only the frontmatter region of each file (~15 lines × N skills).
-- Detail mode reads ONE target file in full, no others.
+- ⚡ **Tool budget — List mode: max 2 calls (1 Glob + 1 Grep). Detail mode: max 2 calls (1 Glob + 1 Read).** Exceeding the budget = bug. NEVER use Bash. NEVER use per-file Read in List mode.
+- ⚡ **Output language: match the user's prompt language.** This SKILL.md is in English for sync hygiene (public mxLore-skills GitHub repo requires English), but the rendered output (category headers, descriptions, footer tip, error messages) MUST be translated to match the user's language. If the user wrote in German → render German. Italian → Italian. English → English. Default English when the language is ambiguous.
 - !duplicate skill content — only render what already exists in SKILL.md
-- !invent skills — if an allowlisted skill does not exist on disk, omit from render AND append a one-line footer warning: `Note: public allowlist references N missing skill(s): <names>` (surfaces drift without breaking reads)
+- !invent skills — if an allowlisted skill does not exist on disk, omit from render AND append a one-line footer warning (in the user's language): `Note: public allowlist references N missing skill(s): <names>` (surfaces drift without breaking reads)
 - Include `mxHelp` itself in the list under "Discoverability"
