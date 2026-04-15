@@ -87,7 +87,7 @@ For each finding: `mx_skill_manage(action='record_finding', skill='mxBugChecker'
 - `title` → max 255 chars. Trim the Root Cause summary locally; long values silently truncate on the server.
 - `rule_id` → max 100 chars. Category slugs are short, safe.
 - `file_path` → max 500 chars. Long paths are rare; trim leading repo path if needed.
-- `details` → TEXT column (unclamped), but keep it focused (Code Proof ≤3 lines + Root Cause ≤2 sentences).
+- `details` → TEXT column (unclamped), but keep it focused (Code Proof max 3 lines + Root Cause max 2 sentences).
 
 ⚡ **Self-check recursion guard:** if mxBugChecker is asked to check its own SKILL.md, run as a normal review target (Phase 1-4). Do NOT spawn a nested mxBugChecker on the output; do NOT Phase 4b persist findings against project='mxBugChecker' (no such project slug exists). Self-review findings are reported inline only.
 
