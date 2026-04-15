@@ -1,0 +1,16 @@
+{
+  "type": "<rule|pitfall|solution|decision_note|integration_fact>",
+  "scope": "<project|shared-domain|global>",
+  "severity": "<low|medium|high|critical>",
+  "what_happened": "<What happened? 1-2 sentences>",
+  "what_was_learned": "<What was learned? 1-2 sentences>",
+  "recommended_action": "<Recommended action>",
+  "avoid_action": "<What to avoid>",
+  "applies_to": "<Comma-separated patterns>",
+  "applies_to_files": ["<affected file paths>"],
+  "applies_to_functions": ["<affected functions/methods>"],
+  "applies_to_patterns": ["<affected code patterns>"],
+  "source_session": "<current session_id from orchestrate state>",
+  "source_docs": [0],
+  "last_confirmed_at": "<ISO date of creation>"
+}

@@ -1,10 +1,10 @@
 ---
 name: mxSave
-description: Use when the user says "save state", "/mxSave", or wants to persist the current project state for seamless continuation in a new session. Cleans settings, updates CLAUDE.md, docs/status.md (local), and creates session notes in DB. Loop-capable.
+description: Use when the user says "save state", "/mxSave", "session end", "before /compact", "wrap up", or otherwise wants to persist the current mx-project state (clean settings, update CLAUDE.md + docs/status.md, create session notes in MCP-DB, sync orchestrate-state deltas, emit clear-cycle tip). Loop-capable. Fires at natural session-end boundaries.
 user-invocable: true
 effort: medium
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task
-argument-hint: "[optional-notes] [--loop]"
+argument-hint: "[optional-notes] [--loop] [--clear-cycle]"
 ---
 
 # /mxSave — Persist Project State (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
@@ -22,8 +22,8 @@ Save agent. Persists project state for seamless session continuation.
 Reason: Subagents lack write permission for `.claude/` files.
 
 ## Init
-1. CLAUDE.md→`**Slug:**`=project-param. ∅slug→?user
-2. mx_ping()→check MCP availability
+1. CLAUDE.md→`**Slug:**`=project slug. ∅slug→?user
+2. mx_ping()→check MCP availability. Set `mcp_available = (ping == ok)`. Steps 3, 5, 6 reference this flag for fallback decisions instead of repeating "MCP error→fallback" inline.
 
 ## 6 Steps (sequential)
 
@@ -78,43 +78,27 @@ Derive lesson candidates from chat history:
 - ∅Lessons→skip. Output: `Lessons: N created, M merged, K candidates`
 
 **Lesson template (lesson_data JSON, AnsatzC mandatory fields):**
-```json
-{
-  "type": "<rule|pitfall|solution|decision_note|integration_fact>",
-  "scope": "<project|shared-domain|global>",
-  "severity": "<low|medium|high|critical>",
-  "what_happened": "<What happened? 1-2 sentences>",
-  "what_was_learned": "<What was learned? 1-2 sentences>",
-  "recommended_action": "<Recommended action>",
-  "avoid_action": "<What to avoid>",
-  "applies_to": "<Comma-separated patterns>",
-  "applies_to_files": ["<affected file paths>"],
-  "applies_to_functions": ["<affected functions/methods>"],
-  "applies_to_patterns": ["<affected code patterns>"],
-  "source_session": "<current session_id from orchestrate state>",
-  "source_docs": [<doc_ids of referenced Specs/Plans/ADRs>],
-  "last_confirmed_at": "<ISO date of creation>"
-}
-```
+See `references/lesson-template.json` for the lesson_data field schema.
 ⚡ **Mandatory:** what_happened+what_was_learned derived from chat context. applies_to_files from changed files. source_session from state.
 ⚡ **∅info→omit** instead of inventing. Empty arrays allowed, empty strings not.
 
-∅MCP→skip
+∅MCP→skip (mcp_available flag from Init)
 
 **Auto-dismiss pending findings:**
 Batch-dismiss all pending findings (not reviewed in session context):
 `mx_skill_feedback(project=<slug>, reaction='dismissed')` — one call dismisses all pending findings for the project.
 - Output: `Findings: batch-dismissed`
-- MCP error→skip
+- if !mcp_available → skip
 
 ### 4) Orchestrate State Sync (HYBRID, Spec#1161)
 Read `.claude/orchestrate-state.json`. If present+not empty:
 
 - **Push unsynced:** WFs with `unsynced=true`→`mx_update_doc`→`unsynced=false`. Events with `synced=false`→session note→`synced=true`
-- **Snapshot (Clear-Cycle pre-reset):** `last_save_deltas = state_deltas` — MUST be set BEFORE reset below. Single Source of Truth for this field.
+- **Snapshot (Spec#2152, Clear-Cycle pre-reset):** `last_save_deltas = state_deltas` — MUST be set BEFORE reset below. Single Source of Truth for this field.
 - **Finalize:** `state_deltas`→0, `last_save`→now, `last_reconciliation`→now
 - ⚡ Do NOT archive workflows. Only sync+reset.
 - Write state file back
+- ⚡ Token discipline: use Edit for surgical field updates (e.g. `last_save_deltas` snapshot+reset), Write for full rewrites only. Per global rule "Edit surgical 1-5L, multi-line→Write".
 - ∅file or empty stack→skip
 - Output: `Orchestrate: <N> unsynced pushed, deltas reset`
 
@@ -124,47 +108,61 @@ mx_create_doc(project, doc_type='session_note', title='Session Notes YYYY-MM-DD[
 ```
 **Template:** What was done? | Changed files | Next step | Open bugs | User notes
 **Numbering:** mx_search(project=<slug>, doc_type='session_note', query='YYYY-MM-DD')→exists→append number
-**MCP error→** Fallback local `docs/plans/session-notes-YYYY-MM-DD.md`+warning
+**if !mcp_available →** Fallback local `docs/plans/session-notes-YYYY-MM-DD.md`+warning
 
 ### 6) Peer Notify (MCP, only if delta > 0)
+if !mcp_available → skip entire step.
 `mx_session_delta(project, session_id=<state.session_id>, limit=1)`→total_changes==0→skip.
 `mx_agent_peers(project)`→∅peers→skip.
 1 call: `mx_agent_send(project, target_project=<peer_slug>, message_type='status', ttl_days=7, payload=<summary>)`
 - Payload: `{"type":"session_summary","summary":"<1-2 sentences>","changed_files":<count>,"project":"<slug>"}`
 - Error→log, don't abort
 
-## Final Block — Clear-Cycle Recommendation (/clear Mode)
+## Final Block — Clear-Cycle Recommendation (Spec#2152, /clear mode)
 
 After all 6 steps complete, read `last_save_deltas` from `.claude/orchestrate-state.json` (NOT `state_deltas` — that one has been reset to 0 in Step 4). Step 4 has already snapshotted the pre-reset value into `last_save_deltas`.
 
-**⚡ Fallback:** If `.claude/orchestrate-state.json` does not exist OR workflow_stack is empty → **skip Final-Block completely** (no output, no tip, no marketing line). Analog zum ∅file-Skip in Step 4.
+**⚡ Skip criterion:** Skip the Final Block only if the state file is missing OR `last_save_deltas` is unset (treat as 0). Do NOT skip on empty workflow_stack alone — deltas can be meaningful from doc-only sessions (edits, notes, specs) that never touched a workflow.
 
 **Read `N = state.last_save_deltas` (default 0 if field missing for backwards-compat).**
 
 Then, based on `N`:
 
-- **`N >= 15`** → **Active Question:**
+- **`N >= 15`** → **Active prompt:**
   ```
-  Session umfangreich (<N> deltas persistiert). /clear + neue Session + mx_briefing jetzt sinnvoll.
-  Ausfuehren? (1=ja /clear / 2=nein, weiterarbeiten)
+  Session is large (<N> deltas persisted). /clear + new session + mx_briefing is now worthwhile.
+  Execute? (1=yes /clear / 2=no, keep working)
   ```
   Wait for user. On `1`: print `Next step: press /clear. In the new session, call mx_briefing manually (PreCompact/PostCompact hooks dormant — see ~/.claude/hooks/dormant-pre-post-compact.md).` On `2`: continue silently.
 
-- **`N >= 10`** (and `< 15`) → **Info-Tipp** (1 line):
+- **`N >= 10`** (and `< 15`) → **Info tip** (1 line):
   ```
-  Tipp: <N> deltas persistiert. /clear + neue Session + mx_briefing sinnvoll, sobald passend.
+  Tip: <N> deltas persisted. /clear + new session + mx_briefing is worthwhile when convenient.
   ```
 
-- **`N >= 1`** (and `< 10`) → **Marketing-Zeile only** (1 line, honest, no token estimates):
+- **`N >= 1`** (and `< 10`) → **Marketing line only** (1 line, honest, no token estimates):
   ```
-  Clear-Cycle: <N> deltas persistiert. /clear + manuelles mx_briefing bereit.
+  Clear-Cycle: <N> deltas persisted. /clear + manual mx_briefing ready.
   ```
 
 - **`N == 0`** → **No output** (no noise for trivial saves).
 
-⚡ **Honesty-Regel:** Keine Token-Multiplikator-Zahlen (z.B. "~3k pro Delta") — das waere nicht belastbar (state_deltas zaehlt DB-Events, nicht Transcript-Tokens). Marketing-Zeile signalisiert nur Bereitschaft, keine Zahlen-Behauptung.
+⚡ **Honesty rule:** No token-multiplier numbers (e.g. "~3k per delta") — that would not be reliable (state_deltas counts DB events, not transcript tokens). Marketing line signals readiness only, not a numerical claim.
 
-⚡ **Why this matters:** PreCompact/PostCompact hooks are **dormant** (prompt-type hooks blocked upstream in Claude Code — see `~/.claude/hooks/dormant-pre-post-compact.md`). Therefore `/compact` is no longer a clean path: re-briefing cannot be triggered automatically. Active workflow: **`/clear` → start a new session → call `mx_briefing` manually**. This returns a lean, structured state overview; the full detail history stays persistent in the MCP-DB. Hook re-activation if upstream is fixed: see the dormant-hooks doc above.
+⚡ **Why this matters:** PreCompact/PostCompact hooks are **dormant** (Spec#2152, Lesson#2161 — prompt-type hooks blocked upstream in Claude Code). Therefore `/compact` is no longer a clean path: re-briefing cannot be triggered automatically. Active workflow: **`/clear` → start a new session → call `mx_briefing` manually**. This returns a lean, structured state overview; the full detail history stays persistent in the MCP-DB. Hook re-activation if upstream is fixed: see `~/.claude/hooks/dormant-pre-post-compact.md`.
+
+## Clear-Cycle Mode (`--clear-cycle`)
+
+⚡ Manual replacement for the dormant PreCompact/PostCompact hooks (Spec#2152 + Lesson#2161). Skips Steps 1-6 entirely and runs ONLY the Final Block (compact-cycle threshold logic) using the current `state_deltas` value. Use when:
+- The user just compacted and you want the marketing/tip line emitted
+- Or when the user types `/mxSave --clear-cycle` to get the threshold-driven prompt without doing a full state save
+- Output: same 4-stage Final Block (≥15 active prompt / ≥10 tip / ≥1 marketing / ==0 silent)
+
+Sequence:
+1. Init (read state file only — no MCP roundtrip)
+2. Skip Steps 1-6
+3. Run Final Block normally
+4. Exit (do NOT touch state_deltas, do NOT update CLAUDE.md or status.md)
 
 ## Loop Mode (--loop or /loop context)
 - **Idempotency:** check `mx_session_delta(project, session_id=<state.session_id>, limit=1)`→total_changes==0→single line `mxSave: No changes` + skip
