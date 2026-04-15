@@ -380,8 +380,9 @@ begin
 
   ARegistry
     .Add('mx_fetch', HandleFetch)
-    .Desc('HTTP GET/POST against [Fetch] AllowedHosts. Body capped at 50 KB. Header whitelist enforced.')
+    .Desc('HTTP GET/POST filtered by [Fetch] AllowedCallers (caller whitelist, not URL whitelist). Body capped at 50 KB. Header whitelist enforced.')
     .Param('url', mptString, True, 'Full URL (http/https only)')
+    .Param('caller_id', mptString, True, 'Self-declared caller identity, must be in [Fetch] AllowedCallers INI list')
     .Param('method', mptString, False, 'GET (def) or POST')
     .Param('body', mptString, False, 'JSON-encoded body string for POST')
     .Param('headers', mptString, False, 'JSON-encoded headers dict. Whitelist: Authorization, X-MXSA-Key, X-API-Key, Content-Type, Accept')

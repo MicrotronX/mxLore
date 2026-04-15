@@ -64,8 +64,8 @@ type
     FEmbeddingBatchSize: Integer;
     // Identity
     FSelfSlug: string;
-    // Fetch (mx_fetch tool — Build 85, ADR #2078)
-    FFetchAllowedHosts: TArray<string>;
+    // Fetch (mx_fetch tool — Build 85, ADR #2078; Bug#2866 redesign: caller-id whitelist)
+    FFetchAllowedCallers: TArray<string>;
   public
     constructor Create(const AIniPath: string);
 
@@ -124,8 +124,8 @@ type
     property EmbeddingBatchSize: Integer read FEmbeddingBatchSize;
     // Identity
     property SelfSlug: string read FSelfSlug;
-    // Fetch (mx_fetch tool — Build 85, ADR #2078)
-    property FetchAllowedHosts: TArray<string> read FFetchAllowedHosts;
+    // Fetch (mx_fetch tool — Build 85, ADR #2078; Bug#2866 redesign: caller-id whitelist)
+    property FetchAllowedCallers: TArray<string> read FFetchAllowedCallers;
   end;
 
 function mxEncryptStaticString(const APlainText: string): string;
@@ -382,22 +382,24 @@ begin
     FBatchIntervalMinutes := Ini.ReadInteger('AI', 'BatchIntervalMinutes', 15);
     FEmbeddingBatchSize := Ini.ReadInteger('AI', 'EmbeddingBatchSize', 50);
 
-    // Fetch (mx_fetch tool — Build 85, ADR #2078)
-    // Comma-separated host list, lowercase + trimmed. Default localhost-only
-    var LFetchHosts := Ini.ReadString('Fetch', 'AllowedHosts', 'localhost,127.0.0.1');
-    var LRawList := TArray<string>(LFetchHosts.Split([',']));
-    SetLength(FFetchAllowedHosts, Length(LRawList));
+    // Fetch (mx_fetch tool — Build 85, ADR #2078; Bug#2866 redesign)
+    // Caller-identity allowlist (Bug#2866): caller_id is a self-declared string,
+    // API-key auth remains primary security. Comma-separated, lowercase + trimmed.
+    // Default empty = reject all calls until pinned manually.
+    var LFetchCallers := Ini.ReadString('Fetch', 'AllowedCallers', '');
+    var LRawList := TArray<string>(LFetchCallers.Split([',']));
+    SetLength(FFetchAllowedCallers, Length(LRawList));
     var LIdx := 0;
-    for var LHost in LRawList do
+    for var LCaller in LRawList do
     begin
-      var LTrimmed := LHost.Trim.ToLower;
+      var LTrimmed := LCaller.Trim.ToLower;
       if LTrimmed <> '' then
       begin
-        FFetchAllowedHosts[LIdx] := LTrimmed;
+        FFetchAllowedCallers[LIdx] := LTrimmed;
         Inc(LIdx);
       end;
     end;
-    SetLength(FFetchAllowedHosts, LIdx);
+    SetLength(FFetchAllowedCallers, LIdx);
 
     // Auto-encrypt: plaintext keys → encrypted, clear plaintext from INI
     AutoEncryptKey(Ini, 'Database', 'Password', 'PasswordEnc');

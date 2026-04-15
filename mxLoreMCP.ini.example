@@ -111,14 +111,19 @@ MaxTokensPerBoot=50000
 MinFindingsForTuning=10
 
 ; =============================================================================
-; mx_fetch — outbound HTTP fetch tool for MCP clients (Build 85, ADR #2078)
-; Comma-separated host allowlist. Default = localhost only.
-; Add additional hosts (e.g. api.example.com, your LAN backend) explicitly.
-; Hosts are matched case-insensitive against the URL host component.
-; Schemes: http and https only. Body cap: 50 KB. Rate limit: 1 req/sec/session.
+; mx_fetch — outbound HTTP fetch tool for MCP clients (Build 85, ADR #2078;
+; Bug#2866 redesign: caller-identity allowlist replaces URL-host allowlist).
+;
+; Comma-separated caller IDs that may invoke mx_fetch. Callers self-declare
+; their identity via the 'caller_id' parameter. This is a routing/audit label
+; — API-key auth remains the primary security layer. Scheme (http/https),
+; body-cap (50 KB), and rate-limit (1 req/sec/session) remain enforced for
+; all callers.
+; Example: AllowedCallers=mxSocialAgent,mxCowork
+; Default empty = mx_fetch rejects all calls until configured.
 ; =============================================================================
 [Fetch]
-AllowedHosts=localhost,127.0.0.1
+AllowedCallers=
 
 ; =============================================================================
 ; Self-Update v1 (FR#2242, Plan#2311, Build 90)

@@ -16,13 +16,14 @@ function HandleFetch(const AParams: TJSONObject;
 implementation
 
 // ---------------------------------------------------------------------------
-// mx_fetch — HTTP fetch tool with host allowlist, header whitelist, rate-limit,
-// redirect containment (same-host only), body truncation (UTF-8 safe).
+// mx_fetch — HTTP fetch tool with caller-id allowlist (Bug#2866), header
+// whitelist, rate-limit, redirect containment (same-host only), body
+// truncation (UTF-8 safe).
 // Security: never log E.Message, never leak request headers.
 // ---------------------------------------------------------------------------
 
 var
-  gAllowedHosts: TArray<string>;
+  gAllowedCallers: TArray<string>;
   gFetchInitialized: Boolean = False;
   gRateLimit: TDictionary<Integer, TDateTime>;
   gRateLimitLock: TCriticalSection;
@@ -50,15 +51,15 @@ begin
             (L = 'accept');
 end;
 
-function IsHostAllowed(const AHost: string): Boolean;
+function IsCallerAllowed(const ACallerId: string): Boolean;
 var
   I: Integer;
-  H: string;
+  C: string;
 begin
   Result := False;
-  H := LowerCase(AHost);
-  for I := 0 to High(gAllowedHosts) do
-    if LowerCase(gAllowedHosts[I]) = H then
+  C := LowerCase(ACallerId);
+  for I := 0 to High(gAllowedCallers) do
+    if LowerCase(gAllowedCallers[I]) = C then
       Exit(True);
 end;
 
@@ -127,7 +128,7 @@ end;
 
 procedure InitFetchConfig(const AConfig: TMxConfig);
 begin
-  gAllowedHosts := AConfig.FetchAllowedHosts;
+  gAllowedCallers := AConfig.FetchAllowedCallers;
   gFetchInitialized := True;
 end;
 
@@ -137,7 +138,7 @@ end;
 function HandleFetch(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
 var
-  URL, Method, OriginalHost, CurrentUrl, BodyStr, ContentType: string;
+  URL, Method, OriginalHost, CurrentUrl, BodyStr, ContentType, CallerId: string;
   TimeoutMs, SessionId, RedirectCount, StatusCode: Integer;
   FollowRedirects, Truncated, HasUserContentType, HasUserAccept: Boolean;
   HeadersJson, Data, RespHeaders: TJSONObject;
@@ -162,6 +163,16 @@ begin
   URL := AParams.GetValue<string>('url', '');
   if URL.Trim.IsEmpty then
     raise EMxValidation.Create('Parameter "url" is required');
+
+  // Bug#2866: caller-identity allowlist replaces URL-host allowlist.
+  // caller_id is a self-declared routing/audit label; API-key auth remains
+  // the primary security layer.
+  CallerId := Trim(LowerCase(AParams.GetValue<string>('caller_id', '')));
+  if CallerId = '' then
+    raise EMxValidation.Create('Parameter "caller_id" is required');
+  if not IsCallerAllowed(CallerId) then
+    raise EMxValidation.Create(
+      'caller_id "' + CallerId + '" not in [Fetch] AllowedCallers');
 
   Method := UpperCase(AParams.GetValue<string>('method', 'GET'));
   if (Method <> 'GET') and (Method <> 'POST') then
@@ -203,7 +214,10 @@ begin
   FollowRedirects := AParams.GetValue<Boolean>('follow_redirects', True);
   SessionId := AParams.GetValue<Integer>('session_id', 0);
 
-  // ---- URL parsing & host allowlist --------------------------------------
+  // ---- URL parsing & scheme check ----------------------------------------
+  // Note (Bug#2866): URL-host allowlist removed. Caller-id allowlist above
+  // replaces it. OriginalHost is still captured for same-host redirect
+  // containment below.
   try
     URI := TURI.Create(URL);
   except
@@ -214,9 +228,6 @@ begin
     raise EMxValidation.Create('Scheme must be http or https');
 
   OriginalHost := LowerCase(URI.Host);
-  if not IsHostAllowed(OriginalHost) then
-    raise EMxValidation.Create(
-      'Host "' + OriginalHost + '" not in [Fetch] AllowedHosts');
 
   // ---- Header whitelist ---------------------------------------------------
   // headers also come as JSON-encoded string. Parse INSIDE the try/finally
@@ -417,6 +428,13 @@ begin
       Data.AddPair('truncated', TJSONBool.Create(Truncated));
       Data.AddPair('final_url', CurrentUrl);
       Data.AddPair('redirect_count', TJSONNumber.Create(RedirectCount));
+
+      // Audit log (Bug#2866 redesign): caller, url, bytes, http status.
+      // Never log headers or body — may contain credentials.
+      if (AContext <> nil) and (AContext.Logger <> nil) then
+        AContext.Logger.Log(mlInfo,
+          Format('mx_fetch: caller=%s url=%s bytes=%d status=%d',
+            [CallerId, URL, Length(RespBytes), StatusCode]));
 
       Result := MxSuccessResponse(Data);
     except
