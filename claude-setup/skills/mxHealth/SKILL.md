@@ -32,7 +32,7 @@ Execute in parallel:
 4. Read CLAUDE.md + docs/status.md
 5. Count: DB-Docs total, local reference files, CLAUDE.md line count
 
-## Phase 2: 11 Checks
+## Phase 2: 14 Checks
 
 ### P1: Document Metadata (DB)
 From mx_search results: title!empty, summary_l1 present, slug unique per project+doc_type.
@@ -50,7 +50,8 @@ ERROR=relation to deleted | WARNING=missing reverse relation
 
 ### P4: Status Consistency (DB, Content via mx_batch_detail)
 IDs from P1 mx_search collected→mx_batch_detail(doc_ids=[...], max_content_tokens=0) for all active/completed PLANs + proposed ADRs (1 call, max 10 IDs).
-- active PLANs MUST contain `- [ ]` | completed PLANs MUST NOT have `- [ ]`
+- active PLANs MUST contain `- [ ]` OUTSIDE fenced code blocks. ⚡ Strip ` ``` ... ``` ` regions before counting checkboxes; nested task examples inside code blocks do NOT count as real pending tasks.
+- completed PLANs MUST NOT have any `- [ ]` outside fenced code blocks.
 - proposed ADRs >30 days old→WARNING
 
 ### P5: Workflow Consistency (DB, Content via mx_batch_detail)
@@ -74,7 +75,7 @@ All non-archived/deleted docs (EXCLUDING session_note, workflow_log): token_esti
 Data source: mx_search results (no mx_detail needed).
 
 ### P10: Auto-Relations (Cross-Reference Scan)
-MCP required. Sample max 20 docs via mx_batch_detail(doc_ids=[...], level='full') (2 calls of 10). Scan content for:
+MCP required. Sample max 20 docs via mx_batch_detail(doc_ids=[...], max_content_tokens=0) (2 calls of 10). Scan content for:
 - `doc_id=NNN`, `#NNN`, `ADR-XXXX`, `PLAN-xxx`, `SPEC-xxx`
 - Context phrases→relation type: "based on"→assumes | "replaces"→supersedes | "leads to"→leads_to | "caused by"→caused_by | "depends on"→depends_on | "rejected in favor of"→rejected_in_favor_of | default→references
 - Duplicate check before mx_add_relation. Ref: doc_id=620 conventions.
@@ -94,10 +95,10 @@ Check whether CLAUDE.md files use AI-Steno:
 - Ref: ADR-0010 (AI-Steno standard format)
 
 ### P13: Skill Evolution Metrics
-MCP required. `mx_skill_metrics(skill='mxBugChecker', project=<slug>, days=90)` + same for mxDesignChecker, mxHealth.
+MCP required. Iterate over the canonical list of evolution-enabled skills: `[mxBugChecker, mxDesignChecker, mxHealth, mxSave, mxOrchestrate, mxPlan, mxSpec, mxDecision, mxMigrateToDb, mxInitProject]`. For each, call `mx_skill_metrics(skill=<name>, project=<slug>, days=90)`.
 - FP rate >50% for a rule→WARNING("Rule {rule_id} has {fp_rate}% false positives — mx_skill_manage(action='tune', ...) recommended")
 - >20 pending findings→INFO("N findings awaiting feedback")
-- ∅skill_findings table or error→skip (feature not active)
+- ∅skill_findings table or error→skip (feature not active for that skill)
 Severity: WARNING(high FP rate) | INFO(pending)
 
 ### P14: AI-Batch Status
@@ -158,6 +159,8 @@ P9 findings→removed (B6.5). ∅P9→skip.
 - ∅findings→single line: `mxHealth OK — 0 problems`
 
 ⚡ **Delta semantics across iterations:** each iteration fires P1-P14 fresh. A finding is "new" if its `context_hash` (`<check>:<document-slug>`) has not been persisted via `mx_skill_manage(action='record_finding', ...)` in a prior iteration. Findings with matching `context_hash` → suppress the output line (they're duplicates). This keeps the loop output noise-free while preserving the full audit trail in MCP.
+
+⚡ **INFO findings in loop mode:** Phase 4 persists only ERROR+WARNING, so INFO findings would otherwise re-print every iteration. In loop mode, SUPPRESS all INFO findings from output entirely — they are one-shot advisory items, not recurring health signals.
 
 ## Rules
 - Read-only + bug notes + summary fix. !modify document contents

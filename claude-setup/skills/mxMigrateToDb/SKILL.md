@@ -18,7 +18,7 @@ This skill fires on:
 ## MCP Required
 ⚡ mxMigrateToDb is MCP-dependent by design. Every mode (--dry-run, --cleanup, --sync, --scan, --extract-backlog) writes to the Knowledge-DB via `mx_migrate_project`, `mx_batch_create`, or `mx_create_doc`. If `mx_ping` fails in the prerequisite phase → print `"MCP unreachable — /mxMigrateToDb requires MCP."` and ABORT. No partial runs, no local-only fallback mode. The caller should retry once MCP is back.
 
-Migration agent. Import local `docs/*.md` files of a project into the central Knowledge-DB via MCP tool `mx_migrate_project`.
+Migration agent. Import local `docs/*.md` files of a project into the central Knowledge-DB. Primary tool is `mx_batch_create` (client-side batch strategy, works for all deployments including remote). `mx_migrate_project` exists as a server-side variant but is NOT the primary path — this skill uses the client-side batch approach for consistency and retriability.
 
 ## Determine project context (IMPORTANT: avoid duplicates!)
 
@@ -145,11 +145,21 @@ The skill reads files LOCALLY (Claude Code has file access) and sends them in ba
 **Workflow (batch strategy — collect all files, then one call):**
 
 0. **Pre-load DB inventory (⚡ MANDATORY — avoids N+1 searches):**
-   `mx_search(project='<slug>', limit=50)` → load all existing docs. If >50: second call with offset. Build set from this: `existing_slugs: set of string` (from slug field). Use this set for ALL duplicate checks. !individual mx_search per file.
+   `mx_search(project='<slug>', limit=50, offset=0)` → load first page. ⚡ **Explicit pagination loop** (not "second call with offset"):
+```
+offset = 0; all_docs = []
+while true:
+  results = mx_search(project='<slug>', limit=50, offset=offset)
+  all_docs.extend(results)
+  if len(results) < 50: break  # last page
+  offset += 50
+  if offset > 10000: break  # safety guard, max 200 pages
+```
+Build set from `all_docs`: `existing_slugs: set of string` (from slug field). Use this set for ALL duplicate checks. !individual mx_search per file.
 1. **Collection phase:** For each file in docs/:
    a. Read file locally (Read tool)
    b. Determine doc_type based on filename (see mapping)
-   c. Parse status: Search content for `**Status:** <value>` (regex: `\*\*Status:\*\*\s*(\w+)`). If found: Map to DB status (see status mapping). If not: no status parameter (default 'draft').
+   c. Parse status: Search content for `**Status:** <value>` using a **case-insensitive** regex `(?i)\*\*status:\*\*\s*(\w+)` to catch `Status:`, `status:`, `STATUS:`, and mixed-case legacy files. Normalize the captured group to lowercase before the mapping lookup. If found: Map to DB status (see status mapping). If not: no status parameter (default 'draft').
    d. Duplicate check: Check file slug against `existing_slugs` set — if match with same doc_type: skip. ⚡ !mx_search per file
    e. Collect non-duplicates in items array: `{project, doc_type, title, content, status}`
 2. **Batch import:** `mx_batch_create(items='[{...}, {...}, ...]')` — all documents in one transaction. Returns: array with doc_ids. Maintain import map: filename → doc_id (for relations phase).
@@ -188,7 +198,7 @@ The skill reads files LOCALLY (Claude Code has file access) and sends them in ba
 After ALL files are imported, analyze Markdown links between documents:
 
 1. For each imported document: Scan content for links to other docs/ files
-   - Regex: `\[.*?\]\((.*?\.md)\)` or text patterns `See (PLAN|ADR|SPEC)-...`
+   - Regex: `\[.*?\]\((.*?\.md)\)` (case-insensitive; reject matches where the captured path starts with `http://`, `https://`, or `//` — those are remote URLs, not local slugs). Also text patterns `(?i)\bsee\s+(plan|adr|spec)[-_]` for case-insensitive inline mentions.
 2. Extract target slug from link path
 3. Look up in import map (filename → doc_id)
 4. If match: Call `mx_add_relation()`:
@@ -245,7 +255,7 @@ After successful import (or separately with `--cleanup`): Remove local fallback 
 
 ### Cleanup workflow
 
-1. **Pre-load DB inventory (⚡ 1 call instead of N):** `mx_search(project, limit=50)` → build `existing_slugs` set (same as import phase).
+1. **Pre-load DB inventory (⚡ paginated, not single call):** `mx_search(project, limit=50, offset=0)` → paginate with the same while-loop pattern as the Import phase step 0. Build `existing_slugs` set from ALL pages. ⚡ **Silent data loss risk** if you only load the first 50: deletable files whose DB match lives in page 2+ would be kept as "not in DB" and mis-reported. Always paginate before cleanup decisions.
    **For each local file** in `docs/plans/`, `docs/specs/`, `docs/decisions/`:
    - Check file slug against `existing_slugs`. !mx_search per file
    - If YES and content matches → delete file

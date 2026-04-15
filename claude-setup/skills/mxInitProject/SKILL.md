@@ -31,8 +31,10 @@ This skill is **safe for repeated invocation**. Pre-flight check BEFORE all step
 | Y | Y | Y | Y | Y | "Everything present — no changes needed." -> ABORT IMMEDIATELY |
 | Y | N | Y | Y | Y | Only insert AI-Start-Here block |
 | N | - | N | N | N | Full bootstrap (all steps) |
-| Y | Y | Y | N | Y | Only MCP registration (step 2) |
+| Y | Y | Y | N | Y | Only MCP registration (section 2a MCP path) |
 | any | any | any | any | any | Only create missing parts, skip existing ones |
+
+⚡ **Section 2 contains TWO paths:** 2a is the MCP-project-registration path (runs in MCP mode), 2b is the non-MCP local-index-files path. The decision matrix row "Only MCP registration" maps to the 2a sub-path only; do NOT skip section 2 entirely in MCP mode.
 
 ⚡ **Each step individually checks whether its artifact exists → skip if yes.**
 ⚡ **Never overwrite, delete, or duplicate existing content.**
@@ -57,10 +59,12 @@ Enables multi-team scenarios: different projects can use different mxLore server
 
 ?user: "MCP server for this project? (Enter=use global server, or enter custom URL)"
 
+⚡ **Prompt parser robustness:** treat any of `""` (empty) / `"skip"` / `"no"` / `"n"` / `"cancel"` / EOF as "use global server" (default path). Only a non-empty string matching the URL pattern is treated as a custom URL. Never loop on ambiguous input.
+
 **If Enter (default/global):** Continue as before — global user-scope MCP is used. Do not write `.mcp.json`, no local proxy.
 
 **If custom URL:**
-1. Validate URL: must start with `https://` and end with `/mcp`
+1. Validate URL (case-insensitive): must start with `https://` (or `http://` for localhost only) and end with `/mcp`. Lowercase the scheme/suffix before comparing; treat `HTTPS://...`, `https://...`, `Https://...` as equivalent.
 2. Request API key: ?user: "API key for this server? (starts with mxk_)"
 3. **Create proxy INI:** `.claude/mxMCPProxy.ini` in the project directory:
    ```ini
@@ -118,7 +122,13 @@ For MCP projects, workflows are stored in the DB.
 ## 2. Index files (non-MCP projects only)
 
 **If MCP mode (mx_ping successful):** Do not create index files. Instead check if the project is registered in the DB:
-1. Read slug from CLAUDE.md (`**Slug:**` line). If no slug: derive from directory name and ask the user: "Suggested project slug: `<slug>` — does that work?"
+1. Read slug from CLAUDE.md (`**Slug:**` line). If no slug: derive from directory name, then normalize:
+   a. Lowercase
+   b. Replace `[^a-z0-9-]` with `-` (handles spaces, Umlauts, Windows-reserved chars, special symbols)
+   c. Collapse multiple `-` into one; strip leading/trailing `-`
+   d. Reject `..` or any path-traversal segment — fall back to "project" + random suffix and warn
+   e. Truncate to 100 chars (ClampSlug limit) at a `-` boundary
+   Then ask the user: "Suggested project slug: `<slug>` — does that work? (Enter=yes, or enter alternative)"
 2. Call `mx_briefing(project='<slug>')`
 3. If "Project not found":
    - **STOP — MUST ask the user!** Question: "Project name for `<slug>`? (e.g. 'My Project — Short description')"
@@ -177,10 +187,12 @@ If CLAUDE.md does not exist: Create a minimal CLAUDE.md using the following temp
 
 ### Project CLAUDE.md Template (when newly created)
 
+⚡ **Template assembly:** the template below contains a placeholder `[INSERT AI-START-HERE BLOCK]` which MUST be substituted with the actual block from "### Block to insert (MCP project)" or "### Block to insert (non-MCP project)" below BEFORE writing the file. Never write the literal placeholder text to disk.
+
 ```markdown
 # <ProjectName>
 
-> **AI Start Here** — [AI Start Here Block as below]
+[INSERT AI-START-HERE BLOCK]
 
 ## Project
 
@@ -196,6 +208,12 @@ _(will be expanded as the project progresses)_
 
 _(only rules that apply ONLY to this project, do not duplicate global rules)_
 ```
+
+Assembly steps when creating a new CLAUDE.md:
+1. Detect MCP mode (mx_ping success = MCP, otherwise non-MCP)
+2. Pick the matching block: "Block to insert (MCP project)" or "Block to insert (non-MCP project)"
+3. Replace `[INSERT AI-START-HERE BLOCK]` in the template with the chosen block verbatim
+4. Write the assembled content to `CLAUDE.md`
 
 If CLAUDE.md exists: Insert ONLY the "AI Start Here" block (after the first H1 line). Do NOT overwrite anything.
 
