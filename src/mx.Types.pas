@@ -106,7 +106,7 @@ function MxGetThreadAuth: TMxAuthResult;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 92;  // Build 92 release: Self-Update v1.1 parent-does-everything + C8 child-path elimination. Session 242 loop-test 89->build-92 verified green end-to-end.
+  MXAI_BUILD   = 93;  // Build 93: Bug#2798 AI-Batch duplicate-key slug-pre-check + Bug#2866 mx_fetch caller_id redesign + Bug#2889 VARCHAR input-clamp family (ClampTitle/Slug/ChangeReason) + Bug#2928 admin-UI Check-for-Update no-feedback fix.
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';
