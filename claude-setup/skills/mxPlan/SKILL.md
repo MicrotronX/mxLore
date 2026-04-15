@@ -34,7 +34,7 @@ Related handling: `mx_search` → resolve target doc_id → `mx_add_relation(sou
 
 ### 3) Update plan
 **MCP:** `mx_detail(doc_id)` → modify only the target section(s) → `mx_update_doc(doc_id, content, change_reason)`. ⚡ **Preserve all headers and existing sections**; edit in place. For adding a new task, append under `## Tasks`; do NOT replace the whole section. For completing a task, flip `- [ ]` to `- [x]`; do NOT remove the line.
-⚡ `change_reason` is VARCHAR-clamped on the server (Bug#2889 ClampChangeReason) — keep it concise (≤ ~200 chars). Long reasons are silently truncated.
+⚡ `change_reason` is VARCHAR-clamped on the server (Bug#2889 ClampChangeReason) — keep it concise (max ~200 chars). Long reasons are silently truncated.
 **Local:** Read → Edit → index update if status changed.
 
 ### 4) Status transition (on update)
