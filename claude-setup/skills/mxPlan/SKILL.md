@@ -16,36 +16,74 @@ Plan agent. Creates/updates plans in Knowledge-DB via MCP.
 2. mx_ping()→OK=MCP-mode | error=local(`docs/plans/PLAN-<slug>.md`+warning→/mxMigrateToDb)
 
 ## Input
-Slug from command argument. ∅arg→?user. Slug: `a-z 0-9 -` only.
+Slug from command argument. ∅arg→?user.
+
+⚡ **Slug validation + normalization:** Before use, enforce `^[a-z0-9-]+$`. If the raw input contains uppercase, underscores, or other characters:
+1. Lowercase everything
+2. Replace `[^a-z0-9-]` with `-`
+3. Collapse multiple `-` and strip leading/trailing `-`
+4. If the normalized slug differs from input → show both and ask user to confirm before proceeding
+5. Server clamps slug to 100 chars (ClampSlug, Bug#2889) — truncate locally and warn if longer
 
 ## Workflow
 
 ### 1) Check existence
-`mx_search(project, doc_type='plan', query='<slug>', include_content=false, limit=1)` →match=Update(3, use returned doc_id; call mx_detail only if current content needed) | ∅=New(2)
+
+⚡ `mx_search(project, doc_type='plan', query='<slug>', status='active', include_content=false, limit=5)` — **MUST pass `status='active'`** or an archived plan with the same slug will hijack the Update path and mutate historical records.
+
+For each result, verify the slug field matches the normalized input EXACTLY (mx_search uses full-text, so `foo` can match `foo-v2`). Only an exact-slug active hit goes to Update (step 3) with that doc_id; ∅exact match → New (step 2).
+
+⚡ **TOCTOU guard:** after step 2 creates a new plan, re-query once with the same filter. If >1 active plan with this exact slug now exists, a parallel run raced us — warn user and keep the oldest, delete the new one (or ask which to keep).
 
 ### 2) New plan
 
-Template → `assets/plan-template.md` (goal, related, non-goals, milestones, tasks, risks, notes — 10 sections, ready to populate from chat context).
+Template → `~/.claude/skills/mxPlan/assets/plan-template.md` (7 sections: Goal, Related, Non-goals, Milestones, Tasks, Risks, Notes — plus title/meta lines). ⚡ **Absolute path** — the subagent CWD is the project root, not the skill dir, so a relative `assets/…` read silently fails. If the template file is unreadable, fall back to a minimal inline skeleton (Goal + Tasks + Notes) and warn the user.
+
+⚡ **Title clamp:** server ClampTitle=255 (Bug#2889). Keep titles short.
 
 **MCP:** `mx_create_doc(project, doc_type='plan', title='PLAN: <Title>', content)` (body assembled in this subagent from the template; !echo to parent — see Tokens rule).
-Related handling: `mx_search` → resolve target doc_id → `mx_add_relation(source=<new plan doc_id>, target=<spec or decision doc_id>, relation_type='references')`. ⚡ **Source is always the new plan**, target is the referenced spec/decision/other doc. Never reverse.
 
-**Local (Fallback):** `docs/plans/PLAN-<slug>.md` + index.md update + warning
+**Related handling (iterate, do not stop at first):**
+1. Parse the Related section for ALL referenced specs + decisions (multiple common)
+2. For each referenced item → `mx_search(project, doc_type='spec,decision', query='<title>', status='active', limit=3)` to resolve target_id
+3. For each resolved target → optional pre-check `mx_graph_query(source=<new plan>, target=<target>, relation_type='references')` to avoid duplicate edges
+4. `mx_add_relation(source=<new plan doc_id>, target=<target doc_id>, relation_type='references')` — ⚡ **Source is ALWAYS the new plan**, target is the referenced spec/decision. Never reverse.
+5. Loop until all Related items processed.
+
+**Local (Fallback):** ensure `docs/plans/` exists (`mkdir -p docs/plans`); if absent create + initial `index.md`. Write `docs/plans/PLAN-<slug>.md` + append index entry + warning.
 
 ### 3) Update plan
-**MCP:** `mx_detail(doc_id)` → modify only the target section(s) → `mx_update_doc(doc_id, content, change_reason)`. ⚡ **Preserve all headers and existing sections**; edit in place. For adding a new task, append under `## Tasks`; do NOT replace the whole section. For completing a task, flip `- [ ]` to `- [x]`; do NOT remove the line.
-⚡ `change_reason` is VARCHAR-clamped on the server (Bug#2889 ClampChangeReason) — keep it concise (max ~200 chars). Long reasons are silently truncated.
+**MCP:** `mx_detail(doc_id, max_content_tokens=0)` → modify only the target section(s) → `mx_update_doc(doc_id, content, change_reason)`.
+
+⚡ **`max_content_tokens=0` is REQUIRED for updates** — the server default (600) silently truncates long plan bodies. Writing the truncated content back via `mx_update_doc` causes SILENT DATA LOSS of everything past the cut. The 600-token default is for queries, not edits.
+
+⚡ **Preserve all headers and existing sections**; edit in place. Editing rules:
+- **Add a task:** append a new `- [ ]` line under `## Tasks`; do NOT replace the whole section.
+- **Complete a task:** flip `- [ ]` to `- [x]` (or `- [X]`); do NOT remove the line.
+- **Remove an obsolete task:** annotate as `- [x] ~~original text~~ (dropped)` rather than deleting the line — the strike-through preserves audit history and still counts toward "all done" in the status transition. Do NOT delete task lines silently.
+
+⚡ **Server clamp limits (Bug#2889 ClampVarchar family):** title=255, slug=100, change_reason=500. Keep change_reason concise but the budget is 500 chars, not 200. Long values past the limit are silently truncated.
+
 **Local:** Read → Edit → index update if status changed.
 
 ### 4) Status transition (on update)
 After step 3: count task lines in content.
-- **M = total tasks** (`- [ ]` + `- [x]`). **⚡ If M == 0 → skip transition** (empty checklist is not "complete"; output `Plan has no tasks yet`).
-- **M > 0 AND N = M (all `- [x]`, zero `- [ ]`)** AND status still `active`:
+
+⚡ **Task regex — case-insensitive, column-zero, outside code blocks:**
+- Matches: `^- \[[ xX]\] ` at the start of a line (no indentation), outside fenced code blocks (```...```)
+- Done: `- [x]` OR `- [X]` (uppercase accepted — users routinely write both)
+- Open: `- [ ]` (single space only)
+- Exclude: tab-indented tasks, nested-section tasks, any `- [ ]` inside ```code blocks```
+
+Counts:
+- **M = total tasks** (open + done). **⚡ If M == 0 → skip transition** (empty checklist is not "complete"; output `Plan has no tasks yet`).
+- **Status whitelist:** auto-transition only applies when current status is `active`. Skip for `superseded`, `rejected`, `blocked`, or any other non-active status.
+- **M > 0 AND N = M (all done) AND current status == `active`**:
   - Content: `**Status:** active` → `**Status:** completed`
   - `mx_update_doc(doc_id, content, status='archived', change_reason='All tasks completed')`
   - Output: `Plan #<doc_id> archived — all tasks completed`
 - **Mixed (N < M):** ∅change, info only: `<N>/<M> tasks completed`
-- ⚡ Only for clearly completed plans. Doubt → leave open + ?user
+- ⚡ Only for clearly completed plans with status=`active`. Doubt → leave open + ?user
 
 ## Rules
 - Tasks: small+verifiable, `- [ ]`/`- [x]`, max 15-20/plan, 1 session/task
@@ -55,6 +93,11 @@ After step 3: count task lines in content.
 - MCP preferred, local=fallback
 
 ## Conclusion
-Output: (1) doc_id (2) top-5 tasks (3) relations if created
-Recommendation: `superpowers:executing-plans` or `superpowers:subagent-driven-development`
-If active workflow→name next step
+Output (max 20 lines, truncate aggressively):
+1. doc_id
+2. top-5 tasks (truncate each to 60 chars)
+3. up to 3 relations if created (show target title + doc_id only)
+4. Recommendation: `superpowers:executing-plans` or `superpowers:subagent-driven-development`
+5. If active workflow → name next step
+
+If more tasks or relations exist than shown, append `... and N more (see mx_detail <doc_id>)`.
