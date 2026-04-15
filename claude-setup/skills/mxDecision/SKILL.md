@@ -77,7 +77,7 @@ After mx_create_doc — 4 optional questions to user (each skippable with 'no'):
 
 ⚡ **Status whitelist:** auto-transition only runs when the current MCP status is `active`. Skip for already-`archived`, `superseded`, `deprecated`. Check current status via `mx_detail` before flipping.
 
-⚡ **ClampVarchar limits (Bug#2889):** title≤255 (content prefix `ADR-NNNN: ` eats ~12), slug≤100, change_reason≤500. Keep change_reason concise; long values silently truncate.
+⚡ **ClampVarchar limits (Bug#2889):** titlemax 255 (content prefix `ADR-NNNN: ` eats ~12), slugmax 100, change_reasonmax 500. Keep change_reason concise; long values silently truncate.
 
 **Editing rules (preserve audit history):**
 - **Flip status line:** change `**Status:** <old>` to `**Status:** <new>` in place; do NOT remove the line.
