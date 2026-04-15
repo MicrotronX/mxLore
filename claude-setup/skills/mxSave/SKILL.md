@@ -64,8 +64,9 @@ Check WFs whose title starts with "Ad-hoc:":
 - WF has real work→archive normally like other WFs
 
 **Archive completed Plans/Specs/Decisions:**
-`mx_search(project, doc_type='plan,spec,decision', status='active', limit=20)`→collect IDs→`mx_batch_detail(doc_ids=[...])`→check each doc:
-⚡ If result count == 20, warn: "Archive sweep truncated at 20 — re-run /mxSave or paginate manually if more active items exist." This is an auto-cleanup correctness guard, not a token-savings concern.
+- Define `ARCHIVE_SWEEP_LIMIT = 20` once at the top of Step 3 (sync this constant if you change the limit anywhere)
+- `mx_search(project, doc_type='plan,spec,decision', status='active', limit=ARCHIVE_SWEEP_LIMIT)`→collect IDs→`mx_batch_detail(doc_ids=[...])`→check each doc:
+- ⚡ If result count == ARCHIVE_SWEEP_LIMIT → warn: "Archive sweep truncated at <ARCHIVE_SWEEP_LIMIT> — re-run /mxSave or paginate manually if more active items exist." This is an auto-cleanup correctness guard, not a token-savings concern.
 - **Plan:** All tasks `- [x]` (no `- [ ]`)→archive
 - **Spec:** All ACs `- [x]` AND no open questions→archive
 - **Decision:** Status `proposed` for >30 days without change→warning (don't auto-archive)
@@ -127,18 +128,20 @@ After all 6 steps complete, read `last_save_deltas` from `.claude/orchestrate-st
 
 (In `--clear-cycle` mode, the calling sequence has already overridden `N` with `state.state_deltas` — see Clear-Cycle Mode section. Final Block is mode-agnostic; it just consumes `N`.)
 
-**⚡ Skip criterion:** Skip the Final Block only if the state file is missing OR `last_save_deltas` is unset (treat as 0). Do NOT skip on empty workflow_stack alone — deltas can be meaningful from doc-only sessions (edits, notes, specs) that never touched a workflow.
+**⚡ Skip criterion:** Skip the Final Block only if the state file is missing OR the relevant deltas field is unset. Mode-aware: in normal mode the relevant field is `last_save_deltas` (set in Step 4); in `--clear-cycle` mode the relevant field is `state_deltas` (the in-flight counter). A fresh state with `state_deltas > 0` but `last_save_deltas` unset MUST emit the threshold line in `--clear-cycle` mode — do NOT skip. Do NOT skip on empty workflow_stack alone — deltas can be meaningful from doc-only sessions (edits, notes, specs) that never touched a workflow.
 
 **Read `N = state.last_save_deltas` (default 0 if field missing for backwards-compat).**
 
 Then, based on `N`:
 
-- **`N >= 15`** → **Active prompt:**
-  ```
-  Session is large (<N> deltas persisted). /clear + new session + mx_briefing is now worthwhile.
-  Execute? (1=yes /clear / 2=no, keep working)
-  ```
-  Wait for user. On `1`: print `Next step: press /clear. In the new session, call mx_briefing manually (PreCompact/PostCompact hooks dormant — see ~/.claude/hooks/dormant-pre-post-compact.md).` On `2`: continue silently.
+- **`N >= 15`**:
+  - **Loop-mode check**: if the skill is running in `--loop` mode, downgrade to the N≥10 tip line below (loop forbids interactive waits per L181). Do NOT emit the active prompt.
+  - **Normal mode**: emit **Active prompt:**
+    ```
+    Session is large (<N> deltas persisted). /clear + new session + mx_briefing is now worthwhile.
+    Execute? (1=yes /clear / 2=no, keep working)
+    ```
+    Wait for user. On `1`: print `Next step: press /clear + new session + mx_briefing` and exit. On `2`: print `Continuing — call /mxSave again before the next /compact.` and exit.
 
 - **`N >= 10`** (and `< 15`) → **Info tip** (1 line):
   ```
@@ -159,7 +162,7 @@ Then, based on `N`:
 ## Clear-Cycle Mode (`--clear-cycle`)
 
 ⚡ Manual replacement for the dormant PreCompact/PostCompact hooks (Spec#2152 + Lesson#2161). Skips Steps 1-6 entirely and runs ONLY the Final Block (compact-cycle threshold logic) using the current `state_deltas` value. Use when:
-- The user just compacted and you want the marketing/tip line emitted
+- After a manual /compact, invoke /mxSave --clear-cycle explicitly to emit the threshold line. (Note: PreCompact/PostCompact hooks are dormant per Spec#2152, so there is NO automatic trigger — the user must invoke this.)
 - Or when the user types `/mxSave --clear-cycle` to get the threshold-driven prompt without doing a full state save
 - Output: same 4-stage Final Block (≥15 active prompt / ≥10 tip / ≥1 marketing / ==0 silent)
 
@@ -168,7 +171,7 @@ Then, based on `N`:
 Sequence:
 1. Init (read state file only — no MCP roundtrip; use loadState contract: corrupt/missing → empty state with state_deltas=0)
 2. Skip Steps 1-6
-3. Compute `N` for the threshold: in `--clear-cycle` mode, `N = state.state_deltas` (current in-flight, NOT the stale `last_save_deltas`). This override exists because Step 4 — which normally snapshots `state_deltas → last_save_deltas` — is skipped in this mode.
+3. Compute `N` for the threshold: in `--clear-cycle` mode, `N = state.state_deltas` (default 0 if field missing — handles legacy state files pre-Spec#2152). Mirror the default-0 fallback used by Final Block on line 132. Current in-flight value, NOT the stale `last_save_deltas`. This override exists because Step 4 — which normally snapshots `state_deltas → last_save_deltas` — is skipped in this mode.
 4. Run Final Block threshold logic with `N` (4-stage: ≥15 active prompt / ≥10 tip / ≥1 marketing / ==0 silent)
 5. Exit (do NOT touch state_deltas, do NOT update CLAUDE.md or status.md)
 
