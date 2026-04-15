@@ -38,7 +38,7 @@ Execute in parallel:
 From mx_search results: title!empty, summary_l1 present, slug unique per project+doc_type.
 ERROR=empty titles | WARNING=missing summaries
 
-### P2: Format Consistency (Sample max 5 docs via mx_batch_detail(doc_ids=[...], max_content_tokens=0))
+### P2: Format Consistency (Sample max 5 docs via mx_batch_detail(doc_ids=[...], level='full'))
 - ADRs: `**Status:**` (accepted|proposed|superseded|deprecated)
 - PLANs: `**Status:**` (active|completed|paused|cancelled)
 - SPECs: `**Created:**` or `**Slug:**`
@@ -49,13 +49,13 @@ Relations per mx_search(include_details=true): Target exists(!deleted), bidirect
 ERROR=relation to deleted | WARNING=missing reverse relation
 
 ### P4: Status Consistency (DB, Content via mx_batch_detail)
-IDs from P1 mx_search collected→mx_batch_detail(doc_ids=[...], max_content_tokens=0) for all active/completed PLANs + proposed ADRs (1 call, max 10 IDs).
+IDs from P1 mx_search collected→mx_batch_detail(doc_ids=[...], level='full') for all active/completed PLANs + proposed ADRs (1 call, max 10 IDs).
 - active PLANs MUST contain `- [ ]` OUTSIDE fenced code blocks. ⚡ Strip ` ``` ... ``` ` regions before counting checkboxes; nested task examples inside code blocks do NOT count as real pending tasks.
 - completed PLANs MUST NOT have any `- [ ]` outside fenced code blocks.
 - proposed ADRs >30 days old→WARNING
 
 ### P5: Workflow Consistency (DB, Content via mx_batch_detail)
-IDs from P1 mx_search(doc_type='workflow_log') collected→mx_batch_detail(doc_ids=[...], max_content_tokens=0) for all active WFs (1 call).
+IDs from P1 mx_search(doc_type='workflow_log') collected→mx_batch_detail(doc_ids=[...], level='full') for all active WFs (1 call).
 Active Workflows: MUST have pending steps. >30 days old→WARNING(forgotten?)
 
 ### P6: Local/DB Sync
@@ -75,7 +75,7 @@ All non-archived/deleted docs (EXCLUDING session_note, workflow_log): token_esti
 Data source: mx_search results (no mx_detail needed).
 
 ### P10: Auto-Relations (Cross-Reference Scan)
-MCP required. Sample max 20 docs via mx_batch_detail(doc_ids=[...], max_content_tokens=0) (2 calls of 10). Scan content for:
+MCP required. Sample max 20 docs via mx_batch_detail(doc_ids=[...], level='full') (2 calls of 10). Scan content for:
 - `doc_id=NNN`, `#NNN`, `ADR-XXXX`, `PLAN-xxx`, `SPEC-xxx`
 - Context phrases→relation type: "based on"→assumes | "replaces"→supersedes | "leads to"→leads_to | "caused by"→caused_by | "depends on"→depends_on | "rejected in favor of"→rejected_in_favor_of | default→references
 - Duplicate check before mx_add_relation. Ref: doc_id=620 conventions.
@@ -131,7 +131,7 @@ X ERROR | Y WARNING | Z INFO | Checked: N DB docs, M local files
 For each finding with severity ERROR or WARNING:
 1. Deduplication: mx_search(project, doc_type='note', query='[Health] <title>', limit=1)
    - Match with same title→skip
-2. mx_create_doc(project, doc_type='note', title='[Health] <finding-title>', content='Severity: <sev>\n<details>\nFound: YYYY-MM-DD', tags='["health-finding","<severity-tag>"]')
+2. mx_create_doc(project, doc_type='note', title='[Health] <finding-title>', content='Severity: <sev>\n<details>\nFound: YYYY-MM-DD', tags=["health-finding","<severity-tag>"])  ⚡ tags MUST be a real JSON array, NOT a stringified JSON. Server check at `mx.Tool.Write.pas:514` is `if AParams.GetValue('tags') is TJSONArray` — a JSON string fails the type check and tags are silently dropped (never persisted).
    - ERROR→tag 'bug', WARNING→tag 'improvement'
 3. Output: `Auto-Notes: N created, M skipped (duplicate)`
 ∅findings or INFO only→skip
@@ -140,7 +140,7 @@ For each finding with severity ERROR or WARNING:
 **Project routing:** Store findings in target project, NOT blanket in mxHannesMCP.
 - Skill/Setup/Tool findings (affect mx* infrastructure)→`project='mxHannesMCP'`
 - Project-specific findings (stubs, local docs, missing relations)→`project=<target-project>`
-`mx_create_doc(project=<see routing>, doc_type='bugreport', title='mxHealth: N Findings...', tags='["mxhealth-auto"]', status='reported')`
+`mx_create_doc(project=<see routing>, doc_type='bugreport', title='mxHealth: N Findings...', tags=["mxhealth-auto"], status='reported')`  ⚡ tags MUST be a real JSON array, NOT a stringified JSON (`mx.Tool.Write.pas:514` — TJSONArray type check, strings silently dropped).
 Deduplication: mx_search before creating. ∅ERROR/WARNING→no report.
 
 **Skill Evolution:** For each finding (ERROR+WARNING): `mx_skill_manage(action='record_finding', skill='mxHealth', rule_id='<pN-lowercase>' (e.g. p1-metadata, p3-crossref, p4-status), project='<slug>', severity='<error|warning>', title='<finding summary>', details='<document + finding>')`
@@ -165,7 +165,7 @@ P9 findings→removed (B6.5). ∅P9→skip.
 ## Rules
 - Read-only + bug notes + summary fix. !modify document contents
 - MCP error→ERROR in report, !abort
-- >20 docs/type→sampling(max 10 via mx_batch_detail). P1 on all(from mx_search). ⚡ !individual mx_detail calls→always mx_batch_detail(doc_ids=[...], max_content_tokens=0)
+- >20 docs/type→sampling(max 10 via mx_batch_detail). P1 on all(from mx_search). ⚡ !individual mx_detail calls→always mx_batch_detail(doc_ids=[...], level='full')
 - IP protection: metadata+structure only. UTF-8 without BOM. !assumptions→facts only
 - ⚡ **ClampVarchar (Bug#2889) for persisted findings:** `title` max 255 chars (trim the finding summary locally), `rule_id` max 100 chars (pN-kebab-case slugs are short, safe), `file_path` max 500 chars, `details` is TEXT (unclamped but keep focused).
 - ⚡ **Severity mapping** (report → MCP): `ERROR` → `error`, `WARNING` → `warning`, `INFO` → `info`. Canonical lowercase on the wire.

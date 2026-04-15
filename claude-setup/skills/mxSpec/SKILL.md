@@ -48,12 +48,12 @@ Template → `~/.claude/skills/mxSpec/assets/spec-template.md` (9 sections: Over
 
 ⚡ **Title clamp:** server ClampTitle=255 (Bug#2889). Keep titles short.
 
-**MCP:** `mx_create_doc(project, doc_type='spec', slug='<slug>', title='SPEC: <Title>', content)` — pass `slug` as an explicit parameter (not only inside the content body) so the server can dedupe and the mx_search slug-exact check in step 1 actually works.
+**MCP:** `mx_create_doc(project, doc_type='spec', title='SPEC: <Title>', content)` — ⚡ Slug is auto-generated server-side from the title via `GenerateSlug(Title)` at `mx.Tool.Write.pas:541-542`. The server param `slug=` does not exist on `mx_create_doc` and is silently ignored. Ensure the title is canonical and unique; the server handles dedup via `ClampSlug` + retry-with-suffix (Bug#2262, `mx.Tool.Write.pas:588-599`).
 
 **Related handling (iterate, do not stop at first):**
 1. Parse the Related section for ALL referenced ADRs + plans. **Canonical reference format:** `[ADR-NNNN]` or `[PLAN-slug]` in brackets. Accept case-insensitive variants (`[adr-1234]`, `[Plan-foo]`) by normalizing to uppercase TYPE + original ID. Reject ambiguous formats like `ADR#123` or `adr 123` — log a warning and skip that reference (do not guess).
 2. For each referenced item → `mx_search(project, doc_type='decision,plan', query='<id-or-slug>', status='active', limit=3)` to resolve target_id
-3. For each resolved target → `mx_add_relation(source=<new spec doc_id>, target=<target doc_id>, relation_type='references')` — ⚡ **Source is ALWAYS the new spec**, target is the referenced ADR/plan. Never reverse. The server dedupes duplicate edges, so no pre-check required.
+3. For each resolved target → `mx_add_relation(source_doc_id=<new spec doc_id>, target_doc_id=<target doc_id>, relation_type='references')` — ⚡ **source_doc_id is ALWAYS the new spec**, target_doc_id is the referenced ADR/plan. Never reverse. The server dedupes duplicate edges, so no pre-check required. ⚡ Param names are literally `source_doc_id`/`target_doc_id` (NOT `source`/`target`) — confirmed at `mx.Tool.Write.Meta.pas:365-366`.
 4. Loop until all Related items processed.
 
 **Local (Fallback):** ensure `docs/specs/` exists (`mkdir -p docs/specs`); if `index.md` is absent create it with a minimal header, otherwise APPEND the new entry to the existing index (never overwrite). Write `docs/specs/SPEC-<slug>.md` + warning. ⚡ This fallback violates the ADR-0004 "local docs/ = only CLAUDE.md+status.md" rule — only used when MCP is unavailable; re-sync via `/mxMigrateToDb` once MCP is back.

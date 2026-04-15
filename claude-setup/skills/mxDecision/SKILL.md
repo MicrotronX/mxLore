@@ -42,7 +42,7 @@ Status values: `accepted`=decided in chat | `proposed`=still to be confirmed | `
 
 ⚡ **ADR numbering contract:** the `NNNN` placeholder in the template title is resolved AFTER `mx_create_doc` returns the new `doc_id` — the server auto-assigns the number. Workflow: (a) create with placeholder title `ADR-NNNN: <Title>`; (b) read returned `doc_id`; (c) immediately `mx_update_doc(doc_id, content-with-resolved-title, change_reason='Assign ADR number')`. Never compute the number locally — that would race with parallel creates. ⚡ **Visibility window:** between (a) and (c) there is a brief window (<1s typical) where a concurrent `mx_search` reader sees the literal placeholder title `ADR-NNNN:`. This is acceptable — the window is short, the doc is correctly tagged `doc_type='decision'`, and the `mx_update_doc` in (c) finalizes the title atomically.
 
-**MCP:** `mx_create_doc(project, doc_type='decision', slug='<slug>', title='ADR-NNNN: <Title>', content)` — pass `slug` as an explicit parameter (not only inside the content body) so the server can dedupe and the mx_search slug-exact check in step 3 actually works.
+**MCP:** `mx_create_doc(project, doc_type='decision', title='ADR-NNNN: <Title>', content)` — ⚡ Slug is auto-generated server-side from the title via `GenerateSlug(Title)` at `mx.Tool.Write.pas:541-542`, then the ADR-number prefix is prepended at `mx.Tool.Write.pas:579-585`. The server param `slug=` does not exist on `mx_create_doc` and is silently ignored. Ensure the title is canonical and unique; the server handles dedup via `ClampSlug` + retry-with-suffix (Bug#2262, `mx.Tool.Write.pas:588-599`).
 
 **Local (Fallback):** ensure `docs/decisions/` exists (`mkdir -p docs/decisions`); if `index.md` absent create it with a minimal header, otherwise APPEND the new entry. Write `docs/decisions/ADR-NNNN-<slug>.md` + warning. ⚡ This fallback violates ADR-0004 "local docs/ = only CLAUDE.md+status.md" — only used when MCP is down; re-sync via `/mxMigrateToDb` once MCP is back.
 
@@ -69,7 +69,7 @@ After mx_create_doc — 4 optional questions to user (each skippable).
 | What caused this? (doc_id or text) | `caused_by` | mx_add_relation (or create+relate) |
 | Supersedes existing ADR(s)? (one or more doc_ids) | `supersedes` | **Loop:** for each old ADR → mx_add_relation + step 5 supersede update |
 
-⚡ **mx_add_relation direction:** `source` is ALWAYS the new ADR, `target` is the referenced doc (assumption/note/spec/plan/old ADR). Never reverse. The server dedupes duplicate edges, so no pre-check required.
+⚡ **mx_add_relation direction:** `source_doc_id` is ALWAYS the new ADR, `target_doc_id` is the referenced doc (assumption/note/spec/plan/old ADR). Never reverse. The server dedupes duplicate edges, so no pre-check required. ⚡ **Param names:** the server expects literally `source_doc_id` and `target_doc_id` (NOT `source` / `target`). Confirmed at `mx.Tool.Write.Meta.pas:365-366`.
 
 ⚡ **Supersedes loop:** an ADR can supersede multiple predecessors (e.g. merging two competing approaches). Iterate over ALL supplied old doc_ids — do not stop at first. Each iteration: add relation + flip old ADR status (see step 5).
 
@@ -78,7 +78,7 @@ After mx_create_doc — 4 optional questions to user (each skippable).
 - Cap at top 3 after filtering
 - If ∅candidates pass the filter → skip silently (do not ask)
 - If candidates pass → surface as: `Spec/Plan candidates that may have motivated this ADR: [list]. Enter doc_id to link, or 'no' to skip:`. ⚡ **Require explicit doc_id entry** — never a yes/no on an ambiguous full-text match, to avoid corrupting the graph with wrong-target `motivated_by` edges.
-- User-confirmed doc_id → `mx_add_relation(source=<new ADR>, target=<doc_id>, relation_type='motivated_by')`.
+- User-confirmed doc_id → `mx_add_relation(source_doc_id=<new ADR>, target_doc_id=<doc_id>, relation_type='references')`. ⚡ Param names are literally `source_doc_id`/`target_doc_id` (`mx.Tool.Write.Meta.pas:365-366`). ⚠ NOTE: `motivated_by` is NOT in the server's allowed `relation_type` list (`mx.Tool.Write.Meta.pas:376-380` → `leads_to, implements, contradicts, depends_on, supersedes, references, caused_by, rejected_in_favor_of, assumes`). Use `references` until a `motivated_by` enum is added server-side.
 
 ### 5) Status Transition
 

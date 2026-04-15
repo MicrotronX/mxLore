@@ -34,7 +34,7 @@ Migration agent. Import local `docs/*.md` files of a project into the central Kn
 
 1. **MCP server reachable?** — Call `mx_ping()`. On error: Up to 3 retries with short pause (5s). Only after 3 failures: abort.
 2. **Project registered?** — Call `mx_briefing(project='<slug>')`.
-   - If "Project not found": Ask the user for the **project name** (e.g. "Project name for `<slug>`? (e.g. 'My Project — Short description')"). Then call `mx_init_project(project_name='<answer>')`.
+   - If "Project not found": Ask the user for the **project name** (e.g. "Project name for `<slug>`? (e.g. 'My Project — Short description')"). Then call `mx_init_project(slug='<slug>', project_name='<answer>')`. ⚡ The `slug` parameter is REQUIRED per `mx.Tool.Write.Meta.pas:46-47` — server raises `EMxValidation('Parameter "slug" is required')` if omitted. Param name is literally `slug` (NOT `project_slug`).
    - **NEVER** use the slug as project name without asking!
    - If present: Note project_id and existing document count.
 3. **Local documents present?** — Check if `docs/` contains any .md files (recursively all subdirectories).
@@ -145,15 +145,14 @@ The skill reads files LOCALLY (Claude Code has file access) and sends them in ba
 **Workflow (batch strategy — collect all files, then one call):**
 
 0. **Pre-load DB inventory (⚡ MANDATORY — avoids N+1 searches):**
-   `mx_search(project='<slug>', limit=50, offset=0)` → load first page. ⚡ **Explicit pagination loop** (not "second call with offset"):
+   `mx_search(project='<slug>', limit=50)` → loads up to 50 docs in ONE call. ⚡ **mx_search has NO server-side pagination** — there is no `offset` parameter (silently ignored), and `limit` is hard-capped at 50 by the server (`mx.Tool.Read.pas:477-479`: `if MaxLimit > 50 then MaxLimit := 50`). A single call is the only option.
+   ⚡ **Coverage warning:** if the project has >50 docs, this single call CANNOT see them all. Use `doc_type` filtering to narrow the scope (e.g. one call per `doc_type='plan'`, `doc_type='spec'`, `doc_type='decision'` etc.) and merge the results. Doc types: plan, spec, decision, status, workflow_log, session_note, finding, reference, snippet, note, bugreport, feature_request, todo, assumption, lesson. If even per-type queries hit 50 docs, log a clear warning that cleanup/import may be incomplete and flag this for server enhancement (TODO: add real pagination to mx_search).
 ```
-offset = 0; all_docs = []
-while true:
-  results = mx_search(project='<slug>', limit=50, offset=offset)
-  all_docs.extend(results)
-  if len(results) < 50: break  # last page
-  offset += 50
-  if offset > 10000: break  # safety guard, max 200 pages
+all_docs = []
+for dt in [plan, spec, decision, session_note, workflow_log, reference, note, bugreport, feature_request, todo, assumption, lesson, finding, snippet, status]:
+  page = mx_search(project='<slug>', doc_type=dt, limit=50)
+  if len(page) >= 50: log_warning("doc_type=" + dt + " hit 50-cap, possible truncation")
+  all_docs.extend(page)
 ```
 Build set from `all_docs`: `existing_slugs: set of string` (from slug field). Use this set for ALL duplicate checks. !individual mx_search per file.
 1. **Collection phase:** For each file in docs/:
@@ -255,7 +254,7 @@ After successful import (or separately with `--cleanup`): Remove local fallback 
 
 ### Cleanup workflow
 
-1. **Pre-load DB inventory (⚡ paginated, not single call):** `mx_search(project, limit=50, offset=0)` → paginate with the same while-loop pattern as the Import phase step 0. Build `existing_slugs` set from ALL pages. ⚡ **Silent data loss risk** if you only load the first 50: deletable files whose DB match lives in page 2+ would be kept as "not in DB" and mis-reported. Always paginate before cleanup decisions.
+1. **Pre-load DB inventory (⚡ per-doc_type loop, NOT pagination):** Use the same per-`doc_type` loop pattern as the Import phase step 0 (mx_search has no `offset` param, hard-capped at 50 — `mx.Tool.Read.pas:477-479`). Build `existing_slugs` set by iterating all `doc_type` values and merging. ⚡ **Silent data loss risk** if you skip a doc_type or only call once without filters and the project has >50 docs: deletable files whose DB match lives in the un-fetched tail would be kept as "not in DB" and mis-reported. ⚡ **Hard fail-safe:** if any single per-doc_type call returns exactly 50 results, abort cleanup with an explicit error — the inventory is incomplete and cleanup is unsafe. The user must wait for server-side pagination support.
    **For each local file** in `docs/plans/`, `docs/specs/`, `docs/decisions/`:
    - Check file slug against `existing_slugs`. !mx_search per file
    - If YES and content matches → delete file

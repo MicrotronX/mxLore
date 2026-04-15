@@ -132,7 +132,7 @@ For MCP projects, workflows are stored in the DB.
 2. Call `mx_briefing(project='<slug>')`
 3. If "Project not found":
    - **STOP — MUST ask the user!** Question: "Project name for `<slug>`? (e.g. 'My Project — Short description')"
-   - **Wait for response.** Only THEN call `mx_init_project(project_name='<response>')`.
+   - **Wait for response.** Only THEN call `mx_init_project(slug='<slug>', project_name='<response>')`. ⚡ The `slug` parameter is REQUIRED — the server raises `EMxValidation('Parameter "slug" is required')` at `mx.Tool.Write.Meta.pas:46-47` if omitted. The server param name is literally `slug` (NOT `project_slug`).
    - **NEVER** use the slug or a self-invented name as the project name!
 4. Add slug to CLAUDE.md if not already present
 
