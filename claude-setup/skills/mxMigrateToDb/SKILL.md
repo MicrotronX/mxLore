@@ -1,16 +1,24 @@
 ---
 name: mxMigrateToDb
-description: "Migrates local docs/*.md fallback files into the MCP Knowledge-DB. Run after MCP outage when local files were created by offline-fallback, or once after MCP setup. With --extract-backlog: Extracts legacy backlogs from status.md directly into MCP docs (replaces mxMigratelegacy)."
-user-invocable: true
+description: Use when the user says "/mxMigrateToDb", "migrate to db", "migrate local docs to mcp", "sync local docs", "import docs to knowledge db", "--extract-backlog", "extract legacy backlog", or otherwise wants to import local `docs/*.md` fallback files into the MCP Knowledge-DB. Runs after MCP outages (when offline-fallback created local files) or once after initial MCP setup. Supports dry-run, cleanup, sync, scan, and --extract-backlog modes. ⚡ MCP-required — aborts if Knowledge-DB is unreachable.
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash
-argument-hint: "[--dry-run | --cleanup | --sync | --scan | --extract-backlog]"
 ---
 
 # /mxMigrateToDb — Import local documents into Knowledge-DB
 
 > **Context rule:** ALWAYS run this skill as subagent (Agent tool), never in main context. MCP responses and edit diffs fill the context unnecessarily otherwise. Result: compact report, max 20 lines.
 
-You are a migration agent. Import local `docs/*.md` files of a project into the central Knowledge-DB via MCP tool `mx_migrate_project`.
+## Trigger phrases
+
+This skill fires on:
+- `/mxMigrateToDb`, `--extract-backlog`
+- Natural language: "migrate to db", "migrate local docs to mcp", "sync local docs", "import docs to knowledge db", "extract legacy backlog", "offline-fallback cleanup"
+- Programmatic: mxInitProject step 6 (Migration) auto-invokes this after MCP project registration when local legacy files are detected
+
+## MCP Required
+⚡ mxMigrateToDb is MCP-dependent by design. Every mode (--dry-run, --cleanup, --sync, --scan, --extract-backlog) writes to the Knowledge-DB via `mx_migrate_project`, `mx_batch_create`, or `mx_create_doc`. If `mx_ping` fails in the prerequisite phase → print `"MCP unreachable — /mxMigrateToDb requires MCP."` and ABORT. No partial runs, no local-only fallback mode. The caller should retry once MCP is back.
+
+Migration agent. Import local `docs/*.md` files of a project into the central Knowledge-DB via MCP tool `mx_migrate_project`.
 
 ## Determine project context (IMPORTANT: avoid duplicates!)
 
@@ -288,3 +296,5 @@ Cleanup completed:
 - **Encoding:** Server detects ANSI vs. UTF-8 automatically.
 - **MCP errors:** On error → show error message, inform user. NO cleanup if import failed.
 - **Connection loss during migration:** If an MCP call fails (timeout, connection reset), up to 3 retry attempts with 5s pause. Only after 3 failures mark the step as failed and continue to the next. Final summary: X successful, Y failed (with filenames).
+- ⚡ **ClampVarchar (Bug#2889) before every write:** `title` max 255 chars (long legacy filenames like `PLAN-some-very-long-descriptive-name-with-many-words.md` can exceed this — trim locally), `slug` max 100 chars (derived from filename, truncate at `-` boundary after normalize), `change_reason` max 500 chars. Long values silently clamp server-side.
+- ⚡ **Mirror sync:** edits to this skill MUST propagate to `V:\Projekte\MX_Intern\mxLore-skills\mxMigrateToDb\` + `V:\Projekte\MX_Intern\mxHannesMCP\claude-setup\skills\mxMigrateToDb\` (per `feedback_mxlore_skill_sync_workflow.md`). Canonical first, then `cp` to both mirrors.
