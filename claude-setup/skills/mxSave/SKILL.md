@@ -24,6 +24,7 @@ Reason: Subagents lack write permission for `.claude/` files.
 ## Init
 1. CLAUDE.md→`**Slug:**`=project slug. ∅slug→?user
 2. mx_ping()→check MCP availability. Set `mcp_available = (ping == ok)`. Steps 3, 5, 6 reference this flag for fallback decisions instead of repeating "MCP error→fallback" inline.
+3. ⚡ State file safety: If `.claude/orchestrate-state.json` is missing or unparseable, treat as empty state per the mxOrchestrate `loadState()` contract: `state_deltas=0`, `last_save_deltas=0`, `workflow_stack=[]`, `mcp_available` still set from ping result. Warn user inline ("orchestrate-state.json missing/corrupt — proceeding with empty state"). The `--clear-cycle` mode in this case emits nothing (N==0 silent path).
 
 ## 6 Steps (sequential)
 
@@ -45,7 +46,8 @@ Read+clean `.claude/settings.local.json`:
 - Add new features (+date). Update open items.
 - Active workflows: use active_workflows from mx_session_start(include_briefing=true), ∅separate mx_search needed
 - Use references to docs instead of copying content
-- ⚡ **Zombie Reference Check:** Extract all `#NNNN` doc IDs from "Next Steps"→`mx_batch_detail(doc_ids=[...])` (max 10 per call, chunk if >10 IDs)→check status. Archived/superseded→remove from "Next Steps". MCP error→skip zombie check+warning. Output: `Zombie refs removed: #X, #Y (archived)`
+- ⚡ **Zombie Reference Check:** Extract all `#NNNN` doc IDs from "Next Steps"→`mx_batch_detail(doc_ids=[...])` (max 10 per call, chunk if >10 IDs)→check status. Archived/superseded→remove from "Next Steps". Output: `Zombie refs removed: #X, #Y (archived)`
+- If `!mcp_available` → skip zombie check (log: "Step 2 zombie check skipped — MCP unavailable"). Use the `mcp_available` flag set in Init step 2 — do not re-ping.
 
 ### 3) Update MCP Docs (MCP only)
 **Clean orphaned workflows (ADR-0006):**
@@ -63,6 +65,7 @@ Check WFs whose title starts with "Ad-hoc:":
 
 **Archive completed Plans/Specs/Decisions:**
 `mx_search(project, doc_type='plan,spec,decision', status='active', limit=20)`→collect IDs→`mx_batch_detail(doc_ids=[...])`→check each doc:
+⚡ If result count == 20, warn: "Archive sweep truncated at 20 — re-run /mxSave or paginate manually if more active items exist." This is an auto-cleanup correctness guard, not a token-savings concern.
 - **Plan:** All tasks `- [x]` (no `- [ ]`)→archive
 - **Spec:** All ACs `- [x]` AND no open questions→archive
 - **Decision:** Status `proposed` for >30 days without change→warning (don't auto-archive)
@@ -122,6 +125,8 @@ if !mcp_available → skip entire step.
 
 After all 6 steps complete, read `last_save_deltas` from `.claude/orchestrate-state.json` (NOT `state_deltas` — that one has been reset to 0 in Step 4). Step 4 has already snapshotted the pre-reset value into `last_save_deltas`.
 
+(In `--clear-cycle` mode, the calling sequence has already overridden `N` with `state.state_deltas` — see Clear-Cycle Mode section. Final Block is mode-agnostic; it just consumes `N`.)
+
 **⚡ Skip criterion:** Skip the Final Block only if the state file is missing OR `last_save_deltas` is unset (treat as 0). Do NOT skip on empty workflow_stack alone — deltas can be meaningful from doc-only sessions (edits, notes, specs) that never touched a workflow.
 
 **Read `N = state.last_save_deltas` (default 0 if field missing for backwards-compat).**
@@ -158,11 +163,14 @@ Then, based on `N`:
 - Or when the user types `/mxSave --clear-cycle` to get the threshold-driven prompt without doing a full state save
 - Output: same 4-stage Final Block (≥15 active prompt / ≥10 tip / ≥1 marketing / ==0 silent)
 
+⚡ Flag precedence: If both `--loop` and `--clear-cycle` are passed, `--clear-cycle` wins — runs the Sequence below ONCE and exits. The loop body is suppressed because Clear-Cycle is a one-shot threshold-emit.
+
 Sequence:
-1. Init (read state file only — no MCP roundtrip)
+1. Init (read state file only — no MCP roundtrip; use loadState contract: corrupt/missing → empty state with state_deltas=0)
 2. Skip Steps 1-6
-3. Run Final Block normally
-4. Exit (do NOT touch state_deltas, do NOT update CLAUDE.md or status.md)
+3. Compute `N` for the threshold: in `--clear-cycle` mode, `N = state.state_deltas` (current in-flight, NOT the stale `last_save_deltas`). This override exists because Step 4 — which normally snapshots `state_deltas → last_save_deltas` — is skipped in this mode.
+4. Run Final Block threshold logic with `N` (4-stage: ≥15 active prompt / ≥10 tip / ≥1 marketing / ==0 silent)
+5. Exit (do NOT touch state_deltas, do NOT update CLAUDE.md or status.md)
 
 ## Loop Mode (--loop or /loop context)
 - **Idempotency:** check `mx_session_delta(project, session_id=<state.session_id>, limit=1)`→total_changes==0→single line `mxSave: No changes` + skip
@@ -170,6 +178,7 @@ Sequence:
 - !settings.local.json cleanup in loop (only on manual invocation)
 - !Prompts, !interactive steps
 - Session note shorter: only changes since last save
+- ⚡ Final Block in loop mode: downgrade the N≥15 active prompt to the N≥10 tip line. Loop mode forbids interactive waits (`!Prompts, !interactive steps`), so the active prompt would hang the loop. Tip line is non-interactive and conveys the same urgency.
 
 ## Rules
 - ⚡ Only record confirmed-implemented as "done" !assumptions
