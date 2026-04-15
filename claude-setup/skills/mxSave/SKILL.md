@@ -111,7 +111,7 @@ Batch-dismiss all pending findings (not reviewed in session context):
 Read `.claude/orchestrate-state.json`. If present+not empty:
 
 - **Push unsynced:** WFs with `unsynced=true`→`mx_update_doc`→`unsynced=false`. Events with `synced=false`→session note→`synced=true`
-- **Snapshot (Compact-Cycle):** `last_save_deltas = state_deltas` — MUST be set BEFORE reset below. Single Source of Truth for this field.
+- **Snapshot (Clear-Cycle pre-reset):** `last_save_deltas = state_deltas` — MUST be set BEFORE reset below. Single Source of Truth for this field.
 - **Finalize:** `state_deltas`→0, `last_save`→now, `last_reconciliation`→now
 - ⚡ Do NOT archive workflows. Only sync+reset.
 - Write state file back
@@ -133,7 +133,7 @@ mx_create_doc(project, doc_type='session_note', title='Session Notes YYYY-MM-DD[
 - Payload: `{"type":"session_summary","summary":"<1-2 sentences>","changed_files":<count>,"project":"<slug>"}`
 - Error→log, don't abort
 
-## Final Block — Compact-Cycle Recommendation
+## Final Block — Clear-Cycle Recommendation (/clear Mode)
 
 After all 6 steps complete, read `last_save_deltas` from `.claude/orchestrate-state.json` (NOT `state_deltas` — that one has been reset to 0 in Step 4). Step 4 has already snapshotted the pre-reset value into `last_save_deltas`.
 
@@ -145,26 +145,26 @@ Then, based on `N`:
 
 - **`N >= 15`** → **Active Question:**
   ```
-  Session umfangreich (<N> deltas persistiert). /compact + Re-Brief jetzt sinnvoll.
-  Ausfuehren? (1=ja /compact / 2=nein, weiterarbeiten)
+  Session umfangreich (<N> deltas persistiert). /clear + neue Session + mx_briefing jetzt sinnvoll.
+  Ausfuehren? (1=ja /clear / 2=nein, weiterarbeiten)
   ```
-  Wait for user. On `1`: print `Next step: press /compact — then call mx_briefing manually (PostCompact hook DORMANT, see ~/.claude/hooks/dormant-pre-post-compact.md).` On `2`: continue silently.
+  Wait for user. On `1`: print `Next step: press /clear. In the new session, call mx_briefing manually (PreCompact/PostCompact hooks dormant — see ~/.claude/hooks/dormant-pre-post-compact.md).` On `2`: continue silently.
 
 - **`N >= 10`** (and `< 15`) → **Info-Tipp** (1 line):
   ```
-  Tipp: <N> deltas persistiert. /compact + Re-Brief sinnvoll, sobald passend.
+  Tipp: <N> deltas persistiert. /clear + neue Session + mx_briefing sinnvoll, sobald passend.
   ```
 
 - **`N >= 1`** (and `< 10`) → **Marketing-Zeile only** (1 line, honest, no token estimates):
   ```
-  Compact-Cycle: <N> deltas persisted. /compact ready (PostCompact hook DORMANT, mx_briefing manually).
+  Clear-Cycle: <N> deltas persistiert. /clear + manuelles mx_briefing bereit.
   ```
 
 - **`N == 0`** → **No output** (no noise for trivial saves).
 
-⚡ **Honesty-Regel:** Keine Token-Multiplikator-Zahlen — `state_deltas` zaehlt DB-Events, nicht Transcript-Tokens. Marketing-Zeile signalisiert nur Bereitschaft.
+⚡ **Honesty-Regel:** Keine Token-Multiplikator-Zahlen (z.B. "~3k pro Delta") — das waere nicht belastbar (state_deltas zaehlt DB-Events, nicht Transcript-Tokens). Marketing-Zeile signalisiert nur Bereitschaft, keine Zahlen-Behauptung.
 
-⚡ **Why this matters:** `/compact` itself cannot be triggered programmatically — the user must press it or auto-compaction takes over. The `PostCompact` hook is currently **DORMANT** (prompt-type hooks blocked upstream in Claude Code, see `~/.claude/hooks/dormant-pre-post-compact.md`); until Anthropic catches up, `mx_briefing` must be called **manually** after `/compact`. The main context stays lean without losing detail — full detail history persists in the MCP-DB.
+⚡ **Why this matters:** PreCompact/PostCompact hooks are **dormant** (prompt-type hooks blocked upstream in Claude Code — see `~/.claude/hooks/dormant-pre-post-compact.md`). Therefore `/compact` is no longer a clean path: re-briefing cannot be triggered automatically. Active workflow: **`/clear` → start a new session → call `mx_briefing` manually**. This returns a lean, structured state overview; the full detail history stays persistent in the MCP-DB. Hook re-activation if upstream is fixed: see the dormant-hooks doc above.
 
 ## Loop Mode (--loop or /loop context)
 - **Idempotency:** check `mx_session_delta(project, session_id=<state.session_id>, limit=1)`→total_changes==0→single line `mxSave: No changes` + skip

@@ -28,9 +28,10 @@ MCP = Source of Truth | .claude/orchestrate-state.json = Cache
 1. CLAUDE.md→`**Slug:**`=project-param. ∅slug→?user
 2. Load state: `.claude/orchestrate-state.json`→parse. ∅file or corrupt→mode `init`
 3. **Ensure session:**
-   - state.session_id present AND mode≠`init` → mx_ping()→OK=MCP-mode | Error=Local
-   - ∅session_id OR mode=`init` → **Setup version:** `~/.claude/setup-version.json`→parse→`version`. ∅file→`''`
-     → `mx_session_start(project, include_briefing=true, setup_version=<version>)`→session_id+Response into state
+   - **Staleness check (ADR-0016):** compute `age = now() - max(state.last_save, state.last_reconciliation)`. Both fields missing → treat as stale. Threshold: **12h**.
+   - state.session_id present AND mode≠`init` AND age < 12h → mx_ping()→OK=MCP-mode | Error=Local
+   - ∅session_id OR mode=`init` OR age ≥ 12h (STALE) → **Setup version:** `~/.claude/setup-version.json`→parse→`version`. ∅file→`''`
+     → `mx_session_start(project, include_briefing=true, setup_version=<version>)`→session_id (overwrite cached)+Response into state, `state.last_reconciliation ← now()`
      → Error=Local(`docs/ops/workflow-log.md`+warning)
 4. **Auto-Detect: Project Setup** (see below)
 5. → Mode routing by argument
