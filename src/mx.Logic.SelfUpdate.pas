@@ -138,6 +138,12 @@ var
   gLastErrorText : string;
   gLastErrorTime : TDateTime;
   gHasLastError  : Boolean = False;
+  // M3 Task 8 (Bug#3052): serialize MxSelfUpdate_InstallAndRestart so a
+  // double-click in the admin UI (or a parallel API hit) cannot race
+  // two rotate/extract passes against the same .old-<N> slots.
+  // TryEnter -> 409 Conflict if already held. Single-process scope;
+  // cross-process protection would need a named mutex, out of M3.
+  gInstallLock   : TCriticalSection;
 
 procedure MxSelfUpdate_RegisterStopProc(AProc: TMxSelfUpdateStopProc);
 begin
@@ -355,6 +361,11 @@ begin
   if M.Success then
   begin
     if not TryStrToInt(M.Groups[1].Value, Result) then
+      Result := -1
+    else if Result > 9999999 then
+      // M3 Task 10 (Bug#3052): clamp absurd build numbers that pass
+      // TryStrToInt (up to 2^31) but cannot be a real release tag.
+      // Silent sentinel, matches existing "unparseable" contract.
       Result := -1;
   end
   else
@@ -756,11 +767,24 @@ begin
         'host not allowed: ' + Uri.Host, 500);
     end;
 
+    // M3 Task 12b (Bug#3052): network exceptions mid-download leave a
+    // partial .zip behind; the HTTP-status error path below already
+    // deletes it, but the raise path did not. Clean up the partial
+    // file and re-raise so callers see the original network error.
     Stream := TFileStream.Create(LocalPath, fmCreate);
     try
-      Response := Http.Get(AInfo.ZipUrl, Stream);
-    finally
-      Stream.Free;
+      try
+        Response := Http.Get(AInfo.ZipUrl, Stream);
+      finally
+        Stream.Free;
+      end;
+    except
+      on E: Exception do
+      begin
+        if TFile.Exists(LocalPath) then
+        try TFile.Delete(LocalPath); except end;
+        raise;
+      end;
     end;
 
     if (Response.StatusCode < 200) or (Response.StatusCode >= 300) then
@@ -799,15 +823,31 @@ end;
 
 {$IFDEF MSWINDOWS}
 function MoveFileWithRetry(const ASrc, ADst: string): Boolean;
+// M3 Task 9 (Bug#3052): extend retry window past AV-scan hold. Defender
+// can lock a freshly written file for 200-500ms after close; the previous
+// 3x/50ms loop (~100ms total) lost that race. 5 attempts with exponential
+// backoff [50,100,250,500] give ~900ms headroom and log each miss.
+const
+  Delays: array[0..3] of Integer = (50, 100, 250, 500);
 var
   I: Integer;
+  LastErr: DWORD;
 begin
-  for I := 1 to 3 do
+  for I := 0 to 4 do
   begin
     if MoveFileEx(PChar(ASrc), PChar(ADst),
          MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then
       Exit(True);
-    if I < 3 then Sleep(50);
+    // Capture GetLastError immediately into a local so any intervening
+    // RTL call (Format arg evaluation order, future refactor) cannot
+    // clobber the thread-local error slot before we log it.
+    LastErr := GetLastError;
+    if I < 4 then
+    begin
+      UpdateLog(Format('WARN MoveFileWithRetry attempt=%d err=%d src=%s',
+        [I + 1, LastErr, ASrc]));
+      Sleep(Delays[I]);
+    end;
   end;
   Result := False;
 end;
@@ -1373,6 +1413,17 @@ var
   CreateFlags: DWORD;
 begin
   UpdateLog('=== InstallAndRestart ENTER ===');
+  // M3 Task 8 (Bug#3052): prevent a second caller from racing rotate +
+  // extract. TryEnter returns False if already held; we then refuse
+  // with 409 Conflict. On success ExitProcess(0) kills the process so
+  // the lock is released by OS cleanup; on any exception the except
+  // branch releases it explicitly so subsequent callers can proceed.
+  if not gInstallLock.TryEnter then
+  begin
+    UpdateLog('abort: install already running (gInstallLock busy)');
+    raise EMxError.Create('UPDATE_FAIL', 'install already running', 409);
+  end;
+  try
   RunningExe := RunningExeBasename;
   UpdateLog('RunningExe (from ParamStr(0)) = ' + RunningExe);
   if not gConfig.Enabled then
@@ -1460,6 +1511,9 @@ begin
     UpdateLog('Non-interactive branch: skipping CreateProcess, parent exit -> AlwaysUp restart');
     Sleep(1500);
     UpdateLog('Pre-ExitProcess(0) — parent terminating NOW (non-interactive)');
+    // gInstallLock is intentionally NOT Leave'd here: ExitProcess kills
+    // the process at kernel level; OS releases the CS handle. Finalization
+    // never runs on this path — by design (see initialization block).
     ExitProcess(0);
   end;
 
@@ -1514,7 +1568,20 @@ begin
   // so it survives; ports 8080/8081 are freed immediately.
   Sleep(1500);
   UpdateLog('Pre-ExitProcess(0) — parent terminating NOW');
+  // gInstallLock is intentionally NOT Leave'd here: ExitProcess kills
+  // the process at kernel level; OS releases the CS handle. Finalization
+  // never runs on this path — by design (see initialization block).
   ExitProcess(0);
+  except
+    on E: Exception do
+    begin
+      // M3 Task 8 (Bug#3052): release install lock on any failure so a
+      // retry from the admin UI can proceed. ExitProcess on the happy
+      // path never reaches this, so we do NOT need a finally branch.
+      gInstallLock.Leave;
+      raise;
+    end;
+  end;
 end;
 {$ELSE}
 procedure MxSelfUpdate_InstallAndRestart;
@@ -1670,6 +1737,23 @@ begin
   Marker := ReadMarker(MarkerPath);
   UpdateLog(Format('Marker read: Old=%d New=%d RetryCount=%d Stage=%s',
     [Marker.OldBuild, Marker.NewBuild, Marker.RetryCount, Marker.FinishStage]));
+  // M3 Task 11 (Bug#3052): a truncated / zeroed marker (power-loss mid
+  // write, disk corruption) must not trigger the retry loop — retries
+  // would replay extraction with OldBuild=0/NewBuild=0 and write bogus
+  // filenames. Delete the marker and raise so the caller rolls back;
+  // manual recovery policy matches Spec#3079 rev 5.
+  if (Marker.OldBuild <= 0) or (Marker.NewBuild <= 0) then
+  begin
+    UpdateLog(Format('Marker CORRUPT Old=%d New=%d — abort without retry',
+      [Marker.OldBuild, Marker.NewBuild]));
+    MxSelfUpdate_SetErrorState(Format(
+      'Update marker corrupt (Old=%d New=%d) — manual recovery required',
+      [Marker.OldBuild, Marker.NewBuild]));
+    try TFile.Delete(MarkerPath); except end;
+    raise EMxError.Create('UPDATE_MARKER_CORRUPT',
+      Format('marker corrupt: Old=%d New=%d',
+        [Marker.OldBuild, Marker.NewBuild]), 500);
+  end;
   Inc(Marker.RetryCount);
   // C7e: WriteMarker can raise if the marker file slot is locked
   // (antivirus, concurrent scan). A raise here kills FinishUpdate with
@@ -1764,8 +1848,22 @@ begin
       end;
 
       ForceDirectories(ExtractFilePath(TargetPath));
-      Zip.Read(I, Bytes);
-      TFile.WriteAllBytes(TargetPath, Bytes);
+      // M3 Task 12a (Bug#3052): disk-full / ACL / AV-lock mid-write
+      // left a partial TargetPath behind. Delete the half-written
+      // entry before re-raising so the outer Zip.Free in finally
+      // gets a clean state and the caller's RollbackLiveFilesFromOld
+      // (InstallAndRestart) is the only source of leftover state.
+      try
+        Zip.Read(I, Bytes);
+        TFile.WriteAllBytes(TargetPath, Bytes);
+      except
+        on E: Exception do
+        begin
+          if TFile.Exists(TargetPath) then
+          try TFile.Delete(TargetPath); except end;
+          raise;
+        end;
+      end;
     end;
   finally
     Zip.Free;
@@ -2008,8 +2106,10 @@ end;
 
 initialization
   gLastCheckLock := TCriticalSection.Create;
+  gInstallLock   := TCriticalSection.Create;
 
 finalization
   FreeAndNil(gLastCheckLock);
+  FreeAndNil(gInstallLock);
 
 end.
