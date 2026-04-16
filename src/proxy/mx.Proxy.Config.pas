@@ -3,7 +3,7 @@ unit mx.Proxy.Config;
 interface
 
 uses
-  System.SysUtils, System.IniFiles;
+  System.SysUtils, System.IniFiles, System.IOUtils;
 
 type
   TMxProxyConfig = class
@@ -19,6 +19,7 @@ type
     FLogLevel: string;
   public
     constructor Create(const AIniPath: string);
+    class procedure WriteDefaultIni(const APath: string); static;
     property ServerUrl: string read FServerUrl;
     property ApiKey: string read FApiKey;
     property ConnectionTimeout: Integer read FConnectionTimeout;
@@ -60,6 +61,33 @@ begin
   finally
     Ini.Free;
   end;
+end;
+
+class procedure TMxProxyConfig.WriteDefaultIni(const APath: string);
+const
+  DEFAULT_INI =
+    '[Server]'#13#10 +
+    '; URL of the mxLore MCP server'#13#10 +
+    'Url=https://YOUR-SERVER/mxLore/mcp'#13#10 +
+    '; API key for developer identification (from Admin UI)'#13#10 +
+    'ApiKey=YOUR_API_KEY_HERE'#13#10 +
+    '; TCP connection timeout in ms (Default: 10000)'#13#10 +
+    'ConnectionTimeout=10000'#13#10 +
+    '; Response/read timeout in ms (Default: 120000)'#13#10 +
+    'ReadTimeout=120000'#13#10 +
+    #13#10 +
+    '[General]'#13#10 +
+    '; Log verbosity. info=production-clean (startup+errors+warnings),'#13#10 +
+    '; debug=hot-path tracing. Enable debug only for bug hunts.'#13#10 +
+    'LogLevel=info'#13#10 +
+    #13#10 +
+    '[Agent]'#13#10 +
+    '; Multi-agent messaging: proxy polls inbox and writes to file.'#13#10 +
+    'Polling=1'#13#10 +
+    '; Poll interval in seconds (Default: 15, Minimum: 5).'#13#10 +
+    'PollInterval=15'#13#10;
+begin
+  TFile.WriteAllText(APath, DEFAULT_INI, TEncoding.ASCII);
 end;
 
 end.

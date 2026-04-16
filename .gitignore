@@ -22,7 +22,6 @@ Win64/
 mxLoreMCP.ini
 *.ini
 !mxLoreMCP.ini.example
-!claude-setup/proxy/mxMCPProxy.ini
 
 # Runtime
 logs/

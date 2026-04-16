@@ -11,7 +11,7 @@ uses
   mx.Proxy.Core in 'mx.Proxy.Core.pas';
 
 const
-  PROXY_VERSION = '1.0.4';
+  PROXY_VERSION = '1.0.5';
 
 function GetExeDir: string;
 var
@@ -71,6 +71,19 @@ begin
       IniPath := GetExeDir + 'mxMCPProxy.ini';
     Log('[boot] IniPath: ' + IniPath);
     Log('[boot] IniPath exists: ' + BoolToStr(FileExists(IniPath), True));
+
+    // First-run bootstrap: if no INI present, write a default template from
+    // the embedded constant and exit so the user can edit it. No .example
+    // file needed — the template lives in the code.
+    if not FileExists(IniPath) then
+    begin
+      Log('[boot] First-run: ' + ExtractFileName(IniPath) + ' not found, writing default template.');
+      TMxProxyConfig.WriteDefaultIni(IniPath);
+      Log('[boot] First-run: wrote ' + IniPath);
+      Log('[boot] First-run: Please edit ServerUrl and ApiKey, then restart.');
+      ExitCode := 1;
+      Exit;
+    end;
 
     Config := TMxProxyConfig.Create(IniPath);
     try
