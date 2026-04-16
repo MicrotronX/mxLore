@@ -33,6 +33,10 @@ type
     CheckCacheMinutes    : Integer;
     OldFileRetentionHours: Integer;
     MaxFinishRetries     : Integer;
+    // Bug#3052 Approach C (Plan#3082 M2): cap how many .old-<N> mirror
+    // directories CleanupOldFiles retains regardless of age. Oldest
+    // beyond this count are deleted even if still within retention.
+    MaxOldMirrors        : Integer;
   end;
 
   TMxUpdateMarker = record
@@ -466,6 +470,12 @@ begin
     gConfig.CheckCacheMinutes     := Ini.ReadInteger('SelfUpdate', 'CheckCacheMinutes',     60);
     gConfig.OldFileRetentionHours := Ini.ReadInteger('SelfUpdate', 'OldFileRetentionHours', 24);
     gConfig.MaxFinishRetries      := Ini.ReadInteger('SelfUpdate', 'MaxFinishRetries',      3);
+    // Bug#3052 Approach C (Plan#3082 M2): default 3 mirrors. Clamp at >=1
+    // so a pathological INI value of 0 does not wipe the only rollback
+    // snapshot left on disk.
+    gConfig.MaxOldMirrors         := Ini.ReadInteger('SelfUpdate', 'MaxOldMirrors',         3);
+    if gConfig.MaxOldMirrors < 1 then
+      gConfig.MaxOldMirrors := 1;
   finally
     Ini.Free;
   end;
@@ -802,42 +812,268 @@ begin
   Result := False;
 end;
 
-procedure RotateLiveFilesToOld(AOldBuild: Integer);
+// Bug#3052 Approach C (Plan#3082 M2) Helper B: classify release-scoped
+// paths that must NEVER rotate into the mirror tree or be garbage-
+// collected by CleanupOldFiles. Rules:
+//   - User state files: *.ini, *.db, *.sqlite (case-insensitive).
+//   - Runtime-only dirs (as a path prefix relative to ExeDir):
+//     .claude\, logs\, bin\, backups\.
+//   - The mirror tree itself: any path whose first segment starts
+//     with '.old-' (prevents recursing into the snapshots we just
+//     wrote).
+function IsExcludedPath(const AExeDir, AAbsolutePath: string): Boolean;
+var
+  Ext, Rel, Lower, FirstSeg: string;
+  SlashPos: Integer;
+begin
+  Result := False;
+  if AAbsolutePath = '' then Exit(True);
+
+  Ext := ExtractFileExt(AAbsolutePath);
+  if SameText(Ext, '.ini')    then Exit(True);
+  if SameText(Ext, '.db')     then Exit(True);
+  if SameText(Ext, '.sqlite') then Exit(True);
+
+  // Relative path (ExeDir already ends with a separator).
+  if StartsText(AExeDir, AAbsolutePath) then
+    Rel := Copy(AAbsolutePath, Length(AExeDir) + 1, MaxInt)
+  else
+    Rel := AAbsolutePath;
+
+  // Normalise to backslashes so StartsText prefix checks work uniformly.
+  Rel := StringReplace(Rel, '/', '\', [rfReplaceAll]);
+  Lower := LowerCase(Rel);
+
+  if StartsText('.claude\', Lower) then Exit(True);
+  if StartsText('logs\',    Lower) then Exit(True);
+  if StartsText('bin\',     Lower) then Exit(True);
+  if StartsText('backups\', Lower) then Exit(True);
+
+  // Skip mirror tree by prefix — any .old-<N> dir and anything nested.
+  SlashPos := Pos('\', Lower);
+  if SlashPos > 0 then
+    FirstSeg := Copy(Lower, 1, SlashPos - 1)
+  else
+    FirstSeg := Lower;
+  if StartsText('.old-', FirstSeg) then Exit(True);
+end;
+
+// Bug#3052 Approach C (Plan#3082 M2) Helper A1: enumerate the root
+// release-scoped files that must stay FLAT (rotated per-file with
+// '<file>.old-<N>' suffix in ExeDir). Windows can only atomic-rename
+// a running EXE inside the same directory, so these cannot go into
+// the mirror tree. Only returns files that actually exist and are
+// not filtered by IsExcludedPath.
+function EnumerateReleaseScopedRootFiles(const AExeDir: string): TArray<string>;
 const
-  Candidates: array[0..2] of string = (
+  RootFiles: array[0..7] of string = (
     'mxLoreMCP.exe',
     'mxLoreMCPGui.exe',
-    'libmariadb32.dll'
+    'mxMCPProxy.exe',
+    'libmariadb32.dll',
+    'README.md',
+    'LICENSE.txt',
+    'iis-url-rewrite-rule.xml',
+    'mxLoreMCP.ini.example'
   );
 var
-  ExeDir, Suffix, Src: string;
+  List: TStringList;
+  I: Integer;
+  Full: string;
+begin
+  List := TStringList.Create;
+  try
+    List.Sorted := False;
+    for I := Low(RootFiles) to High(RootFiles) do
+    begin
+      Full := TPath.Combine(AExeDir, RootFiles[I]);
+      if TFile.Exists(Full) and (not IsExcludedPath(AExeDir, Full)) then
+        List.Add(Full);
+    end;
+    SetLength(Result, List.Count);
+    for I := 0 to List.Count - 1 do
+      Result[I] := List[I];
+  finally
+    List.Free;
+  end;
+end;
+
+// Bug#3052 Approach C (Plan#3082 M2) Helper A2: enumerate every
+// release-scoped file under the 5 recursive subdirs. These rotate
+// into the mirror tree '<ExeDir>\.old-<N>\<relpath>'. Every candidate
+// is filtered through IsExcludedPath so user state (.ini, .db,
+// logs\, backups\, .old-*\) never enters rotation.
+function EnumerateReleaseScopedSubdirFiles(const AExeDir: string): TArray<string>;
+const
+  RecursiveDirs: array[0..4] of string = (
+    'sql',
+    'admin\www',
+    'lib',
+    'claude-setup',
+    'docs'
+  );
+var
+  List: TStringList;
+  I, J: Integer;
+  SubDir: string;
+  SubFiles: TArray<string>;
+begin
+  List := TStringList.Create;
+  try
+    List.Sorted := False;
+    for I := Low(RecursiveDirs) to High(RecursiveDirs) do
+    begin
+      SubDir := TPath.Combine(AExeDir, RecursiveDirs[I]);
+      if not DirectoryExists(SubDir) then Continue;
+      try
+        SubFiles := TDirectory.GetFiles(SubDir, '*',
+          TSearchOption.soAllDirectories);
+      except
+        SubFiles := nil;
+      end;
+      for J := 0 to High(SubFiles) do
+      begin
+        if IsExcludedPath(AExeDir, SubFiles[J]) then Continue;
+        List.Add(SubFiles[J]);
+      end;
+    end;
+    SetLength(Result, List.Count);
+    for I := 0 to List.Count - 1 do
+      Result[I] := List[I];
+  finally
+    List.Free;
+  end;
+end;
+
+// Bug#3052 Approach C (Plan#3082 M2): reserve a free mirror-root
+// directory name INSIDE ExeDir. Primary slot is
+// '<ExeDir>\.old-<N>'; fallbacks are '<ExeDir>\.old-<N>-2', '-3',
+// ..., up to -99. Raises RESERVE_OLD_MIRROR_EXHAUSTED if the cap is
+// reached. Keeping the mirror inside ExeDir (rather than beside it)
+// matches the IsExcludedPath rule 'first segment starts with .old-'
+// so RotateLiveFilesToOld does not recurse into its own snapshot.
+function ReserveOldMirrorRoot(const AExeDir: string; AOldBuild: Integer): string;
+var
+  Suffix: Integer;
+  Base: string;
+begin
+  Base := IncludeTrailingPathDelimiter(AExeDir);
+  Result := Format('%s.old-%d', [Base, AOldBuild]);
+  Suffix := 2;
+  while DirectoryExists(Result) or TFile.Exists(Result) do
+  begin
+    Result := Format('%s.old-%d-%d', [Base, AOldBuild, Suffix]);
+    Inc(Suffix);
+    if Suffix > 99 then
+      raise EMxError.Create('RESERVE_OLD_MIRROR_EXHAUSTED', AExeDir, 500);
+  end;
+end;
+
+// Bug#3052 Approach C (Plan#3082 M2): split-layout rotation.
+// Root files (running exe + siblings) stay FLAT with per-file
+// '<file>.old-<AOldBuild>' suffix beside the original — Windows can
+// only atomic-rename a running EXE in the same directory. Subdir
+// files (sql\, admin\www\, lib\, claude-setup\, docs\) rotate into
+// a single mirror tree '<ExeDir>\.old-<AOldBuild>\<relpath>' so
+// CleanupOldFiles can age out an entire snapshot atomically and
+// rollback has an authoritative source.
+//
+// Atomicity: if any file-move fails, every prior move is reversed
+// back to the live slot before raising RENAME_FAIL. Matches the
+// pre-M2 contract — callers see either all-or-nothing.
+procedure RotateLiveFilesToOld(AOldBuild: Integer);
+var
+  ExeDir, ExeDirNoTrail, MirrorRoot, Src, RelPath, Dst: string;
+  RootFiles, SubdirFiles: TArray<string>;
   Pairs: array of TRenamePair;
   I, J: Integer;
 begin
   ExeDir := ExtractFilePath(ParamStr(0));
-  Suffix := Format('.old-%d', [AOldBuild]);
+  ExeDirNoTrail := ExcludeTrailingPathDelimiter(ExeDir);
+
+  // Part A: enumerate root files (flat rotation — per-file suffix).
+  RootFiles := EnumerateReleaseScopedRootFiles(ExeDir);
+  UpdateLog(Format('M2 rotate: %d root files enumerated', [Length(RootFiles)]));
 
   SetLength(Pairs, 0);
-  for I := Low(Candidates) to High(Candidates) do
+  for I := 0 to High(RootFiles) do
   begin
-    Src := TPath.Combine(ExeDir, Candidates[I]);
+    Src := RootFiles[I];
     if not TFile.Exists(Src) then Continue;
+    Dst := Format('%s.old-%d', [Src, AOldBuild]);
     SetLength(Pairs, Length(Pairs) + 1);
     Pairs[High(Pairs)].Src := Src;
-    Pairs[High(Pairs)].Dst := Src + Suffix;
+    Pairs[High(Pairs)].Dst := Dst;
   end;
 
+  // Part B: enumerate subdir files (mirror-tree rotation).
+  SubdirFiles := EnumerateReleaseScopedSubdirFiles(ExeDir);
+  UpdateLog(Format('M2 rotate: %d subdir files enumerated',
+    [Length(SubdirFiles)]));
+
+  if Length(SubdirFiles) > 0 then
+  begin
+    MirrorRoot := ReserveOldMirrorRoot(ExeDir, AOldBuild);
+    UpdateLog(Format('M2 rotate: mirror root=%s', [MirrorRoot]));
+    try
+      ForceDirectories(MirrorRoot);
+    except
+      on E: Exception do
+        raise EMxError.Create('RENAME_FAIL',
+          Format('Cannot create mirror root %s: %s: %s',
+            [MirrorRoot, E.ClassName, E.Message]), 500);
+    end;
+
+    for I := 0 to High(SubdirFiles) do
+    begin
+      Src := SubdirFiles[I];
+      if not TFile.Exists(Src) then Continue;
+      // Compute path relative to ExeDir. StartsText guard covers the
+      // (shouldn't-happen) case where TDirectory.GetFiles returned a
+      // fully-unrelated absolute path.
+      if StartsText(ExeDir, Src) then
+        RelPath := Copy(Src, Length(ExeDir) + 1, MaxInt)
+      else if StartsText(ExeDirNoTrail, Src) then
+        RelPath := Copy(Src, Length(ExeDirNoTrail) + 2, MaxInt)
+      else
+        Continue;
+      if RelPath = '' then Continue;
+      Dst := TPath.Combine(MirrorRoot, RelPath);
+      SetLength(Pairs, Length(Pairs) + 1);
+      Pairs[High(Pairs)].Src := Src;
+      Pairs[High(Pairs)].Dst := Dst;
+    end;
+  end;
+
+  // Single atomic loop — any failure reverses prior moves.
   for I := 0 to High(Pairs) do
   begin
+    // Ensure the parent dir exists before move (only matters for mirror
+    // subdir entries; root files always have ExeDir as parent which
+    // already exists).
+    try
+      ForceDirectories(ExtractFilePath(Pairs[I].Dst));
+    except
+      on E: Exception do
+      begin
+        for J := 0 to I - 1 do
+          MoveFileWithRetry(Pairs[J].Dst, Pairs[J].Src);
+        raise EMxError.Create('RENAME_FAIL',
+          Format('Cannot create parent dir for %s: %s: %s',
+            [Pairs[I].Dst, E.ClassName, E.Message]), 500);
+      end;
+    end;
     if not MoveFileWithRetry(Pairs[I].Src, Pairs[I].Dst) then
     begin
       for J := 0 to I - 1 do
         MoveFileWithRetry(Pairs[J].Dst, Pairs[J].Src);
       raise EMxError.Create('RENAME_FAIL',
-        Format('Cannot rename %s (GetLastError=%d)',
-          [Pairs[I].Src, GetLastError]), 500);
+        Format('Cannot rename %s -> %s (GetLastError=%d)',
+          [Pairs[I].Src, Pairs[I].Dst, GetLastError]), 500);
     end;
   end;
+  UpdateLog(Format('M2 rotate: OK %d files moved (root+mirror)',
+    [Length(Pairs)]));
 end;
 
 // Returns the basename of the currently running process executable —
@@ -848,46 +1084,166 @@ begin
   Result := ExtractFileName(ParamStr(0));
 end;
 
-// C7c: full rollback counterpart to RotateLiveFilesToOld. Previously
-// the extract/spawn failure paths only restored the running exe — the
-// libmariadb32.dll and the sibling exe variant stayed renamed, leaving
-// the install in a non-bootable half-state. This helper walks the same
-// file list RotateLiveFilesToOld uses and moves each `.old-<AOldBuild>`
-// back to its live name if the slot is free. Best-effort per file: a
-// failure on one file is logged but does not stop the others.
+// C7c / Bug#3052 Approach C (Plan#3082 M2): split-layout rollback.
+// Mirrors the two-part rotation in RotateLiveFilesToOld:
+//   Part A: walk the flat root list and, for every '<root>.old-<N>'
+//           beside ExeDir, MoveFileWithRetry it back — BUT only if
+//           the live slot is empty (skip-if-live-exists semantics,
+//           matches the original pre-M2 behaviour). This keeps the
+//           code path simple and lets the user handle manual
+//           rollback of partial-extract remnants via README guidance.
+//   Part B: walk '<ExeDir>\.old-<N>\' recursively and apply the same
+//           skip-if-live-exists rule for each mirrored subdir file.
+//
+// Per-file try/except + UpdateLog so a single failure does not stop
+// the rest. After the walk a best-effort TDirectory.Delete cleans up
+// the now-mostly-empty mirror tree.
 procedure RollbackLiveFilesFromOld(AOldBuild: Integer);
 const
-  Candidates: array[0..2] of string = (
+  RootNames: array[0..7] of string = (
     'mxLoreMCP.exe',
     'mxLoreMCPGui.exe',
-    'libmariadb32.dll'
+    'mxMCPProxy.exe',
+    'libmariadb32.dll',
+    'README.md',
+    'LICENSE.txt',
+    'iis-url-rewrite-rule.xml',
+    'mxLoreMCP.ini.example'
   );
 var
-  ExeDir, Suffix, Dst, Src: string;
-  I: Integer;
+  ExeDir, MirrorRoot, MirrorRootNoTrail, Src, RelPath, Dst: string;
+  MirrorFiles: TArray<string>;
+  I, K, Restored, Skipped: Integer;
 begin
-  ExeDir := ExtractFilePath(ParamStr(0));
-  Suffix := Format('.old-%d', [AOldBuild]);
-  for I := Low(Candidates) to High(Candidates) do
+  ExeDir := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0)));
+  Restored := 0;
+  Skipped  := 0;
+
+  // Part A: flat root files — walk canonical names, restore
+  // '<root>.old-<AOldBuild>' back to '<root>' only when the live
+  // slot is empty (original pre-M2 skip-if-live-exists semantics).
+  for K := Low(RootNames) to High(RootNames) do
   begin
-    Dst := TPath.Combine(ExeDir, Candidates[I]);
-    Src := Dst + Suffix;
+    Dst := TPath.Combine(ExeDir, RootNames[K]);
+    Src := Format('%s.old-%d', [Dst, AOldBuild]);
     if not TFile.Exists(Src) then Continue;
-    // Only restore if the live slot is currently empty — a partial
-    // extract may have already written a fresh binary we do not want
-    // to clobber with the stale one.
-    if TFile.Exists(Dst) then Continue;
+    if TFile.Exists(Dst) then
+    begin
+      // Skip: live slot already has a (fresh) binary.
+      Inc(Skipped);
+      Continue;
+    end;
     try
       if MoveFileWithRetry(Src, Dst) then
-        UpdateLog(Format('C7c rollback: restored %s', [Candidates[I]]))
+      begin
+        Inc(Restored);
+        UpdateLog(Format('C7c rollback: restored root %s', [RootNames[K]]));
+      end
       else
-        UpdateLog(Format('C7c rollback: restore %s FAILED GetLastError=%d',
-          [Candidates[I], GetLastError]));
+      begin
+        Inc(Skipped);
+        UpdateLog(Format('C7c rollback: restore root %s FAILED GetLastError=%d',
+          [RootNames[K], GetLastError]));
+      end;
     except
       on E: Exception do
-        UpdateLog(Format('C7c rollback: restore %s raised %s: %s',
-          [Candidates[I], E.ClassName, E.Message]));
+      begin
+        Inc(Skipped);
+        UpdateLog(Format('C7c rollback: restore root %s raised %s: %s',
+          [RootNames[K], E.ClassName, E.Message]));
+      end;
     end;
+  end;
+
+  // Part B: mirror-tree subdirs.
+  MirrorRoot := Format('%s.old-%d', [ExeDir, AOldBuild]);
+  if not DirectoryExists(MirrorRoot) then
+  begin
+    UpdateLog(Format('C7c rollback: mirror root missing (%s) — root-only pass',
+      [MirrorRoot]));
+    UpdateLog(Format('C7c rollback: done restored=%d skipped=%d',
+      [Restored, Skipped]));
+    Exit;
+  end;
+
+  MirrorRootNoTrail := ExcludeTrailingPathDelimiter(MirrorRoot);
+  try
+    MirrorFiles := TDirectory.GetFiles(MirrorRoot, '*',
+      TSearchOption.soAllDirectories);
+  except
+    on E: Exception do
+    begin
+      UpdateLog(Format('C7c rollback: mirror enum failed %s: %s',
+        [E.ClassName, E.Message]));
+      UpdateLog(Format('C7c rollback: done restored=%d skipped=%d',
+        [Restored, Skipped]));
+      Exit;
+    end;
+  end;
+
+  for I := 0 to High(MirrorFiles) do
+  begin
+    Src := MirrorFiles[I];
+    if StartsText(MirrorRoot, Src) then
+      RelPath := Copy(Src, Length(MirrorRoot) + 1, MaxInt)
+    else if StartsText(MirrorRootNoTrail, Src) then
+      RelPath := Copy(Src, Length(MirrorRootNoTrail) + 2, MaxInt)
+    else
+    begin
+      Inc(Skipped);
+      Continue;
+    end;
+    while (RelPath <> '') and
+          ((RelPath[1] = '\') or (RelPath[1] = '/')) do
+      RelPath := Copy(RelPath, 2, MaxInt);
+    if RelPath = '' then
+    begin
+      Inc(Skipped);
+      Continue;
+    end;
+    Dst := TPath.Combine(ExeDir, RelPath);
+    if TFile.Exists(Dst) then
+    begin
+      // Skip: live slot already populated (e.g. fresh extract succeeded).
+      Inc(Skipped);
+      Continue;
+    end;
+    try
+      ForceDirectories(ExtractFilePath(Dst));
+      if MoveFileWithRetry(Src, Dst) then
+      begin
+        Inc(Restored);
+        UpdateLog(Format('C7c rollback: restored %s', [RelPath]));
+      end
+      else
+      begin
+        Inc(Skipped);
+        UpdateLog(Format('C7c rollback: restore %s FAILED GetLastError=%d',
+          [RelPath, GetLastError]));
+      end;
+    except
+      on E: Exception do
+      begin
+        Inc(Skipped);
+        UpdateLog(Format('C7c rollback: restore %s raised %s: %s',
+          [RelPath, E.ClassName, E.Message]));
+      end;
+    end;
+  end;
+  UpdateLog(Format('C7c rollback: done restored=%d skipped=%d',
+    [Restored, Skipped]));
+
+  // Best-effort: remove the now-mostly-empty mirror tree so
+  // CleanupOldFiles does not need to visit it later. Any residual
+  // file (skipped because live exists) keeps the tree around;
+  // retention age-out will catch it.
+  try
+    TDirectory.Delete(MirrorRoot, True);
+    UpdateLog(Format('C7c rollback: mirror root %s removed', [MirrorRoot]));
+  except
+    on E: Exception do
+      UpdateLog(Format('C7c rollback: mirror root %s remove failed %s: %s',
+        [MirrorRoot, E.ClassName, E.Message]));
   end;
 end;
 
@@ -915,6 +1271,15 @@ end;
 // Called from FinishUpdate in both normal (child) and recovery (boot-hook)
 // paths. Best-effort: a rename failure is logged but non-fatal; the extract
 // loop will surface the lock error if it still cannot write.
+//
+// Bug#3052 Approach C (Plan#3082 M2): in the parent-does-everything path
+// (InstallAndRestart -> RotateLiveFilesToOld -> FinishUpdate) this helper
+// is now effectively a no-op, because RotateLiveFilesToOld has already
+// vacated every live release-scoped file into the mirror tree and the
+// live slots are empty. It is retained intact for the recovery boot path
+// in mxLoreMCP.dpr which still invokes FinishUpdate directly on a marker
+// file without a prior rotate, and for the ReserveOldSlot fall-back it
+// wraps. Do not remove without auditing the dpr recovery branch.
 procedure RenameLiveBinariesForExtraction(const AExeDir: string; ANewBuild: Integer);
 const
   LiveBinaries: array[0..2] of string = (
@@ -1158,18 +1523,105 @@ begin
 end;
 {$ENDIF}
 
+// Bug#3052 Approach C (Plan#3082 M2): age-out '<ExeDir>.old-<N>[-suffix]'
+// mirror directories. Replaces the former flat-file '*.old-*' delete
+// walk. Policy:
+//   1. Enumerate every '.old-*' directory beside ExeDir.
+//   2. Sort by LastWriteTime ascending (oldest first).
+//   3. Delete entries where (beyond-cap) OR (age >= retention hours).
+//      The cap (MaxOldMirrors, default 3) guarantees that even with a
+//      long retention window the mirror surface cannot grow unbounded
+//      after rapid back-to-back updates.
+// Runs unconditionally on successful boot (callers unchanged).
+// StagingDir zip cleanup is kept as-is — still purely age-gated.
 procedure MxSelfUpdate_CleanupOldFiles;
+type
+  TMirrorEntry = record
+    Path: string;
+    Age : TDateTime;
+  end;
 var
   ExeDir, F: string;
+  Mirrors: TArray<string>;
+  Entries: array of TMirrorEntry;
+  I, J, Keep, Cap: Integer;
+  Tmp: TMirrorEntry;
+  AgeHours: Integer;
   Files: TArray<string>;
   Age: TDateTime;
 begin
-  ExeDir := ExtractFilePath(ParamStr(0));
+  ExeDir := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0)));
+  // Mirror roots live INSIDE ExeDir as '<ExeDir>\.old-<N>[-suffix]'.
+  // Enumerate them with the '.old-*' pattern.
+  try
+    Mirrors := TDirectory.GetDirectories(ExeDir, '.old-*');
+  except
+    Mirrors := nil;
+  end;
 
-  Files := TDirectory.GetFiles(ExeDir, '*.old-*');
+  SetLength(Entries, Length(Mirrors));
+  for I := 0 to High(Mirrors) do
+  begin
+    Entries[I].Path := Mirrors[I];
+    try
+      Entries[I].Age := TDirectory.GetLastWriteTime(Mirrors[I]);
+    except
+      // If we cannot stat the dir, treat it as ancient so it gets pruned.
+      Entries[I].Age := 0;
+    end;
+  end;
+
+  // Simple insertion sort — mirror count is at most a handful in practice.
+  for I := 1 to High(Entries) do
+  begin
+    Tmp := Entries[I];
+    J := I - 1;
+    while (J >= 0) and (Entries[J].Age > Tmp.Age) do
+    begin
+      Entries[J + 1] := Entries[J];
+      Dec(J);
+    end;
+    Entries[J + 1] := Tmp;
+  end;
+
+  Cap := gConfig.MaxOldMirrors;
+  if Cap < 1 then Cap := 1;
+  // Oldest first: anything with index < (Count - Cap) is beyond the cap
+  // and must be deleted regardless of age.
+  Keep := Length(Entries) - Cap;
+  if Keep < 0 then Keep := 0;
+  for I := 0 to High(Entries) do
+  begin
+    AgeHours := HoursBetween(Now, Entries[I].Age);
+    if (I < Keep) or (AgeHours >= gConfig.OldFileRetentionHours) then
+    begin
+      try
+        TDirectory.Delete(Entries[I].Path, True);
+        UpdateLog(Format('M2 cleanup: removed mirror %s (age=%dh)',
+          [Entries[I].Path, AgeHours]));
+      except
+        on E: Exception do
+          UpdateLog(Format('M2 cleanup: remove %s failed %s: %s',
+            [Entries[I].Path, E.ClassName, E.Message]));
+      end;
+    end;
+  end;
+
+  // Legacy flat '.old-*' files from pre-M2 installs: sweep them on the
+  // same retention clock so mixed-boundary upgrades do not leave
+  // orphans sitting in ExeDir forever.
+  try
+    Files := TDirectory.GetFiles(ExeDir, '*.old-*');
+  except
+    Files := nil;
+  end;
   for F in Files do
   begin
-    Age := TFile.GetLastWriteTime(F);
+    try
+      Age := TFile.GetLastWriteTime(F);
+    except
+      Continue;
+    end;
     if HoursBetween(Now, Age) >= gConfig.OldFileRetentionHours then
       try TFile.Delete(F); except end;
   end;
@@ -1180,10 +1632,18 @@ begin
     // 'mxLore-v<sem>-win64.zip' (build-release.sh convention), not
     // 'mxLore-build-<N>.zip'. Previous wildcard never matched -> staging
     // dir grew unbounded. Cast wider to every mxLore-*.zip.
-    Files := TDirectory.GetFiles(StagingDir, 'mxLore-*.zip');
+    try
+      Files := TDirectory.GetFiles(StagingDir, 'mxLore-*.zip');
+    except
+      Files := nil;
+    end;
     for F in Files do
     begin
-      Age := TFile.GetLastWriteTime(F);
+      try
+        Age := TFile.GetLastWriteTime(F);
+      except
+        Continue;
+      end;
       if HoursBetween(Now, Age) >= gConfig.OldFileRetentionHours then
         try TFile.Delete(F); except end;
     end;
