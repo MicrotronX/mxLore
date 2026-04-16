@@ -111,7 +111,7 @@ function IsAllowedDocType(const AValue: string): Boolean;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 94;  // Build 94 (Session 248, WF-2026-04-15-007 Phase 3d): Bug#3011 mx_search since= param (ISO8601 date-only + AsDateTime bind) + Bug#3012 doc_type='skill' whitelist (4 sites + shared const) + Bug#3018 mx_update_doc destructive-write safety (append_content param + 50% length-gate with 12-keyword bypass + FOR UPDATE race-hardening) + Wave 2a quality fixes (relevance CASE skill branch, EmbeddingDocTypes, admin stats, NativeInt length math) + Wave 2b new tools (mx_doc_revisions + mx_get_revision) + Wave 2c whitelist consolidation (mx.Types.AllowedDocTypes).
+  MXAI_BUILD   = 95;  // Build 95 (Session 251, WF-2026-04-16-002 Bug#3052 M3 Safety Hardening): 6 fixes + 2 follow-up hardenings in mx.Logic.SelfUpdate.pas — ParseTagName overflow clamp (Task 10), MoveFileWithRetry 5x exponential backoff [50,100,250,500]ms with captured LastErr local (Task 9 + hardening), DownloadZip outer try/except deletes partial .zip on mid-stream exception (Task 12b), FinishUpdate Zip per-entry try/except deletes partial target on mid-write exception (Task 12a), FinishUpdate marker-corrupt validation raises UPDATE_MARKER_CORRUPT 500 when OldBuild/NewBuild<=0 (Task 11), InstallAndRestart concurrent-lock gInstallLock TCriticalSection TryEnter returns 409 if busy with by-design OS cleanup on happy-path ExitProcess (Task 8 + hardening). mxDesignChecker + mxBugChecker: 0 CRIT, Spec#3079 rev 5 + Plan#3082 M3 PASS.
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';
