@@ -225,6 +225,11 @@ const Api = (function () {
     });
   }
 
+  // --- Notes (FR#2936/Plan#3266 M2.6) ---
+  function getDeepThreads() {
+    return request('GET', '/notes/deep-threads');
+  }
+
   return {
     setCsrfToken: setCsrfToken,
     getCsrfToken: getCsrfToken,
@@ -265,6 +270,9 @@ const Api = (function () {
     postBackup: postBackup,
     getDeveloperProjects: getDeveloperProjects,
     updateDeveloperProjects: updateDeveloperProjects,
+
+    // --- Notes (FR#2936/Plan#3266 M2.6) ---
+    getDeepThreads: getDeepThreads,
 
     // --- Settings (v2.4.0) ---
     getSettings: function () {

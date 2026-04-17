@@ -147,9 +147,9 @@ begin
               // INSERT document
               Qry := AContext.CreateQuery(
                 'INSERT INTO documents (project_id, doc_type, slug, title, content, ' +
-                '  summary_l1, summary_l2, status, created_by) ' +
+                '  summary_l1, summary_l2, status, created_by, created_by_developer_id) ' +
                 'VALUES (:proj_id, :doc_type, :slug, :title, :content, ' +
-                '  :summary_l1, :summary_l2, :status, :created_by)');
+                '  :summary_l1, :summary_l2, :status, :created_by, :dev_id)');
               try
                 Qry.ParamByName('proj_id').AsInteger := ProjectId;
                 Qry.ParamByName('doc_type').AsString := DocType;
@@ -161,6 +161,12 @@ begin
                 Qry.ParamByName('summary_l2').AsString := Summary2;
                 Qry.ParamByName('status').AsString := Status;
                 Qry.ParamByName('created_by').AsString := CreatedBy;
+                // FR#2936/Plan#3266 M2.5 prereq — author-FK for Edit-Window match.
+                var CallerDevId := AContext.AccessControl.GetDeveloperId;
+                if CallerDevId > 0 then
+                  Qry.ParamByName('dev_id').AsInteger := CallerDevId
+                else
+                  Qry.ParamByName('dev_id').Clear;
                 Qry.ExecSQL;
               finally
                 Qry.Free;

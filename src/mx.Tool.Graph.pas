@@ -130,6 +130,11 @@ end;
 // ---------------------------------------------------------------------------
 // mx_graph_query — BFS traversal with depth limit
 // ---------------------------------------------------------------------------
+// FR#2936/Plan#3266 M2.9 Draft-Filter X2 deferred for HandleGraphQuery:
+// graph_nodes does not currently project the underlying-document status. The
+// graph response exposes only node IDs/types/names + edge metadata (no body),
+// so a pure-read-only caller seeing draft-linked nodes does not leak draft
+// content. Filter is added when nodes gain a status passthrough (post-M3).
 function HandleGraphQuery(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
 const

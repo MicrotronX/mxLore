@@ -641,6 +641,61 @@ begin
       finally
         MigQry.Free;
       end;
+
+      // sql/048 step 1: FR#2936/Plan#3266 M2.5 prerequisite — documents.created_by_developer_id.
+      // Real FK from documents to developers for unambiguous author-match in
+      // mx_update_note Edit-Window logic. Legacy created_by VARCHAR stays.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''documents'' ' +
+        '  AND column_name = ''created_by_developer_id''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/048 step 1 — ADD created_by_developer_id + idx');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE documents ' +
+            'ADD COLUMN created_by_developer_id INT NULL AFTER created_by');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          var IdxQry := MigCtx.CreateQuery(
+            'CREATE INDEX idx_doc_created_by_dev ON documents(created_by_developer_id)');
+          try IdxQry.ExecSQL; finally IdxQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/048 step 1 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // sql/048 step 2: ADD FK fk_doc_created_by_dev (separate check — FK has no IF NOT EXISTS).
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.table_constraints ' +
+        'WHERE table_schema = :db AND table_name = ''documents'' ' +
+        '  AND constraint_name = ''fk_doc_created_by_dev''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/048 step 2 — ADD fk_doc_created_by_dev');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE documents ' +
+            'ADD CONSTRAINT fk_doc_created_by_dev ' +
+            '  FOREIGN KEY (created_by_developer_id) REFERENCES developers(id) ' +
+            '  ON DELETE SET NULL');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/048 step 2 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // sql/048 NO BACKFILL: legacy created_by VARCHAR is free-form caller-
+      // supplied label, not authenticated identity. Name-matching against
+      // developers.name or client_keys.name produces unreliable assignments.
+      // Old docs stay created_by_developer_id IS NULL by design (going-forward
+      // only). See FR#3307 for the eventual created_by VARCHAR phase-out.
     finally
       MigCtx := nil;
     end;

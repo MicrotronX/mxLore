@@ -91,7 +91,7 @@ uses
   mx.Admin.Api.Keys, mx.Admin.Api.Projects,
   mx.Admin.Api.Global, mx.Admin.Api.Skills,
   mx.Admin.Api.Settings, mx.Admin.Api.Invite,
-  mx.Admin.Api.SelfUpdate;
+  mx.Admin.Api.SelfUpdate, mx.Admin.Api.Notes;
 
 { Shared helpers }
 
@@ -792,6 +792,20 @@ begin
     begin
       mx.Admin.Api.Invite.HandleConfirmInvite(C, FPool, FInviteRateLimit,
         FSettingsCache, ASegments[1], FLogger);
+      Exit;
+    end;
+    MxSendError(C, 404, 'not_found');
+    Exit;
+  end;
+
+  // /notes/*  (FR#2936, Plan#3266 M2.6 — review-thread admin alerts)
+  if SameText(ASegments[0], 'notes') then
+  begin
+    // GET /notes/deep-threads — review-notes with depth >= warn-threshold
+    if (Len = 2) and SameText(ASegments[1], 'deep-threads') and
+       (C.Request.MethodType = THttpMethod.Get) then
+    begin
+      mx.Admin.Api.Notes.HandleListDeepThreads(C, FPool, FLogger);
       Exit;
     end;
     MxSendError(C, 404, 'not_found');

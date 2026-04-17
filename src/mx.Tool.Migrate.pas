@@ -256,9 +256,9 @@ begin
         try
           Qry := AContext.CreateQuery(
             'INSERT INTO documents (project_id, doc_type, slug, title, content, ' +
-            '  summary_l1, summary_l2, status, created_by) ' +
+            '  summary_l1, summary_l2, status, created_by, created_by_developer_id) ' +
             'VALUES (:proj_id, :doc_type, :slug, :title, :content, ' +
-            '  :summary_l1, :summary_l2, :status, ''migration'')');
+            '  :summary_l1, :summary_l2, :status, ''migration'', :dev_id)');
           try
             Qry.ParamByName('proj_id').AsInteger := ProjectId;
             Qry.ParamByName('doc_type').AsString := DocType;
@@ -269,6 +269,12 @@ begin
             Qry.ParamByName('summary_l1').AsString := ClampSummary(Summary1);
             Qry.ParamByName('summary_l2').AsString := Summary2;
             Qry.ParamByName('status').AsString := DocStatus;
+            // FR#2936/Plan#3266 M2.5 prereq — record the dev who initiated migration.
+            var CallerDevId := AContext.AccessControl.GetDeveloperId;
+            if CallerDevId > 0 then
+              Qry.ParamByName('dev_id').AsInteger := CallerDevId
+            else
+              Qry.ParamByName('dev_id').Clear;
             Qry.ExecSQL;
           finally
             Qry.Free;

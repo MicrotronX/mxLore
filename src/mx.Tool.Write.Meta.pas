@@ -375,9 +375,9 @@ begin
 
   if not MatchStr(RelationType, ['leads_to', 'implements', 'contradicts',
       'depends_on', 'supersedes', 'references', 'caused_by',
-      'rejected_in_favor_of', 'assumes', 'review-on']) then
+      'rejected_in_favor_of', 'assumes', 'review-on', 'promoted_from']) then
     raise EMxValidation.Create('Invalid relation_type: ' + RelationType +
-      '. Must be one of: leads_to, implements, contradicts, depends_on, supersedes, references, caused_by, rejected_in_favor_of, assumes, review-on');
+      '. Must be one of: leads_to, implements, contradicts, depends_on, supersedes, references, caused_by, rejected_in_favor_of, assumes, review-on, promoted_from');
 
   if SourceDocId = TargetDocId then
     raise EMxValidation.Create('source_doc_id and target_doc_id must be different');

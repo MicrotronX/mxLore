@@ -153,7 +153,7 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 96;  // Build 95 (Session 251, WF-2026-04-16-002 Bug#3052 M3 Safety Hardening): 6 fixes + 2 follow-up hardenings in mx.Logic.SelfUpdate.pas — ParseTagName overflow clamp (Task 10), MoveFileWithRetry 5x exponential backoff [50,100,250,500]ms with captured LastErr local (Task 9 + hardening), DownloadZip outer try/except deletes partial .zip on mid-stream exception (Task 12b), FinishUpdate Zip per-entry try/except deletes partial target on mid-write exception (Task 12a), FinishUpdate marker-corrupt validation raises UPDATE_MARKER_CORRUPT 500 when OldBuild/NewBuild<=0 (Task 11), InstallAndRestart concurrent-lock gInstallLock TCriticalSection TryEnter returns 409 if busy with by-design OS cleanup on happy-path ExitProcess (Task 8 + hardening). mxDesignChecker + mxBugChecker: 0 CRIT, Spec#3079 rev 5 + Plan#3082 M3 PASS.
+  MXAI_BUILD   = 100;  // Build 100 (Session 264, FR#2936/Plan#3266 M2.7+M2.8+M2.9): M2.7 Token-Bucket 50 writes per 10h per developer (in-memory TDictionary+TCriticalSection in mx.Tool.Notes, applied to HandleCreateNote+HandleUpdateNote). M2.8 'promoted_from' relation-type added to mx.Tool.Write.Meta whitelist (Draft->Published transition via existing mx_add_relation). M2.9 Draft-Filter X2 — new ShouldFilterDrafts helper in mx.Logic.AccessControl filters draft docs from pure alReadOnly callers, applied to HandleDetail, HandleSearch (project+cross-project paths), HandleBriefing, HandleRecall. HandleGraphQuery deferred (graph_nodes don't expose linked-doc status). Builds 96-99 stay (M1+M2.1-M2.6).
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';

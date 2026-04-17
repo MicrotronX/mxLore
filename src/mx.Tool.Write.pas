@@ -608,9 +608,9 @@ begin
         // INSERT document (with lesson_data for doc_type=lesson)
         Qry := AContext.CreateQuery(
           'INSERT INTO documents (project_id, doc_type, slug, title, content, ' +
-          '  summary_l1, summary_l2, status, created_by, lesson_data) ' +
+          '  summary_l1, summary_l2, status, created_by, created_by_developer_id, lesson_data) ' +
           'VALUES (:proj_id, :doc_type, :slug, :title, :content, ' +
-          '  :summary_l1, :summary_l2, :status, :created_by, :lesson_data)');
+          '  :summary_l1, :summary_l2, :status, :created_by, :dev_id, :lesson_data)');
         try
           Qry.ParamByName('proj_id').AsInteger := ProjectId;
           Qry.ParamByName('doc_type').AsString := DocType;
@@ -622,6 +622,14 @@ begin
           Qry.ParamByName('summary_l2').AsString := Summary2;
           Qry.ParamByName('status').AsString := Status;
           Qry.ParamByName('created_by').AsString := CreatedBy;
+          // FR#2936/Plan#3266 M2.5 prereq — author-FK for Edit-Window match.
+          // Falls back to NULL when called outside an authenticated context
+          // (server-internal callers, AI-batch via Tool API, etc.).
+          var CallerDevId := AContext.AccessControl.GetDeveloperId;
+          if CallerDevId > 0 then
+            Qry.ParamByName('dev_id').AsInteger := CallerDevId
+          else
+            Qry.ParamByName('dev_id').Clear;
           if LessonData <> '' then
             Qry.ParamByName('lesson_data').AsString := LessonData
           else
@@ -947,6 +955,14 @@ begin
       CurrentUpdatedAt := Qry.FieldByName('updated_at').AsDateTime;
       CurrentDocType := Qry.FieldByName('current_doc_type').AsString;
       CurrentTitle := Qry.FieldByName('current_title').AsString;
+
+      // FR#2936/Plan#3266 M2.5 — review-notes have an Edit-Window (60min/24h).
+      // mx_update_doc would bypass that gate, so reject and route to mx_update_note.
+      // Admins can still edit by going through mx_update_note (same row-lock + audit).
+      if SameText(CurrentDocType, 'note') then
+        raise EMxValidation.Create(
+          'mx_update_doc cannot edit review-notes (doc_type=note). ' +
+          'Use mx_update_note instead — it enforces the 60min author / 24h admin Edit-Window.');
 
       // ACL: check write access to the document's project
       if not AContext.AccessControl.CheckProject(ProjectId, alReadWrite) then

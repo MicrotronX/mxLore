@@ -66,6 +66,15 @@ type
   function TryLookupToolMinLevel(const ATool: string;
     out AMinLevel: TAccessLevel): Boolean;
 
+  // FR#2936/Plan#3266 M2.9: Draft-Filter X2 helper.
+  // Returns TRUE when the caller's effective access on AProjectId is exactly
+  // alReadOnly (no comment/write privileges, not admin). Read-handlers use
+  // this to AND `status <> 'draft'` into their WHERE clauses, preventing
+  // pure read-only auditors from seeing in-progress drafts.
+  // AProjectId=0 (cross-project search) -> caller MUST be admin or get FALSE.
+  function ShouldFilterDrafts(AContext: IMxDbContext;
+    AProjectId: Integer): Boolean;
+
 type
   /// <summary>
   /// Null implementation: allows everything. Used when AclMode = off.
@@ -113,7 +122,7 @@ type
   end;
 
 const
-  MASTER_MAP: array[0..42] of TMasterMapEntry = (
+  MASTER_MAP: array[0..43] of TMasterMapEntry = (
     // --- Read tools (20) ---
     (Tool: 'mx_ping';                     MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: True),
     (Tool: 'mx_search';                   MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: True),
@@ -159,8 +168,9 @@ const
     (Tool: 'mx_onboard_developer';        MinLevel: alReadWrite; AdminOnly: True;  ScopeGlobalAllowed: True),
     (Tool: 'mx_init_project';             MinLevel: alReadWrite; AdminOnly: True;  ScopeGlobalAllowed: False),
     (Tool: 'mx_migrate_project';          MinLevel: alReadWrite; AdminOnly: True;  ScopeGlobalAllowed: False),
-    // --- Comment-level tools (1, FR#2936 M2.4) ---
-    (Tool: 'mx_create_note';              MinLevel: alComment;   AdminOnly: False; ScopeGlobalAllowed: False)
+    // --- Comment-level tools (2, FR#2936 M2.4 + M2.5) ---
+    (Tool: 'mx_create_note';              MinLevel: alComment;   AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_update_note';              MinLevel: alComment;   AdminOnly: False; ScopeGlobalAllowed: False)
   );
 
 function TryLookupToolMinLevel(const ATool: string;
@@ -566,6 +576,28 @@ function TMxNullAccessControl.GetAllowedProjectIds(
   ALevel: TAccessLevel): TArray<Integer>;
 begin
   Result := nil; // nil = all projects allowed
+end;
+
+// FR#2936/Plan#3266 M2.9: Draft-Filter X2 helper.
+// Filters drafts when caller is exactly alReadOnly on the project. Caller
+// with alComment+ on the project sees drafts (they may be reviewing them).
+// Admins always see drafts. Non-project (AProjectId=0) callers must be admin
+// to see anything cross-project; non-admin cross-project callers get FALSE
+// here too — handlers should fall back to their own ACL check (or rely on
+// per-doc ProjectId resolution and call this again).
+function ShouldFilterDrafts(AContext: IMxDbContext;
+  AProjectId: Integer): Boolean;
+var
+  ACL: IAccessControl;
+begin
+  ACL := AContext.AccessControl;
+  if ACL.IsAdmin then Exit(False);
+  if AProjectId <= 0 then Exit(False); // global scope handled per-doc by caller
+  // Caller has alComment or higher on this project -> may see drafts.
+  if ACL.CheckProject(AProjectId, alComment) then Exit(False);
+  // Caller has at least alReadOnly (otherwise they would have failed earlier
+  // ACL check) but NOT alComment -> exactly alReadOnly -> filter drafts.
+  Result := ACL.CheckProject(AProjectId, alReadOnly);
 end;
 
 end.

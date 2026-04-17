@@ -204,6 +204,9 @@ begin
     SQL := SQL + '      AND d2.doc_type = :filter_doc_type';
   if FilterStatus <> '' then
     SQL := SQL + '      AND d2.status = :filter_status';
+  // M2.9 Draft-Filter X2: hide drafts from pure-read-only callers.
+  if ShouldFilterDrafts(AContext, ProjectId) then
+    SQL := SQL + '      AND d2.status <> ''draft''';
 
   SQL := SQL +
     '  ) scored ' +
@@ -529,6 +532,10 @@ begin
 
   ACL := AContext.AccessControl;
 
+  // mxBugChecker CRIT#1: initialize ProjId so the cross-project path doesn't
+  // read uninitialized memory in the M2.9 FilterDraftsHere expression below.
+  ProjId := 0;
+
   // ACL: if specific project given, check read access before calling SP
   if ProjectSlug <> '' then
   begin
@@ -550,6 +557,12 @@ begin
   // For scope=all with non-admin, post-filter results by allowed projects
   NeedFilter := (ProjectSlug = '') and (not ACL.IsAdmin);
 
+  // M2.9 Draft-Filter X2: when caller is exactly alReadOnly on the requested
+  // project, exclude drafts from the result set. Cross-project (scope=all) is
+  // handled per-doc in the post-filter loop below.
+  var FilterDraftsHere: Boolean := (ProjectSlug <> '')
+    and ShouldFilterDrafts(AContext, ProjId);
+
   ProjIdCache := TDictionary<string, Integer>.Create;
   try
     // Inline SELECT replaces CALL sp_search (Bug #554: CALL via DirectExecute
@@ -557,7 +570,7 @@ begin
     // Bug #549: When query is empty after wildcard stripping, browse-all without FTS
     if Query <> '' then
     begin
-      SQL := 'SELECT d.id, p.slug AS project, d.doc_type, d.title, ' +
+      SQL := 'SELECT d.id, p.slug AS project, d.doc_type, d.title, d.status, ' +
         'd.summary_l1, d.summary_l2, ' +
         'ROUND(MATCH(d.title, d.summary_l2, d.content) ' +
         'AGAINST(:query IN NATURAL LANGUAGE MODE), 2) AS relevance_score, ' +
@@ -568,6 +581,9 @@ begin
         'AND p.is_active = TRUE';
       if (Scope = 'project') and (ProjectSlug <> '') then
         SQL := SQL + ' AND p.slug = :project';
+      // M2.9 Draft-Filter X2: hide drafts from pure-read-only callers.
+      if FilterDraftsHere then
+        SQL := SQL + ' AND d.status <> ''draft''';
       if DocType <> '' then
         SQL := SQL + ' AND FIND_IN_SET(d.doc_type, :doc_type) > 0';
       // B6.2: tag filter (replaces mx_list_notes), supports comma-separated (OR)
@@ -586,7 +602,7 @@ begin
     else
     begin
       // Browse-all: no FTS, order by most recently updated
-      SQL := 'SELECT d.id, p.slug AS project, d.doc_type, d.title, ' +
+      SQL := 'SELECT d.id, p.slug AS project, d.doc_type, d.title, d.status, ' +
         'd.summary_l1, d.summary_l2, ' +
         '0.0 AS relevance_score, d.token_estimate ' +
         'FROM documents d ' +
@@ -595,6 +611,9 @@ begin
         'AND p.is_active = TRUE';
       if (Scope = 'project') and (ProjectSlug <> '') then
         SQL := SQL + ' AND p.slug = :project';
+      // M2.9 Draft-Filter X2: hide drafts from pure-read-only callers.
+      if FilterDraftsHere then
+        SQL := SQL + ' AND d.status <> ''draft''';
       if DocType <> '' then
         SQL := SQL + ' AND FIND_IN_SET(d.doc_type, :doc_type) > 0';
       // B6.2: tag filter, supports comma-separated (OR)
@@ -650,6 +669,14 @@ begin
               ProjIdCache.AddOrSetValue(RowProjSlug, ProjId);
             end;
             if (ProjId < 0) or (not ACL.CheckProject(ProjId, alReadOnly)) then
+            begin
+              Qry.Next;
+              Continue;
+            end;
+            // M2.9 Draft-Filter X2 (cross-project path): per-doc draft skip
+            // when caller is exactly alReadOnly on this row's project.
+            if SameText(Qry.FieldByName('status').AsString, 'draft')
+               and ShouldFilterDrafts(AContext, ProjId) then
             begin
               Qry.Next;
               Continue;
@@ -939,6 +966,14 @@ begin
     ProjectSlug := Qry.FieldByName('project').AsString;
     if not AContext.AccessControl.CheckProject(ProjectId, alReadOnly) then
       raise EMxAccessDenied.Create(ProjectSlug, alReadOnly);
+
+    // M2.9 Draft-Filter X2: alReadOnly callers see drafts as not-existing
+    // (mirrors HandleSearch hiding semantics — drafts simply don't appear).
+    // mxDesignChecker WARN#1: EMxNotFound, not AccessDenied(alComment) which
+    // would imply "needs higher level" — drafts are invisible, not gated.
+    if SameText(Qry.FieldByName('status').AsString, 'draft')
+       and ShouldFilterDrafts(AContext, ProjectId) then
+      raise EMxNotFound.Create('Document not found: ' + IntToStr(DocId));
 
     Data := TJSONObject.Create;
     try

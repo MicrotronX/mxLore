@@ -420,6 +420,20 @@ begin
     .Param('body', mptString, True, 'Note body (markdown). Alias: content')
     .Param('tags', mptArray, True, 'Array of tags (strings); MUST include one of review-comment, review-question, review-approval, review-block');
 
+  // FR#2936/Plan#3266 M2.5 — Edit-Window for review-notes:
+  //   age > 24h        -> rejected (note_locked, hard-lock)
+  //   admin            -> may edit any note within 24h (moderation window)
+  //   author + age<=60min -> may edit own note
+  //   else             -> rejected (edit_window_expired, suggest mx_create_note reply)
+  ARegistry
+    .Add('mx_update_note', HandleUpdateNote)
+    .Desc('Update a review-note within Edit-Window (60min author / 24h admin / 24h hard-lock). doc_type=note only. Allowed fields: title, body/content, tags. Each edit creates a doc_revisions row.')
+    .Param('doc_id', mptInteger, True, 'ID of the note to update')
+    .Param('title', mptString, False, 'New title (optional)')
+    .Param('body', mptString, False, 'New body (optional). Alias: content')
+    .Param('content', mptString, False, 'Alias for body')
+    .Param('tags', mptArray, False, 'Replace tag set (optional); when provided MUST include one of review-comment, review-question, review-approval, review-block');
+
   // mx_list_notes removed (B6.2) — use mx_search with doc_type+tag filter
 
   // ---- ENV TOOLS ----

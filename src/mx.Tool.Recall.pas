@@ -290,6 +290,9 @@ begin
     'JOIN projects p ON d.project_id = p.id ' +
     'WHERE d.doc_type = ''lesson'' AND d.status <> ''deleted'' ' +
     '  AND (d.project_id = :pid OR p.slug = ''_global'') ' +
+    // M2.9 Draft-Filter X2: hide draft lessons from pure-read-only callers.
+    IfThen(ShouldFilterDrafts(AContext, ProjectId),
+      '  AND d.status <> ''draft'' ', '') +
     'ORDER BY d.created_at DESC ' +
     'LIMIT 50');
   try
