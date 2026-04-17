@@ -15,6 +15,15 @@ procedure HandleDeleteKey(const C: THttpServerContext;
   ALogger: IMxLogger);
 procedure HandleUpdateKey(const C: THttpServerContext;
   APool: TMxConnectionPool; AKeyId: Integer; ALogger: IMxLogger);
+// FR#2936/Plan#3266 M3.6 — POST /api/keys/{id}/revoke (admin-UI is admin-only
+// by login gate so all sessions here are admin; "self-revoke" via MCP is a
+// separate future endpoint). Body (optional): {"reason": "<short rationale>"}.
+// Sets revoked_at + revoked_by (acting dev) + revoked_reason + forensik trio
+// (revoke_ip, revoke_user_agent, revoke_actor_type ['admin'|'self']) and
+// flips is_active=FALSE. Permanent (NIST SP 800-63D) — no un-revoke endpoint.
+procedure HandleRevokeKey(const C: THttpServerContext;
+  APool: TMxConnectionPool; AKeyId: Integer;
+  AActorDevId: Integer; ALogger: IMxLogger);
 procedure HandleGetEnvironments(const C: THttpServerContext;
   APool: TMxConnectionPool; ADevId: Integer; ALogger: IMxLogger);
 procedure HandleDeleteEnvironment(const C: THttpServerContext;
@@ -23,7 +32,7 @@ procedure HandleDeleteEnvironment(const C: THttpServerContext;
 implementation
 
 uses
-  System.SysUtils, System.JSON, System.Hash, Data.DB,
+  System.SysUtils, System.DateUtils, System.JSON, System.Hash, Data.DB,
   FireDAC.Comp.Client,
   mx.Admin.Server, mx.Crypto;
 
@@ -139,12 +148,17 @@ begin
       Qry.ParamByName('hash').AsString := KeyHash;
       Qry.ParamByName('prefix').AsString := Copy(RawKey, 1, 12);
       Qry.ParamByName('perms').AsString := Permissions;
+      // M3.3 role-dependent default expiry. INI overrides not yet plumbed —
+      // hard-coded defaults per Plan#3266: admin=180d, readwrite=90d, read=30d.
+      // Caller may override via explicit expires_at in body. Empty -> default.
       if ExpiresAt <> '' then
         Qry.ParamByName('expires').AsString := ExpiresAt
       else
       begin
-        Qry.ParamByName('expires').DataType := ftDateTime;
-        Qry.ParamByName('expires').Clear;
+        var DefaultDays: Integer := 30;
+        if SameText(Permissions, 'admin') then DefaultDays := 180
+        else if SameText(Permissions, 'readwrite') then DefaultDays := 90;
+        Qry.ParamByName('expires').AsDateTime := IncDay(Now, DefaultDays);
       end;
       Qry.ExecSQL;
     finally
@@ -364,6 +378,133 @@ begin
   Json := TJSONObject.Create;
   try
     Json.AddPair('ok', TJSONBool.Create(True));
+    MxSendJson(C, 200, Json);
+  finally
+    Json.Free;
+  end;
+end;
+
+procedure HandleRevokeKey(const C: THttpServerContext;
+  APool: TMxConnectionPool; AKeyId: Integer;
+  AActorDevId: Integer; ALogger: IMxLogger);
+var
+  Body, Json: TJSONObject;
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  Reason, ClientIP, UserAgent: string;
+  ActorType: string;
+  OwnerDevId: Integer;
+begin
+  // Caller is always admin here — admin-UI HandleLogin rejects non-admin
+  // (TMxLoginResult.lrNotAdmin). Non-admin self-revoke would land on a
+  // separate MCP-side endpoint not yet exposed.
+  if AActorDevId <= 0 then
+  begin
+    MxSendError(C, 401, 'no_session');
+    Exit;
+  end;
+
+  // Optional body: {"reason": "..."}
+  Reason := '';
+  Body := MxParseBody(C);
+  try
+    if (Body <> nil) and (Body.GetValue('reason') <> nil) then
+      Reason := Body.GetValue<string>('reason', '');
+  finally
+    if Body <> nil then Body.Free;
+  end;
+  if Length(Reason) > 255 then
+    Reason := Copy(Reason, 1, 255);
+
+  Ctx := APool.AcquireContext;
+
+  // Lookup the key + its owner; reject if already revoked or not found
+  Qry := Ctx.CreateQuery(
+    'SELECT developer_id, revoked_at FROM client_keys WHERE id = :id');
+  try
+    Qry.ParamByName('id').AsInteger := AKeyId;
+    Qry.Open;
+    if Qry.IsEmpty then
+    begin
+      MxSendError(C, 404, 'key_not_found');
+      Exit;
+    end;
+    if not Qry.FieldByName('revoked_at').IsNull then
+    begin
+      MxSendError(C, 409, 'already_revoked');
+      Exit;
+    end;
+    OwnerDevId := Qry.FieldByName('developer_id').AsInteger;
+  finally
+    Qry.Free;
+  end;
+
+  // M3.6 R1 actor-type label: 'self' when the admin is revoking their own
+  // key (audit clarity), else 'admin' (revoking somebody else's key).
+  if AActorDevId = OwnerDevId then
+    ActorType := 'self'
+  else
+    ActorType := 'admin';
+
+  ClientIP := '';
+  UserAgent := '';
+  C.Request.Headers.GetIfExists('X-Forwarded-For', ClientIP);
+  if ClientIP = '' then
+    ClientIP := C.Request.RemoteAddress;
+  C.Request.Headers.GetIfExists('User-Agent', UserAgent);
+  if Length(ClientIP) > 45 then ClientIP := Copy(ClientIP, 1, 45);
+  if Length(UserAgent) > 255 then UserAgent := Copy(UserAgent, 1, 255);
+
+  // Atomic UPDATE: set revoked_* fields + flip is_active OFF.
+  Qry := Ctx.CreateQuery(
+    'UPDATE client_keys SET ' +
+    '  revoked_at = NOW(), ' +
+    '  revoked_by = :actor, ' +
+    '  revoked_reason = :reason, ' +
+    '  revoke_ip = :ip, ' +
+    '  revoke_user_agent = :ua, ' +
+    '  revoke_actor_type = :atype, ' +
+    '  is_active = FALSE ' +
+    'WHERE id = :id AND revoked_at IS NULL');
+  try
+    Qry.ParamByName('actor').AsInteger := AActorDevId;
+    if Reason <> '' then
+      Qry.ParamByName('reason').AsString := Reason
+    else
+    begin
+      Qry.ParamByName('reason').DataType := ftString;
+      Qry.ParamByName('reason').Clear;
+    end;
+    if ClientIP <> '' then
+      Qry.ParamByName('ip').AsString := ClientIP
+    else
+    begin
+      Qry.ParamByName('ip').DataType := ftString;
+      Qry.ParamByName('ip').Clear;
+    end;
+    if UserAgent <> '' then
+      Qry.ParamByName('ua').AsString := UserAgent
+    else
+    begin
+      Qry.ParamByName('ua').DataType := ftString;
+      Qry.ParamByName('ua').Clear;
+    end;
+    Qry.ParamByName('atype').AsString := ActorType;
+    Qry.ParamByName('id').AsInteger := AKeyId;
+    Qry.ExecSQL;
+  finally
+    Qry.Free;
+  end;
+
+  ALogger.Log(mlInfo, Format(
+    'Key revoked: id=%d actor_dev=%d type=%s reason=%s',
+    [AKeyId, AActorDevId, ActorType, Reason]));
+
+  Json := TJSONObject.Create;
+  try
+    Json.AddPair('ok', TJSONBool.Create(True));
+    Json.AddPair('id', TJSONNumber.Create(AKeyId));
+    Json.AddPair('revoked_actor_type', ActorType);
     MxSendJson(C, 200, Json);
   finally
     Json.Free;

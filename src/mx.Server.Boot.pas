@@ -696,6 +696,157 @@ begin
       // developers.name or client_keys.name produces unreliable assignments.
       // Old docs stay created_by_developer_id IS NULL by design (going-forward
       // only). See FR#3307 for the eventual created_by VARCHAR phase-out.
+
+      // sql/049 step 1: FR#2936/Plan#3266 M3 — developers.accept_agent_messages
+      // BOOL DEFAULT TRUE (M3.2 inbox opt-out flag with admin-priority-override).
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''developers'' ' +
+        '  AND column_name = ''accept_agent_messages''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/049 step 1 — ADD developers.accept_agent_messages');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE developers ' +
+            'ADD COLUMN accept_agent_messages TINYINT(1) NOT NULL DEFAULT 1 ' +
+            'AFTER ui_login_enabled');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/049 step 1 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // sql/049 step 2: client_keys lifecycle columns (M3.6 revocation +
+      // M3.7 forensik trio + M3.4 warning-cadence dedupe).
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''client_keys'' ' +
+        '  AND column_name = ''revoked_at''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/049 step 2 — ADD client_keys revocation+forensik+warning columns');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE client_keys ' +
+            'ADD COLUMN revoked_at DATETIME NULL AFTER expires_at, ' +
+            'ADD COLUMN revoked_by INT NULL AFTER revoked_at, ' +
+            'ADD COLUMN revoked_reason VARCHAR(255) NULL AFTER revoked_by, ' +
+            'ADD COLUMN revoke_ip VARCHAR(45) NULL AFTER revoked_reason, ' +
+            'ADD COLUMN revoke_user_agent VARCHAR(255) NULL AFTER revoke_ip, ' +
+            'ADD COLUMN revoke_actor_type VARCHAR(20) NULL AFTER revoke_user_agent, ' +
+            'ADD COLUMN last_warned_stage VARCHAR(8) NULL AFTER revoke_actor_type');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/049 step 2 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // sql/049 step 3: FK fk_client_keys_revoked_by (separate — FK has no IF NOT EXISTS).
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.table_constraints ' +
+        'WHERE table_schema = :db AND table_name = ''client_keys'' ' +
+        '  AND constraint_name = ''fk_client_keys_revoked_by''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/049 step 3 — ADD fk_client_keys_revoked_by');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE client_keys ' +
+            'ADD CONSTRAINT fk_client_keys_revoked_by ' +
+            '  FOREIGN KEY (revoked_by) REFERENCES developers(id) ON DELETE SET NULL');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/049 step 3 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // sql/049 step 4: M3.8 Bug#3199 belt+suspenders — partial UNIQUE on
+      // active key_prefix via virtual column (NULL when revoked).
+      // mxBugChecker WARN#1: pre-check for duplicate active prefixes BEFORE
+      // adding the UNIQUE constraint — otherwise a half-applied state (column
+      // added, constraint failed) leaves boot retrying every restart.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''client_keys'' ' +
+        '  AND column_name = ''active_prefix''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          // Pre-check: any existing duplicate active prefixes?
+          var DupCount: Integer := 0;
+          var DupQry := MigCtx.CreateQuery(
+            'SELECT COUNT(*) AS dup_groups FROM ( ' +
+            '  SELECT key_prefix FROM client_keys ' +
+            '  WHERE is_active = TRUE AND revoked_at IS NULL ' +
+            '    AND key_prefix IS NOT NULL ' +
+            '  GROUP BY key_prefix HAVING COUNT(*) > 1 ' +
+            ') dups');
+          try
+            DupQry.Open;
+            if not DupQry.IsEmpty then
+              DupCount := DupQry.FieldByName('dup_groups').AsInteger;
+          finally
+            DupQry.Free;
+          end;
+
+          if DupCount > 0 then
+          begin
+            FLogger.Log(mlWarning, Format(
+              'Auto-migrate: sql/049 step 4 SKIPPED — %d duplicate active key_prefix group(s) detected; ' +
+              'admin must manually revoke colliding keys before re-running migration. ' +
+              'Bug#3199 belt+suspenders deferred until data is clean.', [DupCount]));
+          end
+          else
+          begin
+            FLogger.Log(mlInfo, 'Auto-migrate: sql/049 step 4 — ADD active_prefix virtual + uq_active_key_prefix');
+            var DdlQry := MigCtx.CreateQuery(
+              'ALTER TABLE client_keys ' +
+              'ADD COLUMN active_prefix VARCHAR(12) ' +
+              '  AS (IF(revoked_at IS NULL, key_prefix, NULL)) VIRTUAL');
+            try DdlQry.ExecSQL; finally DdlQry.Free; end;
+            var IdxQry := MigCtx.CreateQuery(
+              'ALTER TABLE client_keys ' +
+              'ADD UNIQUE KEY uq_active_key_prefix (active_prefix)');
+            try IdxQry.ExecSQL; finally IdxQry.Free; end;
+            FLogger.Log(mlInfo, 'Auto-migrate: sql/049 step 4 done');
+          end;
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // sql/049 step 5: M3.11 tool_call_log.auth_reason VARCHAR(32) NULL.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''tool_call_log'' ' +
+        '  AND column_name = ''auth_reason''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/049 step 5 — ADD tool_call_log.auth_reason');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE tool_call_log ' +
+            'ADD COLUMN auth_reason VARCHAR(32) NULL');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/049 step 5 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
     finally
       MigCtx := nil;
     end;

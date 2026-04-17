@@ -106,6 +106,7 @@ begin
     'FROM client_keys ck ' +
     'JOIN developers d ON ck.developer_id = d.id ' +
     'WHERE ck.key_prefix = :prefix AND ck.is_active = TRUE AND d.is_active = TRUE ' +
+    '  AND ck.revoked_at IS NULL ' +
     '  AND (ck.expires_at IS NULL OR ck.expires_at > NOW())');
   try
     Qry.ParamByName('prefix').AsString := Prefix;
@@ -141,6 +142,7 @@ begin
       'JOIN developers d ON ck.developer_id = d.id ' +
       'WHERE ck.key_hash = :hash AND ck.key_prefix IS NULL ' +
       '  AND ck.is_active = TRUE AND d.is_active = TRUE ' +
+      '  AND ck.revoked_at IS NULL ' +
       '  AND (ck.expires_at IS NULL OR ck.expires_at > NOW())');
     try
       Qry.ParamByName('hash').AsString := KeyHash;

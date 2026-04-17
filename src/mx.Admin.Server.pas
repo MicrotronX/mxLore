@@ -499,6 +499,15 @@ begin
       end;
     end;
 
+    // POST /keys/:id/revoke  (FR#2936/Plan#3266 M3.6 — admin revocation)
+    if (Len = 3) and TryStrToInt(ASegments[1], Id)
+       and SameText(ASegments[2], 'revoke')
+       and (C.Request.MethodType = THttpMethod.Post) then
+    begin
+      mx.Admin.Api.Keys.HandleRevokeKey(C, FPool, Id, ASession.DeveloperId, FLogger);
+      Exit;
+    end;
+
     MxSendError(C, 404, 'not_found');
     Exit;
   end;

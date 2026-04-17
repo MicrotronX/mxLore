@@ -83,16 +83,21 @@ begin
   IsLegacy := False;
   Prefix := Copy(RawKey, 1, 12);
 
-  // Step 1: Try PBKDF2 lookup via key_prefix
+  // Step 1: Try PBKDF2 lookup via key_prefix.
+  // M3.4 Grace-Period: accept keys that expired up to 24h ago (auth layer
+  // downgrades to read-only after Found — see post-loop block). M3.6+M3.8:
+  // exclude revoked keys (revoked_at IS NOT NULL) so prefix-collisions with
+  // a revoked row don't shadow the valid active key.
   Qry := Ctx.CreateQuery(
     'SELECT ck.id AS key_id, ck.name AS key_name, ck.permissions, ' +
-    '       ck.key_hash, d.id AS dev_id, d.name AS dev_name ' +
+    '       ck.key_hash, ck.expires_at, d.id AS dev_id, d.name AS dev_name ' +
     'FROM client_keys ck ' +
     'JOIN developers d ON ck.developer_id = d.id ' +
     'WHERE ck.key_prefix = :prefix ' +
     '  AND ck.is_active = TRUE ' +
     '  AND d.is_active = TRUE ' +
-    '  AND (ck.expires_at IS NULL OR ck.expires_at > NOW())');
+    '  AND ck.revoked_at IS NULL ' +
+    '  AND (ck.expires_at IS NULL OR ck.expires_at > DATE_SUB(NOW(), INTERVAL 24 HOUR))');
   try
     Qry.ParamByName('prefix').AsString := Prefix;
     Qry.Open;
@@ -111,6 +116,14 @@ begin
         Result.DeveloperId := Qry.FieldByName('dev_id').AsInteger;
         Result.DeveloperName := Qry.FieldByName('dev_name').AsString;
         Result.IsAdmin := (Result.Permissions = mpAdmin);
+        // M3.4 Grace-Period: if the key is past its hard expiry but within 24h,
+        // downgrade to read-only so the holder can rotate without lock-out.
+        if (not Qry.FieldByName('expires_at').IsNull)
+           and (Qry.FieldByName('expires_at').AsDateTime < Now) then
+        begin
+          Result.Permissions := mpRead;
+          Result.IsAdmin := False;
+        end;
         Break;
       end;
       Qry.Next;
@@ -124,14 +137,15 @@ begin
   begin
     Qry := Ctx.CreateQuery(
       'SELECT ck.id AS key_id, ck.name AS key_name, ck.permissions, ' +
-      '       d.id AS dev_id, d.name AS dev_name ' +
+      '       ck.expires_at, d.id AS dev_id, d.name AS dev_name ' +
       'FROM client_keys ck ' +
       'JOIN developers d ON ck.developer_id = d.id ' +
       'WHERE ck.key_hash = :hash ' +
       '  AND ck.key_prefix IS NULL ' +
       '  AND ck.is_active = TRUE ' +
       '  AND d.is_active = TRUE ' +
-      '  AND (ck.expires_at IS NULL OR ck.expires_at > NOW())');
+      '  AND ck.revoked_at IS NULL ' +
+      '  AND (ck.expires_at IS NULL OR ck.expires_at > DATE_SUB(NOW(), INTERVAL 24 HOUR))');
     try
       Qry.ParamByName('hash').AsString := ComputeSHA256(RawKey);
       Qry.Open;
@@ -148,6 +162,13 @@ begin
         Result.DeveloperId := Qry.FieldByName('dev_id').AsInteger;
         Result.DeveloperName := Qry.FieldByName('dev_name').AsString;
         Result.IsAdmin := (Result.Permissions = mpAdmin);
+        // M3.4 Grace-Period (legacy path): same downgrade as PBKDF2 path above.
+        if (not Qry.FieldByName('expires_at').IsNull)
+           and (Qry.FieldByName('expires_at').AsDateTime < Now) then
+        begin
+          Result.Permissions := mpRead;
+          Result.IsAdmin := False;
+        end;
       end;
     finally
       Qry.Free;

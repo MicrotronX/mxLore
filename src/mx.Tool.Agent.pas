@@ -146,15 +146,23 @@ end;
 // ---------------------------------------------------------------------------
 function HandleAgentSend(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
+const
+  PAYLOAD_SOFT_LIMIT = 1000;
+  PAYLOAD_HARD_LIMIT = 4000;
 var
   Auth: TMxAuthResult;
   Qry: TFDQuery;
   TargetSlug, MsgType, Payload: string;
   TargetProjectId, SenderProjectId, SenderSessionId, RefDocId, MsgId: Integer;
-  TargetDeveloperId: Integer;
+  TargetDeveloperId, PayloadLen: Integer;
   Data: TJSONObject;
+  Warnings: TJSONArray;
+  IsSelfTarget, IsAdmin, TargetIsAdmin, TargetHasReadWrite: Boolean;
+  SenderHasReadWrite, SenderHasComment: Boolean;
+  AcceptsMessages: Boolean;
 begin
   Auth := MxGetThreadAuth;
+  IsAdmin := AContext.AccessControl.IsAdmin;
 
   TargetSlug := AParams.GetValue<string>('target_project', '');
   MsgType := AParams.GetValue<string>('message_type', '');
@@ -175,42 +183,105 @@ begin
   if TargetSlug = '_global' then
     raise EMxValidation.Create('Cannot send messages to _global project');
 
-  // Payload size limit
-  if Length(Payload) > 16384 then
-    raise EMxValidation.Create('Payload too large (max 16KB)');
+  // M3.1 size limits: 1000 soft (warning) / 4000 hard (reject). Replaces the
+  // earlier 16KB single cap per Plan#3266 (smaller messages encourage clear
+  // prompts and protect inbox UX).
+  PayloadLen := Length(Payload);
+  if PayloadLen > PAYLOAD_HARD_LIMIT then
+    raise EMxValidation.CreateFmt(
+      'Payload too large (%d > %d chars hard limit). Split or summarise.',
+      [PayloadLen, PAYLOAD_HARD_LIMIT]);
 
-  // Resolve sender project from session context
+  // Resolve sender project from session context. M3.1: lower floor to alReadOnly
+  // (everyone may attempt). Asymmetric send-rules below gate by effective level.
   SenderProjectId := AParams.GetValue<Integer>('_sender_project_id', 0);
   if SenderProjectId = 0 then
   begin
-    // Try to get from current active session via project param
     var SenderSlug := AParams.GetValue<string>('project', '');
     if SenderSlug = '' then
       raise EMxValidation.Create('Parameter "project" (sender) is required');
-    SenderProjectId := ResolveProject(AContext, SenderSlug, alReadWrite);
+    SenderProjectId := ResolveProject(AContext, SenderSlug, alReadOnly);
   end;
 
   // Resolve target project (need Read access)
   TargetProjectId := ResolveProject(AContext, TargetSlug, alReadOnly);
 
+  // M3.1 asymmetric send-rules per sender effective level on sender project:
+  //   admin            -> any project, any target
+  //   alReadWrite      -> same-project only
+  //   alComment        -> may send to admins OR alReadWrite-on-target_project
+  //   alReadOnly       -> no send at all (pure-read)
+  // Self-Messaging always allowed (caller may queue notes-to-self).
+  IsSelfTarget := (TargetDeveloperId > 0) and (TargetDeveloperId = Auth.DeveloperId);
+  if not IsAdmin then
+  begin
+    SenderHasReadWrite := AContext.AccessControl.CheckProject(SenderProjectId, alReadWrite);
+    SenderHasComment   := AContext.AccessControl.CheckProject(SenderProjectId, alComment);
+
+    if not IsSelfTarget then
+    begin
+      // pure-read sender -> no send
+      if not SenderHasComment then
+        raise EMxError.Create('SEND_DENIED',
+          'Pure-read access cannot send agent messages. Need at least alComment.');
+
+      // alReadWrite sender -> same-project only
+      if SenderHasReadWrite and (SenderProjectId <> TargetProjectId) then
+        raise EMxError.Create('SEND_DENIED',
+          'alReadWrite senders may only message within their own project. Cross-project requires admin.');
+
+      // alComment sender (not read-write, not admin) -> target must be admin
+      // OR have alReadWrite on the target project. Cross-project not allowed.
+      if (not SenderHasReadWrite) and SenderHasComment then
+      begin
+        if SenderProjectId <> TargetProjectId then
+          raise EMxError.Create('SEND_DENIED',
+            'alComment senders may only message within their own project.');
+        if TargetDeveloperId > 0 then
+        begin
+          // Inspect target developer
+          TargetIsAdmin := False;
+          TargetHasReadWrite := False;
+          Qry := AContext.CreateQuery(
+            'SELECT d.role, ' +
+            '  EXISTS (SELECT 1 FROM developer_project_access dpa ' +
+            '          WHERE dpa.developer_id = d.id AND dpa.project_id = :pid ' +
+            '            AND dpa.access_level = ''read-write'') AS has_rw ' +
+            'FROM developers d WHERE d.id = :did');
+          try
+            Qry.ParamByName('did').AsInteger := TargetDeveloperId;
+            Qry.ParamByName('pid').AsInteger := TargetProjectId;
+            Qry.Open;
+            if not Qry.IsEmpty then
+            begin
+              TargetIsAdmin := SameText(Qry.FieldByName('role').AsString, 'admin');
+              TargetHasReadWrite := Qry.FieldByName('has_rw').AsBoolean;
+            end;
+          finally
+            Qry.Free;
+          end;
+          if not (TargetIsAdmin or TargetHasReadWrite) then
+            raise EMxError.Create('SEND_DENIED',
+              'alComment senders may only message admins or alReadWrite developers on the target project.');
+        end;
+      end;
+    end;
+  end;
+
   // Spec #1964: Same-project messaging skips NO_RELATION check.
-  // Cross-project still requires project_relation (setup_report exempt).
+  // Cross-project still requires project_relation (setup_report exempt + admin-bypass via M3.1).
   if (SenderProjectId <> TargetProjectId) and
      (MsgType <> 'setup_report') and
+     (not IsAdmin) and
      not HasProjectRelation(AContext, SenderProjectId, TargetProjectId) then
     raise EMxError.Create('NO_RELATION',
       'No project_relation between sender and target project');
 
-  // Spec #1964: target_developer_id validation (all errors return generic
-  // INVALID_TARGET to avoid developer-existence enumeration leaks).
-  if TargetDeveloperId > 0 then
+  // M3.1+M3.2: target_developer_id validation. Self-target now ALLOWED
+  // (Plan#3266 Spec#3194 — agents queue notes-to-self for follow-up reminders).
+  if (TargetDeveloperId > 0) and (not IsSelfTarget) then
   begin
-    // 1. Self-target is forbidden (use doc_type='todo' for notes to self)
-    if TargetDeveloperId = Auth.DeveloperId then
-      raise EMxError.Create('INVALID_TARGET',
-        'Invalid target_developer_id for this request');
-
-    // 2. Target developer must have access to target project
+    // Target developer must have access to target project
     Qry := AContext.CreateQuery(
       'SELECT 1 FROM developer_project_access ' +
       'WHERE developer_id = :did AND project_id = :pid LIMIT 1');
@@ -224,13 +295,35 @@ begin
     finally
       Qry.Free;
     end;
+
+    // M3.2 accept_agent_messages opt-out (admin-sender bypasses this gate;
+    // self-target also exempt — captured above).
+    if not IsAdmin then
+    begin
+      AcceptsMessages := True;
+      Qry := AContext.CreateQuery(
+        'SELECT accept_agent_messages FROM developers WHERE id = :did');
+      try
+        Qry.ParamByName('did').AsInteger := TargetDeveloperId;
+        Qry.Open;
+        if not Qry.IsEmpty then
+          AcceptsMessages := Qry.FieldByName('accept_agent_messages').AsBoolean;
+      finally
+        Qry.Free;
+      end;
+      if not AcceptsMessages then
+        raise EMxError.Create('TARGET_OPT_OUT',
+          'Target developer has opted out of agent messages. Admin-priority-override required.');
+    end;
   end;
 
   // Get sender session
   SenderSessionId := GetActiveSessionId(AContext, SenderProjectId);
 
-  // Rate limit
-  if (SenderSessionId > 0) and not CheckRateLimit(SenderSessionId) then
+  // M3.2 Rate-limit (10 msg/min per session). Self-Messaging exempt — caller
+  // may flood their own inbox with reminders without throttling.
+  if (not IsSelfTarget) and (SenderSessionId > 0)
+     and not CheckRateLimit(SenderSessionId) then
     raise EMxError.Create('RATE_LIMITED',
       'Max 10 messages per minute per session');
 
@@ -288,6 +381,22 @@ begin
     if TargetDeveloperId > 0 then
       Data.AddPair('target_developer_id', TJSONNumber.Create(TargetDeveloperId));
     Data.AddPair('message_type', MsgType);
+    // M3.1 soft-size warning surfaces alongside success — caller can tune next msg.
+    // mxBugChecker WARN#2: protect Warnings allocation in case AddPair raises
+    // before ownership transfer (Format with constant args is safe in practice
+    // but the pattern matches outer try/except so reviewers don't second-guess).
+    if PayloadLen > PAYLOAD_SOFT_LIMIT then
+    begin
+      Warnings := TJSONArray.Create;
+      try
+        Warnings.Add(Format('payload exceeds soft limit (%d > %d chars) -- consider summarising',
+          [PayloadLen, PAYLOAD_SOFT_LIMIT]));
+        Data.AddPair('warnings', Warnings);
+      except
+        Warnings.Free;
+        raise;
+      end;
+    end;
     Result := MxSuccessResponse(Data);
   except
     Data.Free;
