@@ -150,7 +150,14 @@ Step 5 runs in Main context synchronously (see Execution Mode Phase 3 + Step 5 h
 ```
 mx_create_doc(project, doc_type='session_note', title='Session Notes YYYY-MM-DD[-N]', content)
 ```
-**Template:** What was done? | Changed files | Next step | Open bugs | User notes
+**Template (all sections required — omit only if truly ∅, do NOT paraphrase absence):**
+- `## What was done` — numbered per work stream
+- `## Changed files` — git-status / file-touch list verbatim
+- `## Commits` — `<hash> — <subject>` + explicit push status (`pushed` / `NOT pushed`)
+- `## Docs created this session` — enumerate ALL doc_ids created this session (notes, lessons, references, ADRs, plans, specs, bugreports, feature_requests). Format: `<type>#<id> — <title>`. Source: `mx_create_doc` tool-call returns from THIS session, NOT prose-guessed. Purpose: a fresh `/clear` session reads this block + `mx_detail` each ID to fully reconstruct the work.
+- `## Next step` — if the active Plan has pending next-phase tasks (M2/M3/next milestone), enumerate them **verbatim** from the Plan body (copy `- [ ]` lines 1:1, do NOT paraphrase). Pointer-only (`see Plan#NNNN M2`) is insufficient because resume-enrichment may not fetch the Plan body.
+- `## Open bugs / TODOs` — inline code-TODOs, pending MCP findings, version-bumps pending, push-pending
+- `## User notes` — explicit user corrections, feedback, near-misses
 **Numbering:** mx_search(project=<slug>, doc_type='session_note', query='YYYY-MM-DD')→exists→append number
 **if !mcp_available →** Fallback local `docs/plans/session-notes-YYYY-MM-DD.md`+warning
 

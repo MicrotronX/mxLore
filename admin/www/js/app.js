@@ -76,6 +76,8 @@ var App = (function () {
       } catch (err) {
         if (err.message === 'not_admin') {
           showAlert('login-alert', 'error', 'Admin keys only.');
+        } else if (err.message === 'ui_login_disabled') {
+          showAlert('login-alert', 'error', 'Admin-UI login is disabled for this account. Please use the MCP interface (Claude Code / ChatGPT / claude.ai).');
         } else if (err.message === 'invalid_key') {
           showAlert('login-alert', 'error', 'Invalid API key.');
         } else {
@@ -296,6 +298,7 @@ var App = (function () {
       var roleSelect = $('#detail-role');
       if (roleSelect) roleSelect.value = dev.role || '';
       $('#detail-active').checked = dev.is_active;
+      applyUiLoginLockMatrix(dev);
     } catch (err) {
       if (err.message !== 'session_expired') loadDeveloperList();
       return;
@@ -306,6 +309,38 @@ var App = (function () {
     loadSettings(id);
   }
 
+  function applyUiLoginLockMatrix(dev) {
+    var cb = $('#detail-ui-login');
+    var hint = $('#detail-ui-login-hint');
+    if (!cb) return;
+    var level = dev.effective_level || 'none';
+    var uiLogin = dev.ui_login_enabled !== false;  // default TRUE per sql/046
+    cb.checked = uiLogin;
+    cb.disabled = false;
+    if (hint) hint.textContent = '';
+    switch (level) {
+      case 'admin':
+        cb.checked = true; cb.disabled = true;
+        if (hint) hint.textContent = 'Locked ON — global admin role.';
+        break;
+      case 'read-write':
+        cb.checked = true; cb.disabled = true;
+        if (hint) hint.textContent = 'Locked ON — has read-write on at least one project.';
+        break;
+      case 'read':
+        if (hint) hint.textContent = 'Default ON — auditor may opt out.';
+        break;
+      case 'comment':
+        if (hint) hint.textContent = 'Default OFF — reviewer is MCP-only (opt-in for UI).';
+        break;
+      case 'none':
+      default:
+        cb.checked = false; cb.disabled = true;
+        if (hint) hint.textContent = 'N/A — no project access assigned yet.';
+        break;
+    }
+  }
+
   function initDetailSave() {
     $('#detail-form').addEventListener('submit', async function (e) {
       e.preventDefault();
@@ -313,12 +348,17 @@ var App = (function () {
 
       try {
         var roleVal = $('#detail-role') ? $('#detail-role').value : '';
-        await Api.updateDeveloper(currentDeveloper, {
+        var uiLoginCb = $('#detail-ui-login');
+        var payload = {
           name: $('#detail-name').value.trim(),
           email: $('#detail-email').value.trim() || null,
           role: roleVal || null,
           is_active: $('#detail-active').checked
-        });
+        };
+        if (uiLoginCb && !uiLoginCb.disabled) {
+          payload.ui_login_enabled = uiLoginCb.checked;
+        }
+        await Api.updateDeveloper(currentDeveloper, payload);
         showAlert('detail-alert', 'success', 'Saved.');
         $('#detail-title-name').textContent = $('#detail-name').value.trim();
       } catch (err) {
@@ -445,6 +485,7 @@ var App = (function () {
       $('#new-key-permissions').value = 'readwrite';
       $('#new-key-expires').value = '';
       $('#key-reveal').classList.remove('visible');
+      $('#btn-generate-key').disabled = false;
       $('#new-key-name').focus();
     });
 
@@ -462,6 +503,7 @@ var App = (function () {
         // Show the key ONE TIME
         $('#key-reveal-value').textContent = data.key;
         $('#key-reveal').classList.add('visible');
+        $('#btn-generate-key').disabled = true;
         loadKeys(currentDeveloper);
       } catch (err) {
         showAlert('detail-alert', 'error', 'Key creation failed: ' + err.message);

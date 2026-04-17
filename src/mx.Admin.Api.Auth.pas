@@ -58,6 +58,12 @@ begin
         MxSendError(C, 403, 'not_admin');
       end;
 
+      lrUiLoginDisabled:
+      begin
+        ALogger.Log(mlWarning, 'Admin login failed: UI login disabled');
+        MxSendError(C, 403, 'ui_login_disabled');
+      end;
+
       lrSuccess:
       begin
         ALogger.Log(mlInfo, 'Admin login: ' + Session.DeveloperName);

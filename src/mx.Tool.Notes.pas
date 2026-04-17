@@ -1,5 +1,15 @@
 unit mx.Tool.Notes;
 
+// FR#2936/Plan#3266 M2.4 — Review-Note creation with alComment ACL floor,
+// tag-whitelist, hybrid parent-relation (relations + root_parent_doc_id + depth),
+// body soft/hard limits, depth recursion-guard.
+//
+// Legacy HandleListNotes retained for backward compatibility (not registered
+// as MCP tool — mx_list_notes removed in B6.2, use mx_search).
+//
+// Scope: doc_type='note' ONLY with tag in the review-* whitelist.
+// General note creation stays in mx_create_doc (alReadWrite floor).
+
 interface
 
 uses
@@ -17,59 +27,89 @@ implementation
 uses
   mx.Tool.Write;
 
+const
+  BODY_SOFT_LIMIT = 2000;
+  BODY_HARD_LIMIT = 8000;
+  DEPTH_HARD_LIMIT = 10;
+  DEPTH_WARN_THRESHOLD = 5;
+  REVIEW_TAGS: array[0..3] of string = (
+    'review-comment', 'review-question', 'review-approval', 'review-block');
+
 // ---------------------------------------------------------------------------
-// HandleCreateNote
+// HandleCreateNote — Review-Note with alComment ACL floor.
 // ---------------------------------------------------------------------------
 function HandleCreateNote(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
 var
-  Title, Body, ProjectSlug, Status, Slug, BaseSlug, DocType: string;
-  TagsArr: TJSONArray;
-  ProjectId, DocId, Attempt: Integer;
+  Title, Body, ProjectSlug, Slug, BaseSlug, Tag: string;
+  TagsArr, Warnings: TJSONArray;
+  ProjectId, DocId, Attempt, ParentDocId, RootParentDocId, Depth,
+    ParentDepth, ParentProjectId, BodyLen, I: Integer;
   Qry: TFDQuery;
-  I: Integer;
   TagVal: TJSONValue;
-  LessonData: string;
+  AuthCtx: TAuthContext;
+  AuthRes: TAuthResult;
+  HasValidTag: Boolean;
 begin
-  // Extract parameters
+  // --- Extract parameters
   Title := '';
   Body := '';
-  ProjectSlug := '_global';
-  Status := 'draft';
-  DocType := 'note';
-  LessonData := '';
+  ProjectSlug := '';
+  ParentDocId := 0;
 
   if AParams.GetValue('title') <> nil then
     Title := AParams.GetValue<string>('title', '');
   if AParams.GetValue('body') <> nil then
     Body := AParams.GetValue<string>('body', '');
+  if (Body = '') and (AParams.GetValue('content') <> nil) then
+    Body := AParams.GetValue<string>('content', '');
   if AParams.GetValue('project') <> nil then
-    ProjectSlug := AParams.GetValue<string>('project', '_global');
-  if AParams.GetValue('status') <> nil then
-    Status := AParams.GetValue<string>('status', 'draft');
-  if AParams.GetValue('doc_type') <> nil then
-    DocType := AParams.GetValue<string>('doc_type', 'note');
+    ProjectSlug := AParams.GetValue<string>('project', '');
+  if AParams.GetValue('parent_doc_id') <> nil then
+    ParentDocId := AParams.GetValue<Integer>('parent_doc_id', 0);
 
-  // Validate
+  TagsArr := nil;
+  if (AParams.GetValue('tags') <> nil) and (AParams.GetValue('tags') is TJSONArray) then
+    TagsArr := AParams.GetValue('tags') as TJSONArray;
+
+  // --- Basic validation
   if Title.Trim = '' then
     raise EMxError.Create('missing_title', 'title is required');
   if Body.Trim = '' then
-    raise EMxError.Create('missing_body', 'body is required');
-  if not MatchStr(DocType, ['note', 'bugreport', 'feature_request', 'todo', 'assumption', 'lesson']) then
-    raise EMxError.Create('invalid_doc_type', 'doc_type must be note, bugreport, feature_request, todo, assumption or lesson');
-  if not MatchStr(Status, ['draft', 'active', 'completed',
-      'superseded', 'archived', 'reported', 'confirmed', 'fixed', 'rejected', 'accepted',
-      'proposed', 'approved', 'implemented', 'resolved',
-      'open', 'in_progress', 'done', 'deferred']) then
-    raise EMxError.Create('invalid_status', 'Invalid status value');
+    raise EMxError.Create('missing_body', 'body (or content) is required');
+  if ProjectSlug = '' then
+    raise EMxError.Create('missing_project', 'project is required');
+  if ParentDocId = 0 then
+    raise EMxError.Create('missing_parent',
+      'parent_doc_id is required (review-note must attach to an existing doc)');
 
-  // Generate slug
-  BaseSlug := GenerateSlug(Title);
-  if Length(BaseSlug) > 100 then
-    BaseSlug := Copy(BaseSlug, 1, 100);
-  Slug := BaseSlug;
+  BodyLen := Length(Body);
+  if BodyLen > BODY_HARD_LIMIT then
+    raise EMxError.Create('body_too_large',
+      Format('body exceeds hard limit (%d > %d chars)', [BodyLen, BODY_HARD_LIMIT]));
 
-  // Resolve project
+  // --- Tag-Whitelist: at least one review-* tag required
+  HasValidTag := False;
+  if TagsArr <> nil then
+  begin
+    for I := 0 to TagsArr.Count - 1 do
+    begin
+      if TagsArr.Items[I] is TJSONString then
+      begin
+        Tag := TJSONString(TagsArr.Items[I]).Value;
+        if MatchStr(Tag, REVIEW_TAGS) then
+        begin
+          HasValidTag := True;
+          Break;
+        end;
+      end;
+    end;
+  end;
+  if not HasValidTag then
+    raise EMxError.Create('missing_review_tag',
+      'tags must include one of: review-comment, review-question, review-approval, review-block');
+
+  // --- Resolve project
   Qry := AContext.CreateQuery(
     'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
   try
@@ -82,70 +122,104 @@ begin
     Qry.Free;
   end;
 
-  // ACL check
-  if not AContext.AccessControl.CheckProject(ProjectId, alReadWrite) then
-    raise EMxAccessDenied.Create(ProjectSlug, alReadWrite);
+  // --- Authorize (alComment floor via MASTER_MAP; Plan#3266 CI rule: new handlers
+  //     use Authorize, not direct CheckProject).
+  AuthCtx.Tool := 'mx_create_note';
+  AuthCtx.CallerId := AContext.AccessControl.GetDeveloperId;
+  AuthCtx.ProjectId := ProjectId;
+  AuthCtx.RequiredLevel := alComment;
+  AuthRes := Authorize(AuthCtx, AContext);
+  if not AuthRes.Allowed then
+    raise EMxAccessDenied.Create(ProjectSlug, alComment);
 
-  // Lesson data (optional, only for doc_type=lesson)
-  if AParams.GetValue('lesson_data') <> nil then
-    LessonData := AParams.GetValue<string>('lesson_data', '');
-
-  // Tags extraction
-  TagsArr := nil;
-  if (AParams.GetValue('tags') <> nil) and (AParams.GetValue('tags') is TJSONArray) then
-    TagsArr := AParams.GetValue('tags') as TJSONArray;
-
-  AContext.StartTransaction;
+  // --- Parent resolution + depth/root-parent computation
+  Qry := AContext.CreateQuery(
+    'SELECT project_id, depth, root_parent_doc_id ' +
+    'FROM documents WHERE id = :id AND status <> ''deleted''');
   try
-    // Insert document with slug collision handling
-    DocId := 0;
-    for Attempt := 0 to 9 do
-    begin
-      if Attempt > 0 then
-        Slug := BaseSlug + '-' + IntToStr(Attempt + 1);
-      try
-        Qry := AContext.CreateQuery(
-          'INSERT INTO documents (project_id, slug, title, content, doc_type, status, lesson_data) ' +
-          'VALUES (:proj_id, :slug, :title, :content, :doc_type, :status, :lesson_data)');
-        try
-          Qry.ParamByName('proj_id').AsInteger := ProjectId;
-          Qry.ParamByName('slug').AsString := Slug;
-          Qry.ParamByName('title').AsString := Title;
-          BindLargeText(Qry.ParamByName('content'), Body);
-          Qry.ParamByName('doc_type').AsString := DocType;
-          Qry.ParamByName('status').AsString := Status;
-          if (LessonData <> '') and (DocType = 'lesson') then
-            Qry.ParamByName('lesson_data').AsString := LessonData
-          else
-          begin
-            Qry.ParamByName('lesson_data').DataType := ftString;
-            Qry.ParamByName('lesson_data').Value := Null;
-          end;
-          Qry.ExecSQL;
-        finally
-          Qry.Free;
-        end;
-        // Get inserted ID
-        Qry := AContext.CreateQuery('SELECT LAST_INSERT_ID() AS id');
-        try
-          Qry.Open;
-          DocId := Qry.FieldByName('id').AsInteger;
-        finally
-          Qry.Free;
-        end;
-        Break;
-      except
-        on E: EFDDBEngineException do
-          if (E.Kind = ekUKViolated) and (Attempt < 9) then
-            Continue
-          else
-            raise;
-      end;
-    end;
+    Qry.ParamByName('id').AsInteger := ParentDocId;
+    Qry.Open;
+    if Qry.IsEmpty then
+      raise EMxError.Create('parent_not_found',
+        'Parent document not found: ' + IntToStr(ParentDocId));
+    ParentProjectId := Qry.FieldByName('project_id').AsInteger;
+    if ParentProjectId <> ProjectId then
+      raise EMxError.Create('parent_cross_project',
+        'Parent document is in a different project (cross-project review prohibited)');
+    ParentDepth := Qry.FieldByName('depth').AsInteger;
+    if not Qry.FieldByName('root_parent_doc_id').IsNull and (ParentDepth > 0) then
+      RootParentDocId := Qry.FieldByName('root_parent_doc_id').AsInteger
+    else
+      RootParentDocId := ParentDocId;
+  finally
+    Qry.Free;
+  end;
 
-    // Insert tags
-    if (TagsArr <> nil) and (DocId > 0) then
-    begin
+  Depth := ParentDepth + 1;
+  if Depth > DEPTH_HARD_LIMIT then
+    raise EMxError.Create('depth_limit_exceeded',
+      Format('Note depth %d exceeds hard limit %d (flatten the thread)',
+        [Depth, DEPTH_HARD_LIMIT]));
+
+  // --- Slug generation
+  BaseSlug := GenerateSlug(Title);
+  if Length(BaseSlug) > 100 then
+    BaseSlug := Copy(BaseSlug, 1, 100);
+  Slug := BaseSlug;
+
+  // --- Collect warnings (non-fatal)
+  Warnings := TJSONArray.Create;
+  try
+    if BodyLen > BODY_SOFT_LIMIT then
+      Warnings.Add(Format('body exceeds soft limit (%d > %d chars) — consider splitting',
+        [BodyLen, BODY_SOFT_LIMIT]));
+    if Depth >= DEPTH_WARN_THRESHOLD then
+      Warnings.Add(Format('thread depth %d is high (>= %d) — consider flattening',
+        [Depth, DEPTH_WARN_THRESHOLD]));
+
+    AContext.StartTransaction;
+    try
+      // --- INSERT document with slug-collision retry loop
+      DocId := 0;
+      for Attempt := 0 to 9 do
+      begin
+        if Attempt > 0 then
+          Slug := BaseSlug + '-' + IntToStr(Attempt + 1);
+        try
+          Qry := AContext.CreateQuery(
+            'INSERT INTO documents (project_id, slug, title, content, doc_type, status, ' +
+            '  depth, root_parent_doc_id) ' +
+            'VALUES (:proj_id, :slug, :title, :content, ''note'', ''draft'', ' +
+            '  :depth, :root_parent)');
+          try
+            Qry.ParamByName('proj_id').AsInteger := ProjectId;
+            Qry.ParamByName('slug').AsString := Slug;
+            Qry.ParamByName('title').AsString := Title;
+            BindLargeText(Qry.ParamByName('content'), Body);
+            Qry.ParamByName('depth').AsInteger := Depth;
+            Qry.ParamByName('root_parent').AsInteger := RootParentDocId;
+            Qry.ExecSQL;
+          finally
+            Qry.Free;
+          end;
+          Qry := AContext.CreateQuery('SELECT LAST_INSERT_ID() AS id');
+          try
+            Qry.Open;
+            DocId := Qry.FieldByName('id').AsInteger;
+          finally
+            Qry.Free;
+          end;
+          Break;
+        except
+          on E: EFDDBEngineException do
+            if (E.Kind = ekUKViolated) and (Attempt < 9) then
+              Continue
+            else
+              raise;
+        end;
+      end;
+
+      // --- Insert tags (all of them — not just the review-* one)
       for I := 0 to TagsArr.Count - 1 do
       begin
         TagVal := TagsArr.Items[I];
@@ -162,22 +236,46 @@ begin
           end;
         end;
       end;
+
+      // --- Hybrid parent-relation: insert review-on relation
+      //     (denormalized depth + root_parent_doc_id already set on the note row above)
+      Qry := AContext.CreateQuery(
+        'INSERT INTO doc_relations (source_doc_id, target_doc_id, relation_type) ' +
+        'VALUES (:src, :tgt, ''review-on'')');
+      try
+        Qry.ParamByName('src').AsInteger := DocId;
+        Qry.ParamByName('tgt').AsInteger := ParentDocId;
+        Qry.ExecSQL;
+      finally
+        Qry.Free;
+      end;
+
+      AContext.Commit;
+    except
+      AContext.Rollback;
+      raise;
     end;
 
-    AContext.Commit;
+    Result := TJSONObject.Create;
+    Result.AddPair('ok', TJSONBool.Create(True));
+    Result.AddPair('doc_id', TJSONNumber.Create(DocId));
+    Result.AddPair('slug', Slug);
+    Result.AddPair('depth', TJSONNumber.Create(Depth));
+    Result.AddPair('root_parent_doc_id', TJSONNumber.Create(RootParentDocId));
+    Result.AddPair('parent_doc_id', TJSONNumber.Create(ParentDocId));
+    if Warnings.Count > 0 then
+      Result.AddPair('warnings', Warnings)
+    else
+      Warnings.Free;
   except
-    AContext.Rollback;
+    Warnings.Free;
     raise;
   end;
-
-  Result := TJSONObject.Create;
-  Result.AddPair('ok', TJSONBool.Create(True));
-  Result.AddPair('doc_id', TJSONNumber.Create(DocId));
-  Result.AddPair('slug', Slug);
 end;
 
 // ---------------------------------------------------------------------------
-// HandleListNotes
+// HandleListNotes — legacy read-side for notes/bugreports/feature-requests.
+// Kept for internal callers; not registered as MCP tool (use mx_search instead).
 // ---------------------------------------------------------------------------
 function HandleListNotes(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
@@ -203,7 +301,6 @@ begin
   if Limit < 1 then Limit := 1;
   if Limit > 200 then Limit := 200;
 
-  // Build query
   SQL := 'SELECT d.id, d.project_id, d.title, d.slug, d.status, p.slug AS project_slug, ' +
     'd.created_at, d.updated_at ' +
     'FROM documents d JOIN projects p ON d.project_id = p.id ' +
@@ -211,7 +308,6 @@ begin
 
   if ProjectSlug <> '' then
   begin
-    // Resolve and ACL-check
     Qry := AContext.CreateQuery(
       'SELECT id FROM projects WHERE slug = :slug');
     try
@@ -248,7 +344,6 @@ begin
       begin
         DocId := Qry.FieldByName('id').AsInteger;
 
-        // ACL filter for non-project-specific queries
         if ProjectSlug = '' then
         begin
           var PId := Qry.FieldByName('project_id').AsInteger;
@@ -269,7 +364,6 @@ begin
           Obj.AddPair('created_at', Qry.FieldByName('created_at').AsString);
           Obj.AddPair('updated_at', Qry.FieldByName('updated_at').AsString);
 
-          // Load tags for this note
           TagArr := TJSONArray.Create;
           TagQry := AContext.CreateQuery(
             'SELECT tag FROM doc_tags WHERE doc_id = :id ORDER BY tag');

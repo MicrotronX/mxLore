@@ -101,64 +101,66 @@ type
   TMasterMapEntry = record
     Tool: string;
     MinLevel: TAccessLevel;
+    // FR#2936/Plan#3266 M2-TODO resolutions:
+    // - AdminOnly: structural enforcement of admin-only tools (5 entries).
+    //   Authorize denies with ADMIN_ONLY for non-admin callers even if project
+    //   ACL would otherwise pass.
+    // - ScopeGlobalAllowed: mark tools whose legitimate scope includes global
+    //   (ProjectId=0). Authorize allows such calls for any non-admin caller
+    //   past whitelist, instead of rejecting as NO_GLOBAL_ACCESS.
+    AdminOnly: Boolean;
+    ScopeGlobalAllowed: Boolean;
   end;
 
 const
-  MASTER_MAP: array[0..41] of TMasterMapEntry = (
+  MASTER_MAP: array[0..42] of TMasterMapEntry = (
     // --- Read tools (20) ---
-    (Tool: 'mx_ping';                     MinLevel: alReadOnly),
-    (Tool: 'mx_search';                   MinLevel: alReadOnly),
-    (Tool: 'mx_detail';                   MinLevel: alReadOnly),
-    (Tool: 'mx_fetch';                    MinLevel: alReadOnly),
-    (Tool: 'mx_briefing';                 MinLevel: alReadOnly),
-    (Tool: 'mx_recall';                   MinLevel: alReadOnly),
-    (Tool: 'mx_recall_outcome';           MinLevel: alReadOnly),
-    (Tool: 'mx_graph_query';              MinLevel: alReadOnly),
-    (Tool: 'mx_session_start';            MinLevel: alReadOnly),
-    (Tool: 'mx_session_delta';            MinLevel: alReadOnly),
-    (Tool: 'mx_agent_peers';              MinLevel: alReadOnly),
-    (Tool: 'mx_agent_inbox';              MinLevel: alReadOnly),
-    (Tool: 'mx_get_revision';             MinLevel: alReadOnly),
-    (Tool: 'mx_doc_revisions';            MinLevel: alReadOnly),
-    (Tool: 'mx_batch_detail';             MinLevel: alReadOnly),
-    (Tool: 'mx_skill_findings_list';      MinLevel: alReadOnly),
-    (Tool: 'mx_skill_metrics';            MinLevel: alReadOnly),
-    (Tool: 'mx_get_env';                  MinLevel: alReadOnly),
-    (Tool: 'mx_decision_trace';           MinLevel: alReadOnly),
-    (Tool: 'mx_ai_batch_pending';         MinLevel: alReadOnly),
+    (Tool: 'mx_ping';                     MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: True),
+    (Tool: 'mx_search';                   MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: True),
+    (Tool: 'mx_detail';                   MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_fetch';                    MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: True),
+    (Tool: 'mx_briefing';                 MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_recall';                   MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: True),
+    (Tool: 'mx_recall_outcome';           MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_graph_query';              MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_session_start';            MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_session_delta';            MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_agent_peers';              MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_agent_inbox';              MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_get_revision';             MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_doc_revisions';            MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_batch_detail';             MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_skill_findings_list';      MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_skill_metrics';            MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_get_env';                  MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_decision_trace';           MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_ai_batch_pending';         MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: False),
     // --- Write tools (17) ---
-    (Tool: 'mx_create_doc';               MinLevel: alReadWrite),
-    (Tool: 'mx_update_doc';               MinLevel: alReadWrite),
-    (Tool: 'mx_delete_doc';               MinLevel: alReadWrite),
-    (Tool: 'mx_add_tags';                 MinLevel: alReadWrite),
-    (Tool: 'mx_remove_tags';              MinLevel: alReadWrite),
-    (Tool: 'mx_add_relation';             MinLevel: alReadWrite),
-    (Tool: 'mx_remove_relation';          MinLevel: alReadWrite),
-    (Tool: 'mx_add_project_relation';     MinLevel: alReadWrite),
-    (Tool: 'mx_remove_project_relation';  MinLevel: alReadWrite),
-    (Tool: 'mx_graph_link';               MinLevel: alReadWrite),
-    (Tool: 'mx_agent_send';               MinLevel: alReadWrite),
-    (Tool: 'mx_agent_ack';                MinLevel: alReadWrite),
-    (Tool: 'mx_batch_create';             MinLevel: alReadWrite),
-    (Tool: 'mx_batch_update';             MinLevel: alReadWrite),
-    (Tool: 'mx_ai_batch_log';             MinLevel: alReadWrite),
-    (Tool: 'mx_skill_feedback';           MinLevel: alReadWrite),
-    (Tool: 'mx_skill_manage';             MinLevel: alReadWrite),
+    (Tool: 'mx_create_doc';               MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_update_doc';               MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_delete_doc';               MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_add_tags';                 MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_remove_tags';              MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_add_relation';             MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_remove_relation';          MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_add_project_relation';     MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_remove_project_relation';  MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_graph_link';               MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_agent_send';               MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_agent_ack';                MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_batch_create';             MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_batch_update';             MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_ai_batch_log';             MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_skill_feedback';           MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
+    (Tool: 'mx_skill_manage';             MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
     // --- Admin-only tools (5) ---
-    // ⚡ M2-TODO (mxDesignChecker pending#admin-only-sentinel): these tools are
-    //    "admin-only" by convention but today's MASTER_MAP only sets MinLevel=alReadWrite
-    //    -- a non-admin dev with project-level read-write WILL pass Authorize
-    //    once M2 migrates these handlers from direct CheckProject to Authorize.
-    //    Fix (M2 scope): add TMasterMapEntry.AdminOnly: Boolean field + Authorize
-    //    Step 3 short-circuit (`if entry.AdminOnly and not ACL.IsAdmin then deny`).
-    //    Not fixed in M1 because no M1-era handler currently routes through Authorize,
-    //    so the admin-only invariant is still enforced by the `EMxValidation` checks
-    //    inside each handler body. Structural enforcement lands with M2 migration.
-    (Tool: 'mx_set_env';                  MinLevel: alReadWrite),
-    (Tool: 'mx_delete_env';               MinLevel: alReadWrite),
-    (Tool: 'mx_onboard_developer';        MinLevel: alReadWrite),
-    (Tool: 'mx_init_project';             MinLevel: alReadWrite),
-    (Tool: 'mx_migrate_project';          MinLevel: alReadWrite)
+    (Tool: 'mx_set_env';                  MinLevel: alReadWrite; AdminOnly: True;  ScopeGlobalAllowed: False),
+    (Tool: 'mx_delete_env';               MinLevel: alReadWrite; AdminOnly: True;  ScopeGlobalAllowed: False),
+    (Tool: 'mx_onboard_developer';        MinLevel: alReadWrite; AdminOnly: True;  ScopeGlobalAllowed: True),
+    (Tool: 'mx_init_project';             MinLevel: alReadWrite; AdminOnly: True;  ScopeGlobalAllowed: False),
+    (Tool: 'mx_migrate_project';          MinLevel: alReadWrite; AdminOnly: True;  ScopeGlobalAllowed: False),
+    // --- Comment-level tools (1, FR#2936 M2.4) ---
+    (Tool: 'mx_create_note';              MinLevel: alComment;   AdminOnly: False; ScopeGlobalAllowed: False)
   );
 
 function TryLookupToolMinLevel(const ATool: string;
@@ -178,6 +180,24 @@ begin
   Result := False;
 end;
 
+// FR#2936 M2-TODO resolution: full-entry lookup needed by Authorize to
+// enforce AdminOnly + ScopeGlobalAllowed without a second scan of MASTER_MAP.
+function TryLookupToolEntryImpl(const ATool: string;
+  out AEntry: TMasterMapEntry): Boolean;
+var
+  I: Integer;
+begin
+  for I := Low(MASTER_MAP) to High(MASTER_MAP) do
+  begin
+    if SameText(MASTER_MAP[I].Tool, ATool) then
+    begin
+      AEntry := MASTER_MAP[I];
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
 // FR#2936/Plan#3266 M1.6: Authorize wrapper. 7-step impl-order:
 // Init -> Whitelist -> Admin-Bypass -> Global/Project split -> CheckProject -> Denial-Log -> Return.
 // ⚡ mxDesignChecker CI rule (c): the Whitelist step MUST run BEFORE Admin-Bypass —
@@ -185,6 +205,7 @@ end;
 // a new tool name would silently succeed for admins, masking the registration bug).
 function Authorize(const ACtx: TAuthContext; AContext: IMxDbContext): TAuthResult;
 var
+  Entry: TMasterMapEntry;
   MinLevel: TAccessLevel;
   ACL: IAccessControl;
   Logger: IMxLogger;
@@ -226,7 +247,7 @@ begin
 
   // Step 2: Whitelist — tool must be in Master-Map (Default-Deny).
   // ⚡ MUST run BEFORE Admin-Bypass (see function header).
-  if (ACtx.Tool = '') or not TryLookupToolMinLevel(ACtx.Tool, MinLevel) then
+  if (ACtx.Tool = '') or not TryLookupToolEntryImpl(ACtx.Tool, Entry) then
   begin
     Result.DenialCode := 'UNKNOWN_TOOL';
     Result.DenialReason := Format('Tool "%s" not in Master-Map (default-deny)',
@@ -234,6 +255,7 @@ begin
     LogDenial;
     Exit;
   end;
+  MinLevel := Entry.MinLevel;
 
   ACL := AContext.AccessControl;
   if ACL = nil then
@@ -251,22 +273,32 @@ begin
     Exit;
   end;
 
-  // Step 4: Global-vs-Project split.
-  // v1: non-admin global scope (ProjectId=0) is denied. M3 may extend with
-  // global-role-based policy. The '_global' project is handled inside
-  // CheckProject via FGlobalProjectId — callers with a legitimate global op
-  // pass FGlobalProjectId (not 0) so it routes through Step 5 normally.
-  // ⚡ M2-TODO (mxDesignChecker pending#global-reject): Registry contains
-  //    legitimately-global tools (mx_ping, mx_search scope='all', mx_recall
-  //    scope=global, mx_fetch, mx_onboard_developer) that will regress for
-  //    non-admin callers when M2 routes them through Authorize.
-  //    Fix (M2 scope): add TMasterMapEntry.ScopeGlobalAllowed: Boolean;
-  //    if entry.ScopeGlobalAllowed AND ACtx.ProjectId=0, substitute
-  //    FGlobalProjectId before Step 5 (callers with legitimate global ops
-  //    route through normal CheckProject on the '_global' project).
-  //    Not fixed in M1 because no Authorize call-sites exist yet; grandfathered.
+  // Step 3.5: Admin-only structural enforcement (FR#2936 M2-TODO resolution).
+  // Reached only by non-admin callers (admin short-circuited in Step 3). Tools
+  // flagged AdminOnly in MASTER_MAP are hard-denied regardless of project ACL.
+  if Entry.AdminOnly then
+  begin
+    Result.DenialCode := 'ADMIN_ONLY';
+    Result.DenialReason := Format(
+      'Tool "%s" is admin-only and caller is not admin', [ACtx.Tool]);
+    LogDenial;
+    Exit;
+  end;
+
+  // Step 4: Global-vs-Project split (FR#2936 M2-TODO resolution).
+  // ProjectId=0 = global scope. By default non-admin is denied (most tools are
+  // per-project). Tools flagged ScopeGlobalAllowed in MASTER_MAP are
+  // legitimately global (mx_ping, mx_search scope='all', mx_recall global,
+  // mx_fetch, …) — allowed for any non-admin caller who cleared whitelist.
+  // Future M3: may route through CheckProject on the '_global' project instead
+  // of direct-allow once per-global-project ACL rows exist.
   if ACtx.ProjectId = 0 then
   begin
+    if Entry.ScopeGlobalAllowed then
+    begin
+      Result.Allowed := True;
+      Exit;
+    end;
     Result.DenialCode := 'NO_GLOBAL_ACCESS';
     Result.DenialReason := Format(
       'Tool "%s" requires admin for global scope (ProjectId=0)', [ACtx.Tool]);

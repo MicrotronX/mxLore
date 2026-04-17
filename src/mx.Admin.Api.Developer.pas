@@ -33,11 +33,27 @@ var
 begin
   Ctx := APool.AcquireContext;
   Qry := Ctx.CreateQuery(
-    'SELECT d.id, d.name, d.email, d.role, d.is_active, ' +
+    'SELECT d.id, d.name, d.email, d.role, d.is_active, d.ui_login_enabled, ' +
     '  (SELECT COUNT(*) FROM client_keys ck ' +
     '   WHERE ck.developer_id = d.id AND ck.is_active = TRUE) AS key_count, ' +
     '  (SELECT COUNT(*) FROM developer_project_access dpa ' +
-    '   WHERE dpa.developer_id = d.id) AS project_count ' +
+    '   WHERE dpa.developer_id = d.id) AS project_count, ' +
+    '  CASE ' +
+    '    WHEN d.role = ''admin'' THEN ''admin'' ' +
+    '    WHEN EXISTS (SELECT 1 FROM client_keys ck ' +
+    '      WHERE ck.developer_id = d.id AND ck.permissions = ''admin'' ' +
+    '      AND ck.is_active = TRUE) THEN ''admin'' ' +
+    '    WHEN EXISTS (SELECT 1 FROM developer_project_access dpa ' +
+    '      WHERE dpa.developer_id = d.id AND dpa.access_level = ''read-write'') ' +
+    '      THEN ''read-write'' ' +
+    '    WHEN EXISTS (SELECT 1 FROM developer_project_access dpa ' +
+    '      WHERE dpa.developer_id = d.id AND dpa.access_level = ''read'') ' +
+    '      THEN ''read'' ' +
+    '    WHEN EXISTS (SELECT 1 FROM developer_project_access dpa ' +
+    '      WHERE dpa.developer_id = d.id AND dpa.access_level = ''comment'') ' +
+    '      THEN ''comment'' ' +
+    '    ELSE ''none'' ' +
+    '  END AS effective_level ' +
     'FROM developers d ORDER BY d.name');
   try
     Qry.Open;
@@ -56,6 +72,8 @@ begin
       else
         Obj.AddPair('role', TJSONNull.Create);
       Obj.AddPair('is_active', TJSONBool.Create(Qry.FieldByName('is_active').AsBoolean));
+      Obj.AddPair('ui_login_enabled', TJSONBool.Create(Qry.FieldByName('ui_login_enabled').AsBoolean));
+      Obj.AddPair('effective_level', Qry.FieldByName('effective_level').AsString);
       Obj.AddPair('key_count', TJSONNumber.Create(Qry.FieldByName('key_count').AsInteger));
       Obj.AddPair('project_count', TJSONNumber.Create(Qry.FieldByName('project_count').AsInteger));
       Arr.AddElement(Obj);
@@ -155,9 +173,9 @@ var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
   Json: TJSONObject;
-  Name, Email, Role, SQL, Sep: string;
-  IsActive: Boolean;
-  HasName, HasEmail, HasActive, HasRole: Boolean;
+  Name, Email, Role, SQL, Sep, EffLvl: string;
+  IsActive, UiLoginEnabled: Boolean;
+  HasName, HasEmail, HasActive, HasRole, HasUiLogin: Boolean;
   EmailVal, RoleVal: TJSONValue;
 begin
   Body := MxParseBody(C);
@@ -188,23 +206,54 @@ begin
         Role := RoleVal.Value;
     end;
     HasActive := Body.TryGetValue<Boolean>('is_active', IsActive);
+    HasUiLogin := Body.TryGetValue<Boolean>('ui_login_enabled', UiLoginEnabled);
 
-    if not (HasName or HasEmail or HasActive or HasRole) then
+    if not (HasName or HasEmail or HasActive or HasRole or HasUiLogin) then
     begin
       MxSendError(C, 400, 'no_fields');
       Exit;
     end;
 
+    Ctx := APool.AcquireContext;
+
+    // Lock-Matrix server-side enforce (FR#2936 M2.1): admin / read-write force TRUE.
+    if HasUiLogin then
+    begin
+      Qry := Ctx.CreateQuery(
+        'SELECT CASE ' +
+        '  WHEN d.role = ''admin'' THEN ''admin'' ' +
+        '  WHEN EXISTS (SELECT 1 FROM client_keys ck ' +
+        '    WHERE ck.developer_id = d.id AND ck.permissions = ''admin'' ' +
+        '    AND ck.is_active = TRUE) THEN ''admin'' ' +
+        '  WHEN EXISTS (SELECT 1 FROM developer_project_access dpa ' +
+        '    WHERE dpa.developer_id = d.id AND dpa.access_level = ''read-write'') ' +
+        '    THEN ''read-write'' ' +
+        '  ELSE '''' ' +
+        'END AS lvl FROM developers d WHERE d.id = :id');
+      try
+        Qry.ParamByName('id').AsInteger := ADevId;
+        Qry.Open;
+        if not Qry.Eof then
+        begin
+          EffLvl := Qry.FieldByName('lvl').AsString;
+          if (EffLvl = 'admin') or (EffLvl = 'read-write') then
+            UiLoginEnabled := True;
+        end;
+      finally
+        Qry.Free;
+      end;
+    end;
+
     // Build dynamic UPDATE
     SQL := 'UPDATE developers SET ';
     Sep := '';
-    if HasName then   begin SQL := SQL + Sep + 'name = :name';       Sep := ', '; end;
-    if HasEmail then  begin SQL := SQL + Sep + 'email = :email';     Sep := ', '; end;
-    if HasRole then   begin SQL := SQL + Sep + 'role = :role';       Sep := ', '; end;
-    if HasActive then begin SQL := SQL + Sep + 'is_active = :active'; Sep := ', '; end;
+    if HasName then    begin SQL := SQL + Sep + 'name = :name';                   Sep := ', '; end;
+    if HasEmail then   begin SQL := SQL + Sep + 'email = :email';                 Sep := ', '; end;
+    if HasRole then    begin SQL := SQL + Sep + 'role = :role';                   Sep := ', '; end;
+    if HasActive then  begin SQL := SQL + Sep + 'is_active = :active';            Sep := ', '; end;
+    if HasUiLogin then begin SQL := SQL + Sep + 'ui_login_enabled = :uilogin';    Sep := ', '; end;
     SQL := SQL + ' WHERE id = :id';
 
-    Ctx := APool.AcquireContext;
     Ctx.StartTransaction;
     try
       Qry := Ctx.CreateQuery(SQL);
@@ -233,6 +282,8 @@ begin
         end;
         if HasActive then
           Qry.ParamByName('active').AsBoolean := IsActive;
+        if HasUiLogin then
+          Qry.ParamByName('uilogin').AsBoolean := UiLoginEnabled;
         Qry.ParamByName('id').AsInteger := ADevId;
         Qry.ExecSQL;
 

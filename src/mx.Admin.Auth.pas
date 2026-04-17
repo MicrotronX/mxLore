@@ -17,7 +17,7 @@ type
     Valid: Boolean;
   end;
 
-  TMxLoginResult = (lrSuccess, lrInvalidKey, lrNotAdmin);
+  TMxLoginResult = (lrSuccess, lrInvalidKey, lrNotAdmin, lrUiLoginDisabled);
 
   TMxAdminAuth = class
   private
@@ -102,7 +102,7 @@ begin
   // Step 1: Try PBKDF2 lookup via key_prefix
   Qry := Ctx.CreateQuery(
     'SELECT ck.id AS key_id, ck.permissions, ck.key_hash, ' +
-    '       d.id AS dev_id, d.name AS dev_name ' +
+    '       d.id AS dev_id, d.name AS dev_name, d.ui_login_enabled ' +
     'FROM client_keys ck ' +
     'JOIN developers d ON ck.developer_id = d.id ' +
     'WHERE ck.key_prefix = :prefix AND ck.is_active = TRUE AND d.is_active = TRUE ' +
@@ -118,6 +118,8 @@ begin
         FoundKeyId := Qry.FieldByName('key_id').AsInteger;
         if not SameText(Qry.FieldByName('permissions').AsString, 'admin') then
           Exit(lrNotAdmin);
+        if not Qry.FieldByName('ui_login_enabled').AsBoolean then
+          Exit(lrUiLoginDisabled);
         ASession.DeveloperId := Qry.FieldByName('dev_id').AsInteger;
         ASession.DeveloperName := Qry.FieldByName('dev_name').AsString;
         Break;
@@ -133,7 +135,8 @@ begin
   begin
     KeyHash := THashSHA2.GetHashString(RawKey, THashSHA2.TSHA2Version.SHA256);
     Qry := Ctx.CreateQuery(
-      'SELECT ck.id AS key_id, ck.permissions, d.id AS dev_id, d.name AS dev_name ' +
+      'SELECT ck.id AS key_id, ck.permissions, d.id AS dev_id, d.name AS dev_name, ' +
+      '       d.ui_login_enabled ' +
       'FROM client_keys ck ' +
       'JOIN developers d ON ck.developer_id = d.id ' +
       'WHERE ck.key_hash = :hash AND ck.key_prefix IS NULL ' +
@@ -150,6 +153,8 @@ begin
       FoundKeyId := Qry.FieldByName('key_id').AsInteger;
       if not SameText(Qry.FieldByName('permissions').AsString, 'admin') then
         Exit(lrNotAdmin);
+      if not Qry.FieldByName('ui_login_enabled').AsBoolean then
+        Exit(lrUiLoginDisabled);
       ASession.DeveloperId := Qry.FieldByName('dev_id').AsInteger;
       ASession.DeveloperName := Qry.FieldByName('dev_name').AsString;
     finally

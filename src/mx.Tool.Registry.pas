@@ -29,7 +29,8 @@ uses
   mx.Tool.SkillEvolution,
   mx.Tool.Recall,
   mx.Tool.Graph,
-  mx.Tool.Fetch;
+  mx.Tool.Fetch,
+  mx.Tool.Notes;
 
 { SafeExecute }
 
@@ -406,7 +407,19 @@ begin
     .Param('follow_redirects', mptBoolean, False, 'Follow same-host 3xx, max 3 hops (def true)')
     .Param('session_id', mptInteger, False, 'Session ID for rate-limit bucket');
 
-  // mx_create_note removed (B6.1) — use mx_create_doc with tags/lesson_data
+  // ---- REVIEW NOTE TOOLS (FR#2936 M2.4) ----
+  // mx_create_note re-added for review-comment scope (alComment ACL floor,
+  // tag-whitelist review-*, hybrid parent-relation, body soft/hard limits,
+  // depth recursion-guard). General note creation stays in mx_create_doc.
+  ARegistry
+    .Add('mx_create_note', HandleCreateNote)
+    .Desc('Create a review-scoped note (doc_type=note, alComment floor). Requires parent_doc_id + at least one review-* tag. Body limit 8000 chars hard / 2000 soft. Depth hard-limit 10, warn at 5.')
+    .Param('project', mptString, True, 'Project slug')
+    .Param('parent_doc_id', mptInteger, True, 'Parent document (spec/plan/decision/note) the review attaches to — must be same project')
+    .Param('title', mptString, True, 'Note title')
+    .Param('body', mptString, True, 'Note body (markdown). Alias: content')
+    .Param('tags', mptArray, True, 'Array of tags (strings); MUST include one of review-comment, review-question, review-approval, review-block');
+
   // mx_list_notes removed (B6.2) — use mx_search with doc_type+tag filter
 
   // ---- ENV TOOLS ----

@@ -613,6 +613,34 @@ begin
       finally
         MigQry.Free;
       end;
+
+      // sql/047 step 1: FR#2936/Plan#3266 M2.3 — Note-System Hybrid Parent-Relation.
+      // Adds documents.root_parent_doc_id INT NULL + documents.depth SMALLINT NOT NULL
+      // DEFAULT 0 + idx_documents_root_parent. Semantically relevant only for
+      // doc_type='note' rows (recursion-guard in M2.6). Index speeds up thread-queries.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''documents'' ' +
+        '  AND column_name = ''root_parent_doc_id''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/047 step 1 — ADD root_parent_doc_id + depth + idx');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE documents ' +
+            'ADD COLUMN root_parent_doc_id INT NULL, ' +
+            'ADD COLUMN depth SMALLINT NOT NULL DEFAULT 0');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          var IdxQry := MigCtx.CreateQuery(
+            'CREATE INDEX idx_documents_root_parent ON documents(root_parent_doc_id)');
+          try IdxQry.ExecSQL; finally IdxQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/047 step 1 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
     finally
       MigCtx := nil;
     end;

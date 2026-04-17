@@ -273,6 +273,15 @@
               <span class="toggle-text">Active</span>
             </label>
           </div>
+          <div class="form-group">
+            <label class="form-label">Admin-UI Login</label>
+            <label class="toggle-label">
+              <input id="detail-ui-login" type="checkbox" class="toggle-input">
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              <span class="toggle-text">Enabled</span>
+            </label>
+            <div id="detail-ui-login-hint" class="form-hint"></div>
+          </div>
           <div class="form-group" style="align-self:end">
             <button type="submit" class="btn btn--primary">
               <i data-lucide="save" class="icon-sm"></i> Save
@@ -1473,7 +1482,7 @@
       </div>
       <div class="modal__footer">
         <button type="button" class="btn modal-close">Close</button>
-        <button type="submit" class="btn btn--primary">
+        <button type="submit" id="btn-generate-key" class="btn btn--primary">
           <i data-lucide="plus" class="icon-xs"></i> Generate key
         </button>
       </div>
