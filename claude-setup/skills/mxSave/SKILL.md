@@ -114,6 +114,14 @@ mx_create_doc(project, doc_type='session_note', title='Session Notes YYYY-MM-DD[
 **Numbering:** mx_search(project=<slug>, doc_type='session_note', query='YYYY-MM-DD')→exists→append number
 **if !mcp_available →** Fallback local `docs/plans/session-notes-YYYY-MM-DD.md`+warning
 
+⚡ **Archive-Fidelity Rule (Bug#3239):** Session notes must ARCHIVE chat-produced decision artefacts VERBATIM, not compress them.
+- Detect structured blocks in chat history: Konsens-Tabellen (markdown tables ≥5 rows with decision content), Step-N-Konsens-Summaries, Brainstorm-Progress outputs, CC2050-Review outcomes, Q/A-resolution blocks.
+- Include these blocks 1:1 in session_note.content under `## Appendix: <section-name>` headings.
+- The meta-summary (What was done? Next step? etc.) stays at the top; the verbatim blocks follow as appendices.
+- Token-budget: session_notes for Brainstorm-heavy or multi-review sessions may grow to ~8000 tokens (default cap 3000 is a suggestion, not a hard limit).
+- Rationale: when `/clear` happens, `resume` reads back ONLY the session_note. A compressed summary loses per-step parameters (e.g. "Body-Limits 2000/8000", "Token-Bucket 50/10h") that block subsequent Spec/Plan work. Verbatim archival is cheaper than mid-next-session user-rescue from screen-scrollback.
+- When in doubt between brevity and fidelity → choose fidelity.
+
 ### 6) Peer Notify (MCP, only if delta > 0)
 if !mcp_available → skip entire step.
 `mx_session_delta(project, session_id=<state.session_id>, limit=1)`→total_changes==0→skip.

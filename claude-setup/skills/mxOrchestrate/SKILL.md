@@ -126,9 +126,13 @@ Schema v2, stack rules, and internal operations → `references/state-schema.md`
 3. WF.status = 'active'
 4. Log event (type='resume')
 5. **⚡ Reconciliation (Session-Boundary Sync):** `mx_detail` + compare local vs MCP, push/pull whichever is ahead, handle archived; **diverged → STOP + ask user which version to keep (NEVER silently overwrite)**; clamp; set `state.last_reconciliation = now()`. Full decision tree → `references/reconciliation.md`.
-6. Identify next pending step from reconciled state
-7. Output: `WF "<Name>" resumed. Progress: <X>/<Y>. Next step: <Description>.` — followed by the `state_deltas` band line per the Rules section (structured timestamps only, no `gestern`/`heute` free-form)
-8. Auto-invoke next step
+6. **⚡ Context-Note Enrichment (Bug#3230):** After WF mx_detail, search for recent session_notes referencing this WF or its key artefacts:
+   - `mx_search(project, doc_type='session_note', query='<WF-ID> OR <primary_artifact_IDs>', limit=2)` → if hit, `mx_detail(note_id, max_content_tokens=1500)` on first match.
+   - Also: follow WF outbound relations (references/implements) if WF body lists `Spec#NNNN` / `Plan#NNNN` / `Decision#NNNN` with `in-progress` or `draft` status → `mx_detail(primary_artifact, max_content_tokens=1000)`.
+   - Merge surfaced pivot-decisions, next-action hints, and open-OQ-state into the Resume output. This prevents "orphan resume" where Mode 5 technically succeeds but the user is blind to pivot decisions captured post-save.
+7. Identify next pending step from reconciled state
+8. Output: `WF "<Name>" resumed. Progress: <X>/<Y>. Next step: <Description>.` — include 2-3 bullet summary of any session-note enrichment from step 6. — followed by the `state_deltas` band line per the Rules section (structured timestamps only, no `gestern`/`heute` free-form)
+9. Auto-invoke next step
 
 **Backward-compatible:** `--resume` without active stack→open-items list as before (Phase 1 context load)
 
