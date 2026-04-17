@@ -187,11 +187,11 @@ begin
     var SenderSlug := AParams.GetValue<string>('project', '');
     if SenderSlug = '' then
       raise EMxValidation.Create('Parameter "project" (sender) is required');
-    SenderProjectId := ResolveProject(AContext, SenderSlug, alWrite);
+    SenderProjectId := ResolveProject(AContext, SenderSlug, alReadWrite);
   end;
 
   // Resolve target project (need Read access)
-  TargetProjectId := ResolveProject(AContext, TargetSlug, alRead);
+  TargetProjectId := ResolveProject(AContext, TargetSlug, alReadOnly);
 
   // Spec #1964: Same-project messaging skips NO_RELATION check.
   // Cross-project still requires project_relation (setup_report exempt).
@@ -320,7 +320,7 @@ begin
   if Limit < 1 then Limit := 1;
   if Limit > 50 then Limit := 50;
 
-  ProjectId := ResolveProject(AContext, ProjectSlug, alRead);
+  ProjectId := ResolveProject(AContext, ProjectSlug, alReadOnly);
 
   // Archive expired messages first
   Qry := AContext.CreateQuery(
@@ -435,7 +435,7 @@ begin
   ProjectSlug := AParams.GetValue<string>('project', '');
   if ProjectSlug = '' then
     raise EMxValidation.Create('Parameter "project" is required');
-  ProjectId := ResolveProject(AContext, ProjectSlug, alRead);
+  ProjectId := ResolveProject(AContext, ProjectSlug, alReadOnly);
 
   NewStatus := AParams.GetValue<string>('new_status', 'read');
   if (NewStatus <> 'read') and (NewStatus <> 'archived') then
@@ -542,7 +542,7 @@ begin
       's.last_heartbeat > DATE_SUB(NOW(), INTERVAL ' + IntToStr(RecentHours) +
       ' HOUR))';
 
-  ProjectId := ResolveProject(AContext, ProjectSlug, alRead);
+  ProjectId := ResolveProject(AContext, ProjectSlug, alReadOnly);
 
   // Resolve caller session via API key (unique per client_key_id)
   MySessionId := GetSessionIdByKey(AContext, Auth.KeyId);

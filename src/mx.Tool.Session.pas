@@ -59,8 +59,8 @@ begin
       ProjectId := Qry.FieldByName('id').AsInteger;
 
       // ACL: check read access to start a session
-      if not AContext.AccessControl.CheckProject(ProjectId, alRead) then
-        raise EMxAccessDenied.Create(ProjectSlug, alRead);
+      if not AContext.AccessControl.CheckProject(ProjectId, alReadOnly) then
+        raise EMxAccessDenied.Create(ProjectSlug, alReadOnly);
     finally
       Qry.Free;
     end;
@@ -483,8 +483,8 @@ begin
       ProjectSlug := Qry.FieldByName('project_slug').AsString;
 
       // ACL: check write access (saving a session modifies project data)
-      if not AContext.AccessControl.CheckProject(ProjectId, alWrite) then
-        raise EMxAccessDenied.Create(ProjectSlug, alWrite);
+      if not AContext.AccessControl.CheckProject(ProjectId, alReadWrite) then
+        raise EMxAccessDenied.Create(ProjectSlug, alReadWrite);
     finally
       Qry.Free;
     end;
@@ -614,8 +614,8 @@ begin
   end;
 
   // ACL: check read access
-  if not AContext.AccessControl.CheckProject(ProjectId, alRead) then
-    raise EMxAccessDenied.Create(ProjectSlug, alRead);
+  if not AContext.AccessControl.CheckProject(ProjectId, alReadOnly) then
+    raise EMxAccessDenied.Create(ProjectSlug, alReadOnly);
 
   // Resolve cutoff
   HasCutoff := False;

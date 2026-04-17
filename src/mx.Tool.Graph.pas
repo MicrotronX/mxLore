@@ -76,7 +76,7 @@ begin
     raise EMxValidation.Create('Parameter "weight" must be between 0 and 100');
 
   // --- ACL: write access required ---
-  ProjectId := ResolveProject(AContext, ProjectSlug, alWrite);
+  ProjectId := ResolveProject(AContext, ProjectSlug, alReadWrite);
 
   AContext.StartTransaction;
   try
@@ -181,7 +181,7 @@ begin
   DoIncoming := (Direction = 'incoming') or (Direction = 'both');
 
   // --- ACL: read access required ---
-  ProjectId := ResolveProject(AContext, ProjectSlug, alRead);
+  ProjectId := ResolveProject(AContext, ProjectSlug, alReadOnly);
 
   // --- Find start nodes ---
   StartNodeIds := TList<Integer>.Create;

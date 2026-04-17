@@ -70,8 +70,8 @@ begin
   AContext.StartTransaction;
   try
     // Resolve slugs to IDs with ACL (write on source, read on target)
-    SourceId := ResolveProject(AContext, SourceSlug, alWrite, 'Source');
-    TargetId := ResolveProject(AContext, TargetSlug, alRead, 'Target');
+    SourceId := ResolveProject(AContext, SourceSlug, alReadWrite, 'Source');
+    TargetId := ResolveProject(AContext, TargetSlug, alReadOnly, 'Target');
 
     // INSERT relation
     Qry := AContext.CreateQuery(
@@ -134,8 +134,8 @@ begin
     raise EMxValidation.Create('Parameter "relation_type" is required');
 
   // Resolve slugs (write on source, read on target)
-  SourceId := ResolveProject(AContext, SourceSlug, alWrite, 'Source');
-  TargetId := ResolveProject(AContext, TargetSlug, alRead, 'Target');
+  SourceId := ResolveProject(AContext, SourceSlug, alReadWrite, 'Source');
+  TargetId := ResolveProject(AContext, TargetSlug, alReadOnly, 'Target');
 
   Qry := AContext.CreateQuery(
     'DELETE FROM project_relations ' +

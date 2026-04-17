@@ -555,8 +555,8 @@ begin
   end;
 
   // ACL: check write access to target project
-  if not AContext.AccessControl.CheckProject(ProjectId, alWrite) then
-    raise EMxAccessDenied.Create(ProjectSlug, alWrite);
+  if not AContext.AccessControl.CheckProject(ProjectId, alReadWrite) then
+    raise EMxAccessDenied.Create(ProjectSlug, alReadWrite);
 
   // B6.6: Auto-ADR number for doc_type=decision
   if DocType = 'decision' then
@@ -949,8 +949,8 @@ begin
       CurrentTitle := Qry.FieldByName('current_title').AsString;
 
       // ACL: check write access to the document's project
-      if not AContext.AccessControl.CheckProject(ProjectId, alWrite) then
-        raise EMxAccessDenied.Create(ProjectSlug, alWrite);
+      if not AContext.AccessControl.CheckProject(ProjectId, alReadWrite) then
+        raise EMxAccessDenied.Create(ProjectSlug, alReadWrite);
     finally
       Qry.Free;
     end;
@@ -969,8 +969,8 @@ begin
       finally
         Qry.Free;
       end;
-      if not AContext.AccessControl.CheckProject(NewProjectId, alWrite) then
-        raise EMxAccessDenied.Create(NewProject, alWrite);
+      if not AContext.AccessControl.CheckProject(NewProjectId, alReadWrite) then
+        raise EMxAccessDenied.Create(NewProject, alReadWrite);
       if NewProjectId = ProjectId then
         raise EMxValidation.Create('Document is already in project "' + NewProject + '"');
     end;
@@ -1177,9 +1177,9 @@ begin
 
       // ACL: check write access to the document's project
       if not AContext.AccessControl.CheckProject(
-        Qry.FieldByName('project_id').AsInteger, alWrite) then
+        Qry.FieldByName('project_id').AsInteger, alReadWrite) then
         raise EMxAccessDenied.Create(
-          Qry.FieldByName('project_slug').AsString, alWrite);
+          Qry.FieldByName('project_slug').AsString, alReadWrite);
     finally
       Qry.Free;
     end;
@@ -1240,8 +1240,8 @@ begin
   finally
     Qry.Free;
   end;
-  if not AContext.AccessControl.CheckProject(ProjectId, alWrite) then
-    raise EMxAccessDenied.Create(ProjectSlug, alWrite);
+  if not AContext.AccessControl.CheckProject(ProjectId, alReadWrite) then
+    raise EMxAccessDenied.Create(ProjectSlug, alReadWrite);
   Updated := 0;
   Skipped := 0;
   Qry := AContext.CreateQuery(

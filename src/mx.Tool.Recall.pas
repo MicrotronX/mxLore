@@ -274,8 +274,8 @@ begin
   end;
 
   // ACL
-  if not AContext.AccessControl.CheckProject(ProjectId, alRead) then
-    raise EMxAccessDenied.Create(ProjectSlug, alRead);
+  if not AContext.AccessControl.CheckProject(ProjectId, alReadOnly) then
+    raise EMxAccessDenied.Create(ProjectSlug, alReadOnly);
 
   // --- Query lessons ---
   // Phase 1: Always includes project lessons + _global lessons (env/key conventions)

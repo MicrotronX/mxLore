@@ -184,8 +184,8 @@ begin
   end;
 
   // ACL: write access required
-  if not AContext.AccessControl.CheckProject(ProjectId, alWrite) then
-    raise EMxAccessDenied.Create(ProjectSlug, alWrite);
+  if not AContext.AccessControl.CheckProject(ProjectId, alReadWrite) then
+    raise EMxAccessDenied.Create(ProjectSlug, alReadWrite);
 
   Imported := 0;
   Skipped := 0;

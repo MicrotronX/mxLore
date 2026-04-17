@@ -122,8 +122,8 @@ begin
           end;
 
           // ACL: check write access to target project
-          if not AContext.AccessControl.CheckProject(ProjectId, alWrite) then
-            raise EMxAccessDenied.Create(ProjectSlug, alWrite);
+          if not AContext.AccessControl.CheckProject(ProjectId, alReadWrite) then
+            raise EMxAccessDenied.Create(ProjectSlug, alReadWrite);
 
           // Bug#2262: retry-with-suffix on slug collision (same pattern as
           // HandleCreateDoc). GenerateSlug already caps at cMaxSlugLength.
@@ -368,9 +368,9 @@ begin
 
             // ACL: check write access to the document's project
             if not AContext.AccessControl.CheckProject(
-              Qry.FieldByName('project_id').AsInteger, alWrite) then
+              Qry.FieldByName('project_id').AsInteger, alReadWrite) then
               raise EMxAccessDenied.Create(
-                Qry.FieldByName('project_slug').AsString, alWrite);
+                Qry.FieldByName('project_slug').AsString, alReadWrite);
           finally
             Qry.Free;
           end;

@@ -514,6 +514,105 @@ begin
       finally
         MigQry.Free;
       end;
+
+      // sql/046 step 1: FR#2936/ADR-3264/Plan#3266 M1.8 — developers.ui_login_enabled
+      // BOOLEAN NOT NULL DEFAULT TRUE. Gates user-login flow in admin-UI
+      // auth-layer per ADR-3264 Lock-Matrix.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''developers'' ' +
+        '  AND column_name = ''ui_login_enabled''');
+      try
+        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/046 step 1 — ADD ui_login_enabled');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE developers ' +
+            'ADD COLUMN ui_login_enabled BOOLEAN NOT NULL DEFAULT TRUE AFTER is_active');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/046 step 1 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // sql/046 step 2: Legacy-data migration — access_level='write' -> 'read-write'.
+      // Runs unconditionally (idempotent: UPDATE is no-op when no rows match).
+      // Rationale: StringToAccessLevel in mx.Types.pas recognises 'read-write' but
+      // NOT legacy 'write' — without this auto-UPDATE, devs with legacy rows get
+      // silently default-denied (alNone) at runtime. Executing the ALTER alone is
+      // insufficient; the data-migration must happen before access checks run.
+      // Log row-count for audit trail.
+      MigQry := MigCtx.CreateQuery(
+        'UPDATE developer_project_access SET access_level = ''read-write'' ' +
+        'WHERE access_level = ''write''');
+      try
+        MigQry.ExecSQL;
+        if MigQry.RowsAffected > 0 then
+          FLogger.Log(mlInfo, Format(
+            'Auto-migrate: sql/046 step 2 — %d row(s) migrated from access_level=''write'' to ''read-write''',
+            [MigQry.RowsAffected]));
+      finally
+        MigQry.Free;
+      end;
+
+      // FR#2936/Plan#3266 M1.10 — Boot-Time Sanity-Check for access_level rows.
+      // Warns (does not fail boot) if any developer_project_access row has a
+      // non-canonical access_level value. The 4-level hierarchy expects
+      // 'none'|'comment'|'read'|'read-write'; legacy 'write' should have been
+      // rewritten to 'read-write' by any prior migration. Unknown values are
+      // treated as alNone (default-deny) by StringToAccessLevel, but logging
+      // them surfaces drift for manual cleanup.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT COUNT(*) AS cnt FROM developer_project_access ' +
+        'WHERE access_level NOT IN (''none'', ''comment'', ''read'', ''read-write'')');
+      try
+        MigQry.Open;
+        if (not MigQry.IsEmpty) and (MigQry.FieldByName('cnt').AsInteger > 0) then
+        begin
+          FLogger.Log(mlWarning, Format(
+            'SanityCheckAccessLevelRows: %d developer_project_access rows have non-canonical access_level ' +
+            '(expected none|comment|read|read-write). Treated as alNone at runtime (default-deny). ' +
+            'Run manual cleanup: UPDATE developer_project_access SET access_level=''read-write'' WHERE access_level=''write'';',
+            [MigQry.FieldByName('cnt').AsInteger]));
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // FR#2936/Plan#3266 M1.11 — Pre-M1 Migration-Inventory (AC-24).
+      // One-shot INFO log of access_level distribution at each boot so that
+      // ADR-3264 rollout can be verified post-deploy without manual SQL.
+      // Intentionally iterates rows + builds a single log line rather than
+      // per-group lines to keep the log compact.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT access_level, COUNT(*) AS cnt FROM developer_project_access ' +
+        'GROUP BY access_level ORDER BY access_level');
+      try
+        MigQry.Open;
+        if not MigQry.IsEmpty then
+        begin
+          var InventoryLine: string := 'ACL inventory: ';
+          var FirstRow: Boolean := True;
+          while not MigQry.Eof do
+          begin
+            if not FirstRow then
+              InventoryLine := InventoryLine + ', ';
+            InventoryLine := InventoryLine + Format('%s=%d',
+              [MigQry.FieldByName('access_level').AsString,
+               MigQry.FieldByName('cnt').AsInteger]);
+            FirstRow := False;
+            MigQry.Next;
+          end;
+          FLogger.Log(mlInfo, InventoryLine);
+        end
+        else
+          FLogger.Log(mlInfo, 'ACL inventory: developer_project_access is empty');
+      finally
+        MigQry.Free;
+      end;
     finally
       MigCtx := nil;
     end;

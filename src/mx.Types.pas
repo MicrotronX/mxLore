@@ -18,7 +18,22 @@ type
 
   TMxPermission = (mpRead, mpReadWrite, mpAdmin);
 
-  TAccessLevel = (alRead, alWrite);
+  // FR#2936/ADR-3264: 4-level ordered hierarchy for User-Workspace ACL-Extension.
+  // ORDERED — do not reorder. IsAtLeast() and DB <-> enum mapping rely on Ord().
+  //
+  // Semantics (ordered low->high):
+  //   alNone      (0) : no access at all
+  //   alReadOnly  (1) : can read, cannot write anything
+  //   alComment   (2) : can read + create/edit notes (doc_type='note' only, M2+)
+  //   alReadWrite (3) : full read + write on all doc types
+  //
+  // Key invariant (per ADR-3264 "reviewer can read + comment"):
+  //   IsAtLeast(alComment, alReadOnly) = TRUE  -- commenter CAN read
+  //   IsAtLeast(alReadWrite, alComment) = TRUE  -- writer CAN comment
+  //   IsAtLeast(alReadOnly, alComment) = FALSE -- pure reader CANNOT comment
+  //
+  // Mapping: alNone='none' | alReadOnly='read' | alComment='comment' | alReadWrite='read-write'
+  TAccessLevel = (alNone, alReadOnly, alComment, alReadWrite);
 
   TAclMode = (amOff, amAudit, amEnforce);
 
@@ -72,6 +87,26 @@ type
     IsAdmin: Boolean;
   end;
 
+  // FR#2936/Plan#3266 M1.5: Authorize-wrapper input/output records.
+  // Future-slots (RateLimitBucket/AuditTag/RequestId) reserved for M3 work —
+  // kept nullable/empty in v1 to avoid churn when M3 lands.
+  TAuthContext = record
+    CallerId: Integer;          // developer_id from MxGetThreadAuth
+    Tool: string;               // MCP tool name, e.g. 'mx_search'
+    ProjectId: Integer;         // 0 = global/no-project, >0 = specific project
+    RequiredLevel: TAccessLevel; // min level resolved from Master-Map
+    // Future-slots (M3, keep empty in M1):
+    RateLimitBucket: string;
+    AuditTag: string;
+    RequestId: string;
+  end;
+
+  TAuthResult = record
+    Allowed: Boolean;
+    DenialReason: string;       // Human-readable, for logs + denial responses
+    DenialCode: string;         // Short code, e.g. 'NO_ACCESS', 'WRONG_LEVEL', 'UNKNOWN_TOOL'
+  end;
+
   // --- Tool Handler Type ---
 
   TMxToolHandler = reference to function(const AParams: TJSONObject;
@@ -109,6 +144,13 @@ function MxGetThreadAuth: TMxAuthResult;
 //     Single source of truth; add new doc_types HERE and nowhere else. ---
 function IsAllowedDocType(const AValue: string): Boolean;
 
+// --- TAccessLevel helpers (FR#2936/Plan#3266 M1.2-M1.3) ---
+// IsAtLeast: ordered comparison; alReadWrite >= alReadOnly >= alComment >= alNone
+function IsAtLeast(ACurrent, ARequired: TAccessLevel): Boolean;
+// String <-> enum mapping. Unknown strings default to alNone (safe default-deny).
+function StringToAccessLevel(const AValue: string): TAccessLevel;
+function AccessLevelToString(ALevel: TAccessLevel): string;
+
 const
   MXAI_VERSION = '2.4.0';
   MXAI_BUILD   = 95;  // Build 95 (Session 251, WF-2026-04-16-002 Bug#3052 M3 Safety Hardening): 6 fixes + 2 follow-up hardenings in mx.Logic.SelfUpdate.pas — ParseTagName overflow clamp (Task 10), MoveFileWithRetry 5x exponential backoff [50,100,250,500]ms with captured LastErr local (Task 9 + hardening), DownloadZip outer try/except deletes partial .zip on mid-stream exception (Task 12b), FinishUpdate Zip per-entry try/except deletes partial target on mid-write exception (Task 12a), FinishUpdate marker-corrupt validation raises UPDATE_MARKER_CORRUPT 500 when OldBuild/NewBuild<=0 (Task 11), InstallAndRestart concurrent-lock gInstallLock TCriticalSection TryEnter returns 409 if busy with by-design OS cleanup on happy-path ExitProcess (Task 8 + hardening). mxDesignChecker + mxBugChecker: 0 CRIT, Spec#3079 rev 5 + Plan#3082 M3 PASS.
@@ -144,6 +186,39 @@ begin
     if cAllowedDocTypes[I] = AValue then
       Exit(True);
   Result := False;
+end;
+
+{ TAccessLevel helpers (FR#2936/Plan#3266 M1.2-M1.3) }
+
+function IsAtLeast(ACurrent, ARequired: TAccessLevel): Boolean;
+begin
+  Result := Ord(ACurrent) >= Ord(ARequired);
+end;
+
+function StringToAccessLevel(const AValue: string): TAccessLevel;
+begin
+  if SameText(AValue, 'read-write') then Result := alReadWrite
+  else if SameText(AValue, 'read') then Result := alReadOnly
+  else if SameText(AValue, 'comment') then Result := alComment
+  else if SameText(AValue, 'none') then Result := alNone
+  // Legacy belt-and-suspenders: pre-FR#2936 DB rows used 'write' which sql/046
+  // migrates to 'read-write' at boot. This alias guards against drift from
+  // manual inserts or migration failure — lets legacy 'write' map to alReadWrite
+  // instead of silently default-denying (alNone) and locking out the dev.
+  else if SameText(AValue, 'write') then Result := alReadWrite
+  else Result := alNone; // Unknown => default-deny (alNone)
+end;
+
+function AccessLevelToString(ALevel: TAccessLevel): string;
+begin
+  case ALevel of
+    alReadWrite: Result := 'read-write';
+    alReadOnly:  Result := 'read';
+    alComment:   Result := 'comment';
+    alNone:      Result := 'none';
+  else
+    Result := 'none';
+  end;
 end;
 
 { TNullEventBus }

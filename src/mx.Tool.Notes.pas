@@ -83,8 +83,8 @@ begin
   end;
 
   // ACL check
-  if not AContext.AccessControl.CheckProject(ProjectId, alWrite) then
-    raise EMxAccessDenied.Create(ProjectSlug, alWrite);
+  if not AContext.AccessControl.CheckProject(ProjectId, alReadWrite) then
+    raise EMxAccessDenied.Create(ProjectSlug, alReadWrite);
 
   // Lesson data (optional, only for doc_type=lesson)
   if AParams.GetValue('lesson_data') <> nil then
@@ -223,8 +223,8 @@ begin
     finally
       Qry.Free;
     end;
-    if not AContext.AccessControl.CheckProject(ProjectId, alRead) then
-      raise EMxAccessDenied.Create(ProjectSlug, alRead);
+    if not AContext.AccessControl.CheckProject(ProjectId, alReadOnly) then
+      raise EMxAccessDenied.Create(ProjectSlug, alReadOnly);
     SQL := SQL + ' AND p.slug = :slug';
   end;
 
@@ -252,7 +252,7 @@ begin
         if ProjectSlug = '' then
         begin
           var PId := Qry.FieldByName('project_id').AsInteger;
-          if not AContext.AccessControl.CheckProject(PId, alRead) then
+          if not AContext.AccessControl.CheckProject(PId, alReadOnly) then
           begin
             Qry.Next;
             Continue;

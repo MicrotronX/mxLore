@@ -104,8 +104,8 @@ begin
 
   ProjectId := ResolveProjectId(AContext, ProjectSlug);
 
-  if not AContext.AccessControl.CheckProject(ProjectId, alWrite) then
-    raise EMxAccessDenied.Create(ProjectSlug, alWrite);
+  if not AContext.AccessControl.CheckProject(ProjectId, alReadWrite) then
+    raise EMxAccessDenied.Create(ProjectSlug, alReadWrite);
 
   Uid := TMxSkillEvolutionData.GenerateUid(SkillName, RuleId, CtxHash);
 
@@ -179,8 +179,8 @@ begin
   if (FindingUid = '') and (ProjectSlug <> '') then
   begin
     ProjectId := ResolveProjectId(AContext, ProjectSlug);
-    if not AContext.AccessControl.CheckProject(ProjectId, alWrite) then
-      raise EMxAccessDenied.Create(ProjectSlug, alWrite);
+    if not AContext.AccessControl.CheckProject(ProjectId, alReadWrite) then
+      raise EMxAccessDenied.Create(ProjectSlug, alReadWrite);
 
     Affected := TMxSkillEvolutionData.DismissPendingByProject(
       AContext, ProjectId, Reaction);
@@ -208,8 +208,8 @@ begin
   Finding := TMxSkillEvolutionData.FindByUid(AContext, FindingUid);
   if Finding.Id = 0 then
     raise EMxError.Create('NOT_FOUND', 'Finding not found: ' + FindingUid);
-  if not AContext.AccessControl.CheckProject(Finding.ProjectId, alWrite) then
-    raise EMxAccessDenied.Create(FindingUid, alWrite);
+  if not AContext.AccessControl.CheckProject(Finding.ProjectId, alReadWrite) then
+    raise EMxAccessDenied.Create(FindingUid, alReadWrite);
 
   TMxSkillEvolutionData.UpdateReaction(AContext, FindingUid, Reaction);
 
@@ -252,8 +252,8 @@ begin
 
   ProjectId := ResolveProjectId(AContext, ProjectSlug);
 
-  if not AContext.AccessControl.CheckProject(ProjectId, alRead) then
-    raise EMxAccessDenied.Create(ProjectSlug, alRead);
+  if not AContext.AccessControl.CheckProject(ProjectId, alReadOnly) then
+    raise EMxAccessDenied.Create(ProjectSlug, alReadOnly);
 
   Since := IncDay(Now, -DaysSince);
   Metrics := TMxSkillEvolutionData.GetMetrics(AContext, SkillName,
@@ -326,8 +326,8 @@ begin
 
   ProjectId := ResolveProjectId(AContext, ProjectSlug);
 
-  if not AContext.AccessControl.CheckProject(ProjectId, alRead) then
-    raise EMxAccessDenied.Create(ProjectSlug, alRead);
+  if not AContext.AccessControl.CheckProject(ProjectId, alReadOnly) then
+    raise EMxAccessDenied.Create(ProjectSlug, alReadOnly);
 
   FilterReaction := StatusStr <> '';
   if FilterReaction then
@@ -405,8 +405,8 @@ begin
 
   ProjectId := ResolveProjectId(AContext, ProjectSlug);
 
-  if not AContext.AccessControl.CheckProject(ProjectId, alWrite) then
-    raise EMxAccessDenied.Create(ProjectSlug, alWrite);
+  if not AContext.AccessControl.CheckProject(ProjectId, alReadWrite) then
+    raise EMxAccessDenied.Create(ProjectSlug, alReadWrite);
 
   Manager := TMxSkillEvolutionManager.Create(nil, AContext.Logger);
   try
@@ -443,8 +443,8 @@ begin
 
   ProjectId := ResolveProjectId(AContext, ProjectSlug);
 
-  if not AContext.AccessControl.CheckProject(ProjectId, alWrite) then
-    raise EMxAccessDenied.Create(ProjectSlug, alWrite);
+  if not AContext.AccessControl.CheckProject(ProjectId, alReadWrite) then
+    raise EMxAccessDenied.Create(ProjectSlug, alReadWrite);
 
   if not TMxSkillEvolutionData.RollbackParam(AContext, SkillName,
     ProjectId, ParamKey) then
@@ -480,7 +480,7 @@ begin
     raise EMxError.Create('INVALID_PARAM', 'skill is required');
 
   if not AContext.AccessControl.IsAdmin then
-    raise EMxAccessDenied.Create('_global', alWrite);
+    raise EMxAccessDenied.Create('_global', alReadWrite);
 
   // Delete findings
   Qry := AContext.CreateQuery(

@@ -227,9 +227,9 @@ begin
         raise EMxNotFound.Create('Document not found: ' + IntToStr(DocId));
 
       if not AContext.AccessControl.CheckProject(
-        Qry.FieldByName('project_id').AsInteger, alWrite) then
+        Qry.FieldByName('project_id').AsInteger, alReadWrite) then
         raise EMxAccessDenied.Create(
-          Qry.FieldByName('project_slug').AsString, alWrite);
+          Qry.FieldByName('project_slug').AsString, alReadWrite);
     finally
       Qry.Free;
     end;
@@ -309,9 +309,9 @@ begin
         raise EMxNotFound.Create('Document not found: ' + IntToStr(DocId));
 
       if not AContext.AccessControl.CheckProject(
-        Qry.FieldByName('project_id').AsInteger, alWrite) then
+        Qry.FieldByName('project_id').AsInteger, alReadWrite) then
         raise EMxAccessDenied.Create(
-          Qry.FieldByName('project_slug').AsString, alWrite);
+          Qry.FieldByName('project_slug').AsString, alReadWrite);
     finally
       Qry.Free;
     end;
@@ -395,9 +395,9 @@ begin
         raise EMxNotFound.Create('Source document not found: ' + IntToStr(SourceDocId));
 
       if not AContext.AccessControl.CheckProject(
-        Qry.FieldByName('project_id').AsInteger, alWrite) then
+        Qry.FieldByName('project_id').AsInteger, alReadWrite) then
         raise EMxAccessDenied.Create(
-          Qry.FieldByName('project_slug').AsString, alWrite);
+          Qry.FieldByName('project_slug').AsString, alReadWrite);
     finally
       Qry.Free;
     end;
@@ -413,9 +413,9 @@ begin
         raise EMxNotFound.Create('Target document not found: ' + IntToStr(TargetDocId));
 
       if not AContext.AccessControl.CheckProject(
-        Qry.FieldByName('project_id').AsInteger, alRead) then
+        Qry.FieldByName('project_id').AsInteger, alReadOnly) then
         raise EMxAccessDenied.Create(
-          Qry.FieldByName('project_slug').AsString, alRead);
+          Qry.FieldByName('project_slug').AsString, alReadOnly);
     finally
       Qry.Free;
     end;
@@ -485,9 +485,9 @@ begin
         raise EMxNotFound.Create('Relation not found: ' + IntToStr(RelationId));
 
       if not AContext.AccessControl.CheckProject(
-        Qry.FieldByName('project_id').AsInteger, alWrite) then
+        Qry.FieldByName('project_id').AsInteger, alReadWrite) then
         raise EMxAccessDenied.Create(
-          Qry.FieldByName('project_slug').AsString, alWrite);
+          Qry.FieldByName('project_slug').AsString, alReadWrite);
     finally
       Qry.Free;
     end;
@@ -543,8 +543,8 @@ begin
     Qry.Free;
   end;
 
-  if not AContext.AccessControl.CheckProject(ProjectId, alRead) then
-    raise EMxAccessDenied.Create(ProjectSlug, alRead);
+  if not AContext.AccessControl.CheckProject(ProjectId, alReadOnly) then
+    raise EMxAccessDenied.Create(ProjectSlug, alReadOnly);
 
   Qry := AContext.CreateQuery(
     'SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(slug, ''-'', 2), ''-'', -1) ' +

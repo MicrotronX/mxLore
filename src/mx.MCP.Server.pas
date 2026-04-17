@@ -271,7 +271,7 @@ begin
     end;
 
     // ACL: check read access
-    if not Ctx.AccessControl.CheckProject(ProjectId, alRead) then
+    if not Ctx.AccessControl.CheckProject(ProjectId, alReadOnly) then
     begin
       C.Response.StatusCode := 403;
       C.Response.Close;

@@ -142,8 +142,8 @@ begin
 
     ProjectId := Qry.FieldByName('id').AsInteger;
 
-    if not AContext.AccessControl.CheckProject(ProjectId, alRead) then
-      raise EMxAccessDenied.Create(ProjectSlug, alRead);
+    if not AContext.AccessControl.CheckProject(ProjectId, alReadOnly) then
+      raise EMxAccessDenied.Create(ProjectSlug, alReadOnly);
 
     Data := TJSONObject.Create;
     try
@@ -540,8 +540,8 @@ begin
       if SubQry.IsEmpty then
         raise EMxNotFound.Create('Project not found: ' + ProjectSlug);
       ProjId := SubQry.FieldByName('id').AsInteger;
-      if not ACL.CheckProject(ProjId, alRead) then
-        raise EMxAccessDenied.Create(ProjectSlug, alRead);
+      if not ACL.CheckProject(ProjId, alReadOnly) then
+        raise EMxAccessDenied.Create(ProjectSlug, alReadOnly);
     finally
       SubQry.Free;
     end;
@@ -649,7 +649,7 @@ begin
               end;
               ProjIdCache.AddOrSetValue(RowProjSlug, ProjId);
             end;
-            if (ProjId < 0) or (not ACL.CheckProject(ProjId, alRead)) then
+            if (ProjId < 0) or (not ACL.CheckProject(ProjId, alReadOnly)) then
             begin
               Qry.Next;
               Continue;
@@ -937,8 +937,8 @@ begin
     // ACL: check read access to the document's project
     ProjectId := Qry.FieldByName('project_id').AsInteger;
     ProjectSlug := Qry.FieldByName('project').AsString;
-    if not AContext.AccessControl.CheckProject(ProjectId, alRead) then
-      raise EMxAccessDenied.Create(ProjectSlug, alRead);
+    if not AContext.AccessControl.CheckProject(ProjectId, alReadOnly) then
+      raise EMxAccessDenied.Create(ProjectSlug, alReadOnly);
 
     Data := TJSONObject.Create;
     try
@@ -1138,7 +1138,7 @@ begin
         ProjectSlug := Qry.FieldByName('project').AsString;
 
         // ACL: skip docs from projects the user cannot access
-        if not AContext.AccessControl.CheckProject(ProjectId, alRead) then
+        if not AContext.AccessControl.CheckProject(ProjectId, alReadOnly) then
         begin
           Qry.Next;
           Continue;
@@ -1280,8 +1280,8 @@ begin
     Qry.Free;
   end;
 
-  if not AContext.AccessControl.CheckProject(ProjectId, alRead) then
-    raise EMxAccessDenied.Create(ProjectSlug, alRead);
+  if not AContext.AccessControl.CheckProject(ProjectId, alReadOnly) then
+    raise EMxAccessDenied.Create(ProjectSlug, alReadOnly);
 
   // Query 2: List revisions (newest first)
   Revisions := TJSONArray.Create;
@@ -1367,8 +1367,8 @@ begin
     Qry.Free;
   end;
 
-  if not AContext.AccessControl.CheckProject(ProjectId, alRead) then
-    raise EMxAccessDenied.Create(ProjectSlug, alRead);
+  if not AContext.AccessControl.CheckProject(ProjectId, alReadOnly) then
+    raise EMxAccessDenied.Create(ProjectSlug, alReadOnly);
 
   // Query 2: Load the revision row (full content)
   Qry := AContext.CreateQuery(
