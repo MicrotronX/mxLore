@@ -16,10 +16,17 @@ Save agent. Persists project state for seamless session continuation.
 **Hybrid:** CLAUDE.md+status.md=local. Session notes=MCP-DB.
 
 ## Execution Mode ⚡
-**Start in parallel:**
-- **Agent(Background):** Steps 3, 5, 6 (pure MCP calls)
-- **Main context:** Steps 1, 2, 4 (read+write local files, sync `.claude/` files. Step 2 zombie check uses MCP→on MCP error skip)
-Reason: Subagents lack write permission for `.claude/` files.
+**Phased sequential-with-parallel:** Steps are phased to avoid shared-MCP-doc races (Step 3 ↔ Step 4 on WF docs) and to honour data-dependencies (Step 4b needs Step 5's doc_id). Do NOT collapse phases into a single parallel fan-out.
+
+1. **Main (sequential):** Init → Steps 1, 2 (settings + CLAUDE.md/status.md incl. zombie check)
+2. **Parallel phase A:** Step 3 (Background Subagent, MCP-only) + Step 4a (Main). Topology only — Step 4a body is the SoT for its internals (unsynced-push + Step-State Delta Check + Snapshot + Finalize).
+   - ⚡ Pass `mcp_available` (from Init ping) as a parameter in Step 3 subagent prompt — subagents do not share main-context variables
+   - ⚡ Step 3 and Step 4a both touch WF docs in MCP → Step 4a's Step-State Delta Check MUST send `expected_updated_at` on every `mx_update_doc` call + MUST skip WFs whose MCP `data.status != 'active'` (Step 3 may have archived them in this tick). Both safeguards are specified inline in Step 4.
+3. **Main (sequential, synchronous MCP call):** Step 5 — `mx_create_doc(session_note)` issued from Main context so the returned doc_id is synchronously available for Step 4b. Body construction (potentially long) MAY be offloaded to a background subagent that RETURNS the body string; Main then issues the `mx_create_doc` itself and captures the doc_id. ⚡ Step 5 MUST NOT run as a background subagent whose return value Main waits for — Claude Code skill runtime has no "await subagent" primitive, so that pattern would degrade to `last_save_session_note_doc_id=null` on every save (regressing Bug#3229 fix).
+4. **Main (sequential):** Step 4b — write `last_save_summary` + `last_save_session_note_doc_id` (from Step 5's return) to state.json (single deferred Write applying all 4a+4b mutations).
+5. **Parallel phase B (fire-and-forget):** Step 6 Peer Notify (Background Subagent) — no join required, errors logged not aborted.
+
+Reason: Subagents lack write permission for `.claude/` files. Step 4 is split (4a pre-Step5 in-memory mutations, 4b post-Step5 final Write) so that `last_save_session_note_doc_id` reliably uses Step 5's return value. Step 5 runs Main-context-synchronous because skill runtime cannot reliably wait for a background subagent's return. Degraded path (Step 5 MCP call fails at runtime): see Step 4b fallback — `last_save_session_note_doc_id=null`, `last_save_summary` written with local summary only.
 
 ## Init
 1. CLAUDE.md→`**Slug:**`=project slug. ∅slug→?user
@@ -46,7 +53,7 @@ Read+clean `.claude/settings.local.json`:
 - Add new features (+date). Update open items.
 - Active workflows: use active_workflows from mx_session_start(include_briefing=true), ∅separate mx_search needed
 - Use references to docs instead of copying content
-- ⚡ **Zombie Reference Check:** Extract all `#NNNN` doc IDs from "Next Steps"→`mx_batch_detail(doc_ids=[...])` (max 10 per call, chunk if >10 IDs)→check status. Archived/superseded→remove from "Next Steps". Output: `Zombie refs removed: #X, #Y (archived)`
+- ⚡ **Zombie Reference Check:** Extract all `#NNNN` doc IDs from "Next Steps"→`mx_batch_detail(doc_ids=[...])` (max 10 per call; if >10 IDs: iterate — call batch_detail(next 10), process, advance cursor until all IDs consumed)→check status. Archived/superseded→remove from "Next Steps". Output: `Zombie refs removed: #X, #Y (archived)`
 - If `!mcp_available` → skip zombie check (log: "Step 2 zombie check skipped — MCP unavailable"). Use the `mcp_available` flag set in Init step 2 — do not re-ping.
 
 ### 3) Update MCP Docs (MCP only)
@@ -95,23 +102,51 @@ Batch-dismiss all pending findings (not reviewed in session context):
 - if !mcp_available → skip
 
 ### 4) Orchestrate State Sync (HYBRID, Spec#1161)
-Read `.claude/orchestrate-state.json`. If present+not empty:
+Read `.claude/orchestrate-state.json`. ⚡ ∅file → skip entire Step 4 (no state to sync). Otherwise execute in TWO phases per Execution Mode; all 4a/4b mutations are buffered in-memory and the state.json Write happens ONCE at the end of 4b.
 
-- **Push unsynced:** WFs with `unsynced=true`→`mx_update_doc`→`unsynced=false`. Events with `synced=false`→session note→`synced=true`
-- **Snapshot (Spec#2152, Clear-Cycle pre-reset):** `last_save_deltas = state_deltas` — MUST be set BEFORE reset below. Single Source of Truth for this field.
-- **⚡ last_save_summary (Bug#3229 proper fix):** After Step 5 creates the session_note, write:
+⚡ **Crash-resilience (atomic-write reality):** Plain `Write` tool against state.json is NOT OS-atomic on Windows — a mid-write crash can truncate the file (loadState then treats it as empty per Init §3, losing `workflow_stack`). For resilience: Write to `.claude/orchestrate-state.json.tmp` first, then `Bash mv` (rename is atomic on most filesystems). If the Write tool cannot do temp-file-plus-rename, the risk is documented and accepted (mxSave at session-end is rarely interrupted).
+
+⚡ **Concurrent state_deltas race (accepted trade-off):** Between the in-memory Snapshot below and the deferred Write at 4b end, an external mxOrchestrate auto-invoke (same session, different tool-call) can increment `state_deltas` on disk. The deferred Write overwrites those concurrent increments with `state_deltas=0` (lost). Accepted because mxSave runs at session-end boundaries where concurrent writes are rare. Stronger mitigation (if needed): Read-Modify-Write pre-Write — re-read state.json immediately before Write, preserve `(on_disk_state_deltas - pre_snapshot_value)` as the new baseline after reset.
+
+#### 4a — Parallel with Step 3 (Main context, in-memory only)
+
+- **WF-guarded sub-checks** (skip BOTH bullets if `workflow_stack` is empty — doc-only sessions have no WFs to sync):
+  - **Push unsynced:** WFs with `unsynced=true` → `mx_update_doc` → flip in-memory `unsynced=false`. Events with `synced=false` → append to session note → flip in-memory `synced=true`.
+  - **⚡ Step-State Delta Check (Bug#3281):** For each WF in `workflow_stack` where `status='active'` AND `doc_id` is set. ⚡ Runs REGARDLESS of loop idempotency (Bug#3281 scenario produces no MCP activity — local-only step-flips are EXPECTED to coexist with `total_changes==0`):
+    - `mx_detail(wf.doc_id, max_content_tokens=0)` — ⚡ **unlimited** (0 = no truncation); full body is needed for rebuild, any truncation causes silent data loss on write-back
+    - ⚡ **MCP status guard (Bug#3281 race with Step 3):** if `data.status != 'active'` (Step 3 background may have archived this WF in the same tick) → skip, do NOT revive
+    - Count MCP done-steps: iterate step-table rows (authoritative template per mxOrchestrate WF Markdown: `| # | Step | Skill | Status | Result | Timestamp |`). Split each row by `|`, check the **Status column (4th content cell, 1-indexed, trimmed)** equals `done` case-insensitive. Do NOT grep `| done |` globally — the word "done" in Step/Skill/Result cells would false-positive the count.
+    - Compare `(local current_step - 1)` vs MCP done-count:
+      - `local-1 > MCP done-count` → local ahead, sync needed:
+        - Take `data.content` verbatim, rewrite only the Status cells: rows 1..(current_step-1) → `done`, remaining rows keep their existing status (usually `pending`). Preserve all appendices/metadata/headers/non-step-table sections verbatim.
+        - `mx_update_doc(doc_id, content=<full rewritten body>, change_reason='mxSave Step4: step-state rewrite sync', expected_updated_at=data.updated_at)` — ⚡ `rewrite` keyword bypasses Bug#3018 50%-length-gate; `expected_updated_at` prevents overwriting a concurrent Step 3 archive
+        - On error (optimistic-lock / destructive-write block / FOR-UPDATE contention) → log `WF #<id>: step-sync failed (<error>)`, continue to next WF, do NOT abort the whole Step 4. Counter `K` increments.
+      - `local-1 == MCP done-count` → skip (already in sync)
+      - `local-1 < MCP done-count` → ⚡ **MCP ahead of local** (local state.json stale, probably from another session/agent): emit warning `Step-sync: WF #<id> MCP ahead (MCP=<a>, local=<b>) — state.json may need reconciliation via mxOrchestrate resume`, do NOT write back. Counter `W` increments.
+    - Track in-memory counters for 4b Output aggregation: `N = WFs updated`, `K = failed`, `W = MCP-ahead warnings`.
+    - Emit inline summary: `Step-sync: <N> updated, <K> failed, <W> MCP-ahead warnings` (silent if all zeroes).
+    - ∅active WFs with doc_id → skip silently
+    - ⚡ **Token-budget caveat:** this check writes full WF bodies in MCP (not the state.json file) — budget ~1-2 MCP calls per active WF with doc_id. Typical: 2-5 WFs × 2 calls = 4-10 MCP calls added to Step 4.
+    - ⚡ **Intent-not-verified caveat (interaction with Rules §"confirmed-implemented as done"):** This sync marks rows `done` based on the local `current_step` counter as an **intent signal** — it does NOT independently re-verify the step's work was completed. Rationale: mxOrchestrate is the authoritative step-lifecycle owner for INTERACTIVE flows (Spec#1161 MCP-First Step-Update). Bug#3281 shows that subagents with direct state.json Write access can ALSO increment `current_step` WITHOUT going through that contract. mxSave trusts whatever wrote `current_step` (explicit trust in the writer, not in mxOrchestrate per se). A hostile or buggy subagent can cause unwarranted step-flips in MCP via this path — accepted risk at present. The Rules ban on "assumptions" is overridden here by the owning-skill-trust principle — see Rules §Exception.
+- **Snapshot (Spec#2152, Clear-Cycle pre-reset, UNCONDITIONAL):** `last_save_deltas = state_deltas` (in-memory) — MUST be set BEFORE reset below. Single Source of Truth for this field. ⚡ Runs even when `workflow_stack` is empty — Final Block consumes this regardless of stack depth.
+- **Finalize (UNCONDITIONAL):** `state_deltas` → 0, `last_save` → now, `last_reconciliation` → now (all in-memory). ⚡ Doc-only sessions REQUIRE this — otherwise `state_deltas` accumulates forever and Final Block emits the Active prompt on every subsequent save (regression of Spec#2152).
+- ⚡ Do NOT archive workflows in this step. Only sync+reset.
+
+#### 4b — After Step 5 returns (Main context, sequential)
+
+Step 5 runs in Main context synchronously (see Execution Mode Phase 3 + Step 5 header) so its returned doc_id is available here without any subagent-join primitive.
+
+- **⚡ last_save_summary (Bug#3229 proper fix):** Update the in-memory state object:
   - `state.last_save_summary` = 1-line narrative, **max 200 chars**, describing this save's main artefacts (new/updated specs/plans/ADRs, bug-fixes, commits, WF-step-flips). NO internal reasoning, NO timestamps (those are in `last_save`). Example: `"Spec#3194 v3 + ADR#3264 + Plan#3266 (33 tasks M1-M3); Bug#3229/3230/3239 fixed (commits d327b92+577dff3)"`.
-  - `state.last_save_session_note_doc_id` = doc_id of the session_note created in Step 5. Pointer for Resume/cross-session enrichment (Bug#3230 pairing).
+  - `state.last_save_session_note_doc_id` = doc_id returned by Step 5's `mx_create_doc`. Pointer for Resume/cross-session enrichment (Bug#3230 pairing). Always set when Step 5 succeeded.
   - Both fields are **required** (not optional). The statusline hook prefers them over events_log parsing for the `last:` display.
-  - If Step 5 failed (MCP down, subagent error) → write `last_save_summary` anyway with the local summary + set `last_save_session_note_doc_id = null` (signals "summary is real, but no MCP-archive link").
-- **Finalize:** `state_deltas`→0, `last_save`→now, `last_reconciliation`→now
-- ⚡ Do NOT archive workflows. Only sync+reset.
-- Write state file back
-- ⚡ Token discipline: use Edit for surgical field updates (e.g. `last_save_deltas` snapshot+reset + `last_save_summary` + `last_save_session_note_doc_id`), Write for full rewrites only. Per global rule "Edit surgical 1-5L, multi-line→Write".
-- ∅file or empty stack→skip
-- Output: `Orchestrate: <N> unsynced pushed, deltas reset, summary written`
+  - If Step 5's `mx_create_doc` failed (mcp_available=false, destructive-write block, network error) → still write `last_save_summary` with the local summary + set `last_save_session_note_doc_id = null` (signals "summary is real, but no MCP-archive link"). The degraded path is honest about the missing link instead of silently omitting the summary.
+- **Write state file back** — single deferred Write applying ALL 4a+4b in-memory mutations. This is the ONLY state.json write in Step 4. See crash-resilience note at top of Step 4.
+- ⚡ Token discipline: the combined write touches 5-7 fields (`last_save_deltas`, `state_deltas=0`, `last_save`, `last_reconciliation`, `last_save_summary`, `last_save_session_note_doc_id`, plus any flipped WF `unsynced`/event `synced` flags) — use Edit for surgical field updates, Write only for full rewrites. Per global rule "Edit surgical 1-5L, multi-line→Write".
+- Output (aggregated): `Orchestrate: <X> unsynced pushed, <N> step-syncs (<K> failed, <W> MCP-ahead), deltas reset, summary written[<archive-link-suffix>]`. Suffix rules: append `" (no archive link — Step 5 failed)"` ONLY if `last_save_session_note_doc_id==null` AND `mcp_available==true` at Init (distinguishes degraded from expected-null paths). If K>0: also append at end `⚠ root-cause K step-sync failures before next session`.
 
-### 5) Session Summary as MCP Note (MCP)
+### 5) Session Summary as MCP Note (MCP, Main-context synchronous)
+⚡ **Main-context synchronous** so the returned doc_id is available for Step 4b without any subagent-join primitive. Body construction (often 2-8k tokens per Archive-Fidelity Rule) MAY be offloaded to a background helper subagent that RETURNS the body string — then Main performs the `mx_create_doc` call itself and captures the doc_id. Do NOT run the MCP call from a background subagent; Main cannot reliably wait for its return.
 ```
 mx_create_doc(project, doc_type='session_note', title='Session Notes YYYY-MM-DD[-N]', content)
 ```
@@ -143,12 +178,12 @@ After all 6 steps complete, read `last_save_deltas` from `.claude/orchestrate-st
 
 **⚡ Skip criterion:** Skip the Final Block only if the state file is missing OR the relevant deltas field is unset. Mode-aware: in normal mode the relevant field is `last_save_deltas` (set in Step 4); in `--clear-cycle` mode the relevant field is `state_deltas` (the in-flight counter). A fresh state with `state_deltas > 0` but `last_save_deltas` unset MUST emit the threshold line in `--clear-cycle` mode — do NOT skip. Do NOT skip on empty workflow_stack alone — deltas can be meaningful from doc-only sessions (edits, notes, specs) that never touched a workflow.
 
-**Read `N = state.last_save_deltas` (default 0 if field missing for backwards-compat).**
+**Read `N = state.last_save_deltas` (default 0 per Init §3 loadState contract — applies to all legacy state files pre-Spec#2152).**
 
 Then, based on `N`:
 
 - **`N >= 15`**:
-  - **Loop-mode check**: if the skill is running in `--loop` mode, downgrade to the N≥10 tip line below (loop forbids interactive waits per L181). Do NOT emit the active prompt.
+  - **Loop-mode check**: if the skill is running in `--loop` mode, downgrade to the N≥10 tip line below (loop forbids interactive waits — see Loop Mode section `!Prompts, !interactive steps` rule). Do NOT emit the active prompt.
   - **Normal mode**: emit **Active prompt:**
     ```
     Session is large (<N> deltas persisted). /clear + new session + mx_briefing is now worthwhile.
@@ -184,12 +219,16 @@ Then, based on `N`:
 Sequence:
 1. Init (read state file only — no MCP roundtrip; use loadState contract: corrupt/missing → empty state with state_deltas=0)
 2. Skip Steps 1-6
-3. Compute `N` for the threshold: in `--clear-cycle` mode, `N = state.state_deltas` (default 0 if field missing — handles legacy state files pre-Spec#2152). Mirror the default-0 fallback used by Final Block on line 132. Current in-flight value, NOT the stale `last_save_deltas`. This override exists because Step 4 — which normally snapshots `state_deltas → last_save_deltas` — is skipped in this mode.
+3. Compute `N` for the threshold: in `--clear-cycle` mode, `N = state.state_deltas` (default 0 per Init §3 loadState contract — same rule as the Final Block). Current in-flight value, NOT the stale `last_save_deltas`. This override exists because Step 4 — which normally snapshots `state_deltas → last_save_deltas` — is skipped in this mode.
 4. Run Final Block threshold logic with `N` (4-stage: ≥15 active prompt / ≥10 tip / ≥1 marketing / ==0 silent)
 5. Exit (do NOT touch state_deltas, do NOT update CLAUDE.md or status.md)
 
 ## Loop Mode (--loop or /loop context)
-- **Idempotency:** check `mx_session_delta(project, session_id=<state.session_id>, limit=1)`→total_changes==0→single line `mxSave: No changes` + skip
+- **Idempotency:** check `mx_session_delta(project, session_id=<state.session_id>, limit=1)` → evaluate total_changes. ⚡ If `state.session_id` is null/missing → skip idempotency check, proceed with normal save. ⚡ **Step 4a always runs (NOT 4b):** regardless of total_changes, Step 4a executes in full (WF-guarded sub-checks if stack non-empty, plus unconditional Snapshot + Finalize). Rationale: Step 4a sub-checks detect local-only divergence that by definition produces NO MCP activity (unsynced=true events haven't been flushed; Bug#3281 subagent step-flips bypass MCP entirely). Skipping Step 4a on total_changes==0 would mask exactly the bugs these checks were designed to catch. Step 4b + Step 5 are skipped in the idempotent branch (no session-note needed when no session activity).
+- **Honesty-conditional output:** after Step 4a returns its counters, emit:
+  - `total_changes==0 AND N==0 AND K==0 AND W==0 AND ∅unsynced-push` → `mxSave: No changes`
+  - `total_changes==0 AND any(N,K,W,unsynced)>0` → `mxSave: No session-delta; local-sync: <X> unsynced pushed, <N> step-syncs (<K> failed, <W> MCP-ahead)` (never claim "No changes" when mxSave actually rewrote MCP docs)
+  - `total_changes>0` → normal save, compact output per below
 - Changes present→normal save, but compact output (1 line per step)
 - !settings.local.json cleanup in loop (only on manual invocation)
 - !Prompts, !interactive steps
@@ -198,6 +237,7 @@ Sequence:
 
 ## Rules
 - ⚡ Only record confirmed-implemented as "done" !assumptions
+  - ⚡ **Exception (Step 4a Step-State Delta Check):** mxSave's Bug#3281 sync propagates `current_step` from state.json to MCP as an **intent signal**, not a re-verified completion claim. Rationale: mxOrchestrate is the authoritative step-lifecycle writer for interactive flows; subagents with direct Write-tool access can also write `current_step` (Bug#3281 path). mxSave trusts the writer. See Step 4a "Intent-not-verified caveat" for the full rationale. Future refactors of Step 4a that add independent step-verification are welcome but not required.
 - ⚡ Session notes derived from chat, facts only !speculation. ∅info→"Open question"
 - !auto-create ADRs→suggest /mxDecision. !delete existing content→supplement/compact
 - Encoding: UTF-8 without BOM. Prefer MCP, local=fallback
