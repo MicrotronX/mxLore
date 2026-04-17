@@ -147,8 +147,21 @@ Step 5 runs in Main context synchronously (see Execution Mode Phase 3 + Step 5 h
 
 ### 5) Session Summary as MCP Note (MCP, Main-context synchronous)
 ⚡ **Main-context synchronous** so the returned doc_id is available for Step 4b without any subagent-join primitive. Body construction (often 2-8k tokens per Archive-Fidelity Rule) MAY be offloaded to a background helper subagent that RETURNS the body string — then Main performs the `mx_create_doc` call itself and captures the doc_id. Do NOT run the MCP call from a background subagent; Main cannot reliably wait for its return.
+
+⚡ **Body-Validation Gate — BEFORE mx_create_doc:**
+The subagent-returned body string MAY be empty/truncated/error-prose when the subagent crashes, hits its token cap, or returns a meta-reply instead of the template content. Persisting such a body produces a session_note whose `content=""` — the next session's resume has no archived context. Gate to prevent that:
+
+Validate the body string against BOTH criteria:
+1. **Length:** `len(body) >= 500` chars.
+2. **Structure:** contains at least 3 of the template section headers (`## What was done`, `## Changed files`, `## Commits`, `## Docs created this session`, `## Next step`).
+
+If either criterion fails: DO NOT pass the subagent body to `mx_create_doc`. Instead, Main builds a fallback body directly in the current context (no subagent) using the same template, reading from chat history / tool-call returns / git state. Then log once:
+`WARN: Step 5 body-subagent returned N chars (< threshold); fallback to local prose.`
+Invariant: the body passed to `mx_create_doc` is NEVER empty AND NEVER shorter than the local fallback — a degraded fallback beats a silent body-drop.
+
+⚡ **Status must be `active`:** Session-notes are finalised at save-time. Pass `status='active'` explicitly — leaving it at the server's `draft` default breaks resume-enrichment pairing in the next session.
 ```
-mx_create_doc(project, doc_type='session_note', title='Session Notes YYYY-MM-DD[-N]', content)
+mx_create_doc(project, doc_type='session_note', title='Session Notes YYYY-MM-DD[-N]', content, status='active')
 ```
 **Template (all sections required — omit only if truly ∅, do NOT paraphrase absence):**
 - `## What was done` — numbered per work stream

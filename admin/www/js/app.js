@@ -277,6 +277,7 @@ var App = (function () {
   // --- Developer Detail ---
   async function openDeveloper(id) {
     showPage('detail');
+    setActiveNav('developers');
     currentDeveloper = id;
     location.hash = 'developer/' + id;
 
@@ -485,7 +486,11 @@ var App = (function () {
       $('#new-key-permissions').value = 'readwrite';
       $('#new-key-expires').value = '';
       $('#key-reveal').classList.remove('visible');
-      $('#btn-generate-key').disabled = false;
+      var genBtn = $('#btn-generate-key');
+      if (genBtn) { genBtn.disabled = false; genBtn.style.display = ''; }
+      $('#new-key-name').disabled = false;
+      $('#new-key-permissions').disabled = false;
+      $('#new-key-expires').disabled = false;
       $('#new-key-name').focus();
     });
 
@@ -503,7 +508,12 @@ var App = (function () {
         // Show the key ONE TIME
         $('#key-reveal-value').textContent = data.key;
         $('#key-reveal').classList.add('visible');
-        $('#btn-generate-key').disabled = true;
+        // Hide Generate button completely + disable inputs to prevent double-submit
+        var genBtn = $('#btn-generate-key');
+        if (genBtn) { genBtn.disabled = true; genBtn.style.display = 'none'; }
+        $('#new-key-name').disabled = true;
+        $('#new-key-permissions').disabled = true;
+        $('#new-key-expires').disabled = true;
         loadKeys(currentDeveloper);
       } catch (err) {
         showAlert('detail-alert', 'error', 'Key creation failed: ' + err.message);
@@ -572,12 +582,14 @@ var App = (function () {
 
       container.innerHTML = allProjects.map(function (p) {
         var level = accessMap[p.id] || '';
+        // 4-Level ACL per ADR#3264 (none/comment/read/read-write)
         return '<div class="access-row" data-project-id="' + p.id + '">' +
           '<div class="access-row__project">' + escHtml(p.name) + '<span class="slug">' + escHtml(p.slug) + '</span></div>' +
           '<select class="form-input access-select" data-project-id="' + p.id + '">' +
-            '<option value=""' + (level === '' ? ' selected' : '') + '>Kein Zugriff</option>' +
-            '<option value="read"' + (level === 'read' ? ' selected' : '') + '>Read</option>' +
-            '<option value="write"' + (level === 'write' ? ' selected' : '') + '>Read/Write</option>' +
+            '<option value=""'           + (level === ''           ? ' selected' : '') + '>Kein Zugriff</option>' +
+            '<option value="comment"'    + (level === 'comment'    ? ' selected' : '') + '>Comment</option>' +
+            '<option value="read"'       + (level === 'read'       ? ' selected' : '') + '>Read</option>' +
+            '<option value="read-write"' + (level === 'read-write' ? ' selected' : '') + '>Read/Write</option>' +
           '</select>' +
         '</div>';
       }).join('');
@@ -614,15 +626,19 @@ var App = (function () {
     });
   }
 
+  // Set navbar active-state without loading a page (for detail views)
+  function setActiveNav(navKey) {
+    $$('.nav-link').forEach(function (btn) {
+      if (btn.dataset.nav === navKey) btn.classList.add('active');
+      else btn.classList.remove('active');
+    });
+  }
+
   // --- Navigation ---
   function navigateTo(page) {
     currentPage = page;
     location.hash = page;
-    // Update nav-link active states
-    $$('.nav-link').forEach(function (btn) {
-      if (btn.dataset.nav === page) btn.classList.add('active');
-      else btn.classList.remove('active');
-    });
+    setActiveNav(page);
 
     if (page === 'developers') {
       loadDeveloperList();
@@ -900,7 +916,16 @@ var App = (function () {
   function formatRelativeTime(iso) {
     if (!iso) return '—';
     var t;
-    try { t = new Date(iso).getTime(); } catch (e) { return iso; }
+    try {
+      // Support German DD.MM.YYYY HH:MM format (same parser as formatDate)
+      var parts = typeof iso === 'string'
+        ? iso.match(/(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})/) : null;
+      if (parts) {
+        t = new Date(parts[3], parts[2] - 1, parts[1], parts[4], parts[5]).getTime();
+      } else {
+        t = new Date(iso).getTime();
+      }
+    } catch (e) { return iso; }
     if (isNaN(t)) return iso;
     var diff = Date.now() - t;
     var past = diff >= 0;
@@ -1338,7 +1363,12 @@ var App = (function () {
   // --- Project Detail ---
   async function openProject(id) {
     currentProjectId = id;
-    location.hash = 'project/' + id;
+    // Only overwrite hash if it doesn't already target this project
+    // (preserves `project/N/tab` during F5 refresh)
+    var curHash = location.hash.replace('#', '');
+    if (curHash.indexOf('project/' + id) !== 0) {
+      location.hash = 'project/' + id;
+    }
 
     // Try cache first, then reload from server
     var proj = projectCache.find(function (p) { return p.id === id; });
@@ -1352,6 +1382,10 @@ var App = (function () {
     if (!proj) { navigateTo('projects'); return; }
 
     showPage('project-detail');
+    setActiveNav('projects');
+
+    // Phase B: reset to default tab on fresh open (restore path overrides later)
+    switchProjectTab('team', true);
 
     // Fill data
     $('#proj-detail-title').textContent = proj.name;
@@ -1860,17 +1894,24 @@ var App = (function () {
 
   function formatRelativeTime(dateStr) {
     if (!dateStr) return '';
-    var d = new Date(dateStr);
-    if (isNaN(d.getTime())) {
-      var parts = dateStr.match(/(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})/);
-      if (parts) d = new Date(parts[3], parts[2] - 1, parts[1], parts[4], parts[5]);
+    var d;
+    // Try German DD.MM.YYYY HH:MM FIRST — Chrome silently misparses it as
+    // US MM.DD.YYYY and returns a future date, producing "gerade eben" for
+    // everything. Fallback to native parser ONLY if regex doesn't match.
+    var parts = typeof dateStr === 'string'
+      ? dateStr.match(/(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})/) : null;
+    if (parts) {
+      d = new Date(parts[3], parts[2] - 1, parts[1], parts[4], parts[5]);
+    } else {
+      d = new Date(dateStr);
     }
     if (isNaN(d.getTime())) return dateStr;
-    var diff = Math.floor((Date.now() - d.getTime()) / 1000);
-    if (diff < 60) return 'gerade eben';
-    if (diff < 3600) return Math.floor(diff / 60) + ' Min';
-    if (diff < 86400) return Math.floor(diff / 3600) + ' Std';
-    return Math.floor(diff / 86400) + ' Tage';
+    var diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
+    if (diffSec < 0)       return 'in der Zukunft';
+    if (diffSec < 60)      return 'gerade eben';
+    if (diffSec < 3600)    return Math.floor(diffSec / 60)    + ' Min';
+    if (diffSec < 86400)   return Math.floor(diffSec / 3600)  + ' Std';
+    return Math.floor(diffSec / 86400) + ' Tage';
   }
 
   // ---- Card 5: Recall Metriken ----
@@ -2593,16 +2634,13 @@ var App = (function () {
   //   PROJECT DASHBOARD
   // ============================================================
   async function loadProjectDashboard(projId, proj) {
-    var dtBody = $('#pd-doctypes-body');
-    var actBody = $('#pd-activity-body');
+    var chipsBox = $('#pd-doctypes-chips');
     var devBody = $('#pd-devs-body');
     var relBody = $('#pd-relations-body');
     var creatorSel = $('#proj-detail-creator');
-    if (!dtBody) return;
+    if (!devBody) return;
 
-    dtBody.innerHTML = '<tr><td colspan="2" style="text-align:center;padding:8px"><span class="spinner"></span></td></tr>';
-    actBody.innerHTML = '<div style="padding:8px"><span class="spinner"></span></div>';
-    devBody.innerHTML = '<tr><td colspan="2" style="text-align:center;padding:8px"><span class="spinner"></span></td></tr>';
+    devBody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:8px"><span class="spinner"></span></td></tr>';
 
     try {
       var results = await Promise.all([
@@ -2612,52 +2650,121 @@ var App = (function () {
       var dash = results[0];
       var allDevs = (results[1].developers || []).filter(function (d) { return d.is_active; });
       var docTypes = dash.doc_types || {};
-      var changes = dash.recent_changes || [];
       var devs = dash.developers || [];
 
-      // Doc types
-      var typeKeys = Object.keys(docTypes).sort(function (a, b) { return docTypes[b] - docTypes[a]; });
-      if (typeKeys.length === 0) {
-        dtBody.innerHTML = '<tr><td colspan="2"><div class="empty-state">No documents</div></td></tr>';
-      } else {
-        dtBody.innerHTML = typeKeys.map(function (t) {
-          var label = docTypeLabels[t] || t;
-          return '<tr><td><span class="badge badge--small">' + escHtml(label) + '</span></td>' +
-            '<td class="cell-stat">' + docTypes[t] + '</td></tr>';
-        }).join('');
+      // Doc-type chips (FR#3353 Phase C — compact summary, click filters doc list)
+      if (chipsBox) {
+        var typeKeys = Object.keys(docTypes).sort(function (a, b) { return docTypes[b] - docTypes[a]; });
+        if (typeKeys.length === 0) {
+          chipsBox.innerHTML = '<span class="pd-doctypes-chips__empty">No documents</span>';
+        } else {
+          chipsBox.innerHTML =
+            '<span class="pd-doctypes-chip" data-type="" onclick="App.filterDocsByType(\'\')">' +
+              '<span>all</span>' +
+              '<span class="pd-doctypes-chip__count">' +
+                typeKeys.reduce(function (a, k) { return a + docTypes[k]; }, 0) +
+              '</span>' +
+            '</span>' +
+            typeKeys.map(function (t) {
+              var label = docTypeLabels[t] || t;
+              return '<span class="pd-doctypes-chip" data-type="' + escJsStr(t) +
+                '" onclick="App.filterDocsByType(\'' + escJsStr(t) + '\')">' +
+                '<span>' + escHtml(label) + '</span>' +
+                '<span class="pd-doctypes-chip__count">' + docTypes[t] + '</span>' +
+                '</span>';
+            }).join('');
+        }
       }
 
-      // Recent changes
-      if (changes.length === 0) {
-        actBody.innerHTML = '<div class="empty-state">No changes</div>';
-      } else {
-        actBody.innerHTML = changes.map(function (c) {
-          var typeLabel = docTypeLabels[c.doc_type] || c.doc_type;
-          var ago = formatRelativeTime(c.changed_at);
-          return '<div class="activity-item">' +
-            '<span class="badge badge--small">' + escHtml(typeLabel) + '</span> ' +
-            '<span class="activity-title">' + escHtml(c.title) + '</span>' +
-            '<span class="activity-meta">' + escHtml(c.changed_by || 'mcp') + ' · ' + ago + '</span>' +
-          '</div>';
-        }).join('');
-      }
-
-      // Developers
+      // Developers — enriched status dashboard (FR#3353 Phase A)
       if (devs.length === 0) {
-        devBody.innerHTML = '<tr><td colspan="2"><div class="empty-state">No assignments</div></td></tr>';
+        devBody.innerHTML = '<tr><td colspan="5"><div class="empty-state">No assignments</div></td></tr>';
       } else {
+        var aclMap = {
+          'none':       { cls: 'badge--acl-none',    label: 'none' },
+          'comment':    { cls: 'badge--acl-comment', label: 'comment' },
+          'read':       { cls: 'badge--acl-read',    label: 'read' },
+          'read-write': { cls: 'badge--acl-rw',      label: 'read-write' }
+        };
         devBody.innerHTML = devs.map(function (d) {
-          var lvlClass = d.access_level === 'write' ? 'badge--write' : 'badge--read';
-          return '<tr><td>' + escHtml(d.name) + '</td>' +
-            '<td><span class="badge ' + lvlClass + '">' + escHtml(d.access_level) + '</span></td></tr>';
+          var aclRaw = String(d.access_level || 'none').toLowerCase();
+          var acl = aclMap[aclRaw] || { cls: 'badge--acl-none', label: aclRaw };
+
+          var uiOn = d.ui_login_enabled !== false;
+          var uiHtml = '<span class="stat-icon ' + (uiOn ? 'stat-icon--on' : 'stat-icon--off') +
+            '" title="' + escJsStr(uiOn ? 'UI login enabled' : 'UI login disabled') +
+            '"><i data-lucide="' + (uiOn ? 'log-in' : 'log-out') + '" class="icon-xs"></i></span>';
+
+          var msgsOn = d.accept_agent_messages !== false;
+          var msgHtml = '<span class="stat-icon ' + (msgsOn ? 'stat-icon--on' : 'stat-icon--off') +
+            '" title="' + escJsStr(msgsOn ? 'Accepts agent messages' : 'Opt-out of agent messages') +
+            '"><i data-lucide="' + (msgsOn ? 'mail' : 'ban') + '" class="icon-xs"></i></span>';
+
+          var active = d.active_keys || 0;
+          var revoked = d.revoked_keys || 0;
+          var keyHtml;
+          if (active === 0) {
+            keyHtml = '<span class="key-status key-status--empty" title="no active keys">&mdash;</span>';
+          } else {
+            var expiryHtml = '';
+            if (d.next_expiry) {
+              var then = new Date(d.next_expiry).getTime();
+              if (!isNaN(then)) {
+                var days = Math.round((then - Date.now()) / 86400000);
+                var expCls = 'key-exp';
+                var label = days + 'd';
+                if (days < 0) { expCls += ' key-exp--expired'; label = 'expired'; }
+                else if (days < 14) { expCls += ' key-exp--urgent'; }
+                else if (days < 30) { expCls += ' key-exp--warn'; }
+                expiryHtml = '<span class="' + expCls + '" title="' +
+                  escJsStr('next expiry: ' + d.next_expiry) + '">' + escHtml(label) + '</span>';
+              }
+            }
+            var revHtml = '';
+            if (revoked > 0) {
+              revHtml = '<span class="key-revoked" title="' +
+                escJsStr(revoked + ' revoked key(s)') + '">&middot; ' + revoked + ' rev</span>';
+            }
+            keyHtml = '<span class="key-status">' +
+              '<span class="key-count" title="' + escJsStr(active + ' active key(s)') + '">' +
+              active + '</span>' + expiryHtml + revHtml + '</span>';
+          }
+
+          // Inline-edit ACL select (Gap#2)
+          var aclOpts = [
+            { v: 'none',       l: 'none' },
+            { v: 'comment',    l: 'comment' },
+            { v: 'read',       l: 'read' },
+            { v: 'read-write', l: 'read-write' }
+          ];
+          var selOptions = aclOpts.map(function (o) {
+            return '<option value="' + o.v + '"' +
+              (o.v === aclRaw ? ' selected' : '') + '>' + o.l + '</option>';
+          }).join('');
+          var aclVariant = acl.cls.replace('badge--acl-', '');
+          var aclCell = '<select class="acl-select acl-select--' + aclVariant + '" ' +
+            'data-dev-id="' + d.id + '" ' +
+            'onchange="App.onAclChange(' + d.id + ', this)">' +
+            selOptions + '</select>';
+
+          // Name is clickable → Developer-Detail (Key-Revoke/Rotate UI lives there)
+          var nameCell = '<a href="#developer/' + d.id + '/keys" class="link" ' +
+            'onclick="event.stopPropagation(); App.openDeveloper(' + d.id + ');return false" ' +
+            'title="Manage keys + revoke">' + escHtml(d.name) + '</a>';
+          return '<tr>' +
+            '<td class="col-name">' + nameCell + '</td>' +
+            '<td class="col-acl">' + aclCell + '</td>' +
+            '<td class="col-icon">' + uiHtml + '</td>' +
+            '<td class="col-icon">' + msgHtml + '</td>' +
+            '<td class="col-keys">' + keyHtml + '</td></tr>';
         }).join('');
       }
 
-      // Related projects
+      // Related projects (with delete button column)
       var rels = dash.related_projects || [];
       if (relBody) {
         if (rels.length === 0) {
-          relBody.innerHTML = '<tr><td colspan="3"><div class="empty-state">No relations</div></td></tr>';
+          relBody.innerHTML = '<tr><td colspan="4"><div class="empty-state">No relations</div></td></tr>';
         } else {
           var relLabels = { depends_on: 'abhaengig von', related_to: 'verwandt', extends: 'erweitert' };
           var dirLabels = { outgoing: 'ausgehend', incoming: 'eingehend' };
@@ -2665,11 +2772,17 @@ var App = (function () {
             var relLabel = relLabels[r.relation_type] || r.relation_type;
             var dirLabel = dirLabels[r.direction] || r.direction;
             var dirClass = r.direction === 'incoming' ? 'badge--read' : 'badge--write';
-            return '<tr><td><a href="#project/' + r.id + '/overview" class="link">' +
-              escHtml(r.name || r.slug) + '</a></td>' +
+            var delBtn = r.rel_id ?
+              '<button class="rel-delete-btn" onclick="App.confirmDeleteProjectRelation(' + r.rel_id + ', \'' + escJsStr(r.name || r.slug) + '\')" title="Remove relation">' +
+              '<i data-lucide="x"></i></button>' : '';
+            return '<tr>' +
+              '<td><a href="#project/' + r.id + '" class="link">' +
+                escHtml(r.name || r.slug) + '</a></td>' +
               '<td><span class="badge badge--small">' + escHtml(relLabel) + '</span></td>' +
-              '<td><span class="badge badge--small ' + dirClass + '">' + escHtml(dirLabel) + '</span></td></tr>';
+              '<td><span class="badge badge--small ' + dirClass + '">' + escHtml(dirLabel) + '</span></td>' +
+              '<td style="text-align:right">' + delBtn + '</td></tr>';
           }).join('');
+          Icons.render();
         }
       }
 
@@ -2687,6 +2800,494 @@ var App = (function () {
       Icons.render();
     } catch (err) {
       dtBody.innerHTML = '<tr><td colspan="2"><div class="empty-state">Error</div></td></tr>';
+    }
+  }
+
+  // FR#3353 Phase B — project-detail tab switching + hash persistence
+  function switchProjectTab(tabName, skipHashUpdate) {
+    var valid = ['team', 'docs', 'relations'];
+    if (valid.indexOf(tabName) < 0) tabName = 'team';
+    $$('.pd-tab').forEach(function (btn) {
+      var on = btn.dataset.tab === tabName;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+      btn.setAttribute('tabindex', on ? '0' : '-1');
+    });
+    $$('.pd-tab-panel').forEach(function (panel) {
+      var on = panel.dataset.panel === tabName;
+      panel.classList.toggle('is-active', on);
+      if (on) panel.removeAttribute('hidden');
+      else panel.setAttribute('hidden', '');
+    });
+    if (!skipHashUpdate && currentProjectId) {
+      location.hash = 'project/' + currentProjectId + '/' + tabName;
+    }
+    Icons.render();
+    // Lazy load docs list when switching to docs tab
+    if (tabName === 'docs') loadDocsList();
+  }
+
+  // FR#3353 Phase C — doc list in docs tab
+  var _docsFilterTimer = null;
+  function onDocsFilterInput() {
+    if (_docsFilterTimer) clearTimeout(_docsFilterTimer);
+    _docsFilterTimer = setTimeout(loadDocsList, 300);
+  }
+  function filterDocsByType(type) {
+    var typeSel = $('#pd-docs-type');
+    if (typeSel) typeSel.value = type || '';
+    // Chip active-state
+    $$('.pd-doctypes-chip').forEach(function (c) {
+      c.classList.toggle('is-active', (c.dataset.type || '') === (type || ''));
+    });
+    loadDocsList();
+  }
+  async function loadDocsList() {
+    if (!currentProjectId) return;
+    var body  = $('#pd-docs-body');
+    var cntEl = $('#pd-docs-count');
+    if (!body) return;
+    var opts = {
+      type:   ($('#pd-docs-type')   || {}).value || '',
+      status: ($('#pd-docs-status') || {}).value || '',
+      q:      ($('#pd-docs-q')      || {}).value || '',
+      limit:  200
+    };
+    body.innerHTML = '<tr><td colspan="5"><div class="empty-state"><span class="spinner"></span></div></td></tr>';
+    try {
+      var res  = await Api.listProjectDocs(currentProjectId, opts);
+      var docs = res.documents || [];
+      if (cntEl) cntEl.textContent = docs.length + ' doc' + (docs.length === 1 ? '' : 's');
+      if (docs.length === 0) {
+        body.innerHTML = '<tr><td colspan="5"><div class="empty-state">No documents match filter</div></td></tr>';
+        return;
+      }
+      body.innerHTML = docs.map(function (d) {
+        var typeCls = 'doc-cell-type doc-cell-type--' + d.doc_type;
+        var updated = d.updated_at ? formatRelativeTime(d.updated_at) : '&mdash;';
+        var summary = d.summary_l1 ? '<span class="doc-summary">' + escHtml(d.summary_l1) + '</span>' : '';
+        var statusBadge = d.status ?
+          '<span class="badge badge--small">' + escHtml(d.status) + '</span>' : '';
+        var authorText = d.author_name || d.created_by || 'mcp';
+        var updatedAbs = d.updated_at ? formatDate(d.updated_at) : '';
+        var createdAbs = d.created_at ? formatDate(d.created_at) : '';
+        var dateCell =
+          '<div class="doc-date-rel">' + updated + '</div>' +
+          (updatedAbs ? '<div class="doc-date-abs">' + escHtml(updatedAbs) + '</div>' : '') +
+          (createdAbs && createdAbs !== updatedAbs ?
+            '<div class="doc-date-created" title="created">+ ' + escHtml(createdAbs) + '</div>' : '');
+        var actions =
+          '<span class="doc-list-actions">' +
+            '<button class="doc-action-btn doc-action-btn--small" onclick="event.stopPropagation(); App.openDoc(' + d.id + ')" title="View">' +
+              '<i data-lucide="eye"></i></button>' +
+            '<button class="doc-action-btn doc-action-btn--small doc-action-btn--danger" onclick="event.stopPropagation(); App.confirmDeleteDocFromList(' + d.id + ', \'' + escJsStr(d.title || '') + '\')" title="Delete">' +
+              '<i data-lucide="trash-2"></i></button>' +
+          '</span>';
+        var isDel = String(d.status || '').trim().toLowerCase() === 'deleted';
+        var rowCls = isDel ? 'doc-row--deleted' : '';
+        return '<tr class="' + rowCls + '" data-status="' + escJsStr(d.status || '') + '" onclick="App.openDoc(' + d.id + ')">' +
+          '<td class="doc-cell-title"><span class="doc-cell-id">#' + d.id + '</span> ' + escHtml(d.title || '(untitled)') + summary + '</td>' +
+          '<td><span class="' + typeCls + '">' + escHtml(d.doc_type) + '</span></td>' +
+          '<td>' + statusBadge + '</td>' +
+          '<td class="doc-cell-by">' + escHtml(authorText) + '</td>' +
+          '<td class="doc-cell-date" title="' + escJsStr(d.updated_at || '') + '">' + dateCell + '</td>' +
+          '<td class="doc-cell-actions">' + actions + '</td></tr>';
+      }).join('');
+      Icons.render();
+    } catch (err) {
+      body.innerHTML = '<tr><td colspan="6"><div class="empty-state">Error loading documents</div></td></tr>';
+    }
+  }
+
+  // FR#3353 Phase C — Doc-detail page (view-only)
+  var _prevHashBeforeDoc = null;
+  var _docProjectId = null;   // fallback when user refreshes directly on #doc/N
+  async function openDoc(docId) {
+    if (!docId) return;
+    var curHash = location.hash.replace('#', '') || '';
+    // Only capture "before-doc" hash when coming from a non-doc page —
+    // doc→doc navigation (relation click) must preserve the ORIGINAL origin
+    if (curHash.indexOf('doc/') !== 0) {
+      _prevHashBeforeDoc = curHash;
+    }
+    location.hash = 'doc/' + docId;
+    showPage('doc-detail');
+    $('#doc-detail-title').textContent = 'Loading…';
+    $('#doc-detail-type').textContent  = 'doc';
+    $('#doc-detail-id').textContent    = '#' + docId;
+    $('#doc-detail-content').textContent = '';
+    $('#doc-detail-summary').textContent = '';
+    $('#doc-detail-tags').innerHTML = '';
+    $('#doc-detail-relations-card').setAttribute('hidden', '');
+    try {
+      var d = await Api.getDoc(docId);
+      _docProjectId = d.project_id || null;
+      renderDocDetail(d);
+    } catch (err) {
+      showAlert('doc-detail-alert', 'error',
+        'Failed to load doc: ' + (err && err.message ? err.message : 'unknown'));
+      $('#doc-detail-title').textContent = 'Error';
+    }
+  }
+
+  function renderDocDetail(d) {
+    $('#doc-detail-title').textContent = d.title || '(untitled)';
+    // Type badge with type-color class (reuse doc-cell-type palette)
+    var typeEl = $('#doc-detail-type');
+    typeEl.textContent = d.doc_type || 'doc';
+    typeEl.className = 'doc-type-badge doc-cell-type doc-cell-type--' + (d.doc_type || 'note');
+    $('#doc-detail-id').textContent    = '#' + d.id;
+    var badge = $('#doc-detail-status');
+    var statusCls = d.status === 'active' ? 'active'
+                  : d.status === 'archived' ? 'inactive'
+                  : d.status === 'draft' ? 'read' : 'write';
+    badge.className = 'badge badge--' + statusCls;
+    badge.textContent = d.status || '—';
+    var projLink = $('#doc-detail-project');
+    projLink.textContent = d.project_name || d.project_slug || '—';
+    projLink.onclick = function (e) {
+      e.preventDefault();
+      if (d.project_id) openProject(d.project_id);
+    };
+    $('#doc-detail-author').textContent  = d.author_name || d.created_by || 'mcp';
+    var createdEl = $('#doc-detail-created');
+    if (createdEl) {
+      createdEl.textContent = d.created_at ? formatRelativeTime(d.created_at) : '—';
+      createdEl.title = d.created_at || '';
+    }
+    $('#doc-detail-updated').textContent = d.updated_at ? formatRelativeTime(d.updated_at) : '—';
+    $('#doc-detail-updated').title       = d.updated_at || '';
+    $('#doc-detail-tokens').textContent  = (d.token_estimate || 0) + ' tokens';
+    // Confidence (only show if > 0)
+    var confWrap = $('#doc-detail-conf-wrap');
+    if (confWrap) {
+      if (d.confidence && d.confidence > 0) {
+        confWrap.removeAttribute('hidden');
+        $('#doc-detail-conf').textContent = (d.confidence * 100).toFixed(0) + '%';
+      } else {
+        confWrap.setAttribute('hidden', '');
+      }
+    }
+    // Tags — now inline in header top-line
+    var tagBox = $('#doc-detail-tags');
+    if (d.tags && d.tags.length) {
+      tagBox.innerHTML = d.tags.map(function (t) {
+        return '<span class="doc-detail__tag">' + escHtml(t) + '</span>';
+      }).join('');
+    } else {
+      tagBox.innerHTML = '';
+    }
+    // Summary
+    $('#doc-detail-summary').textContent = d.summary_l1 || '';
+    // Content — plain pre/text for now (markdown rendering = later)
+    $('#doc-detail-content').textContent = d.content || '(no content)';
+    // Relations (with delete button column)
+    var relCard = $('#doc-detail-relations-card');
+    var relBody = $('#doc-detail-relations-body');
+    if (d.relations && d.relations.length) {
+      relCard.removeAttribute('hidden');
+      relBody.innerHTML = d.relations.map(function (r) {
+        var dirCls = r.direction === 'outbound' ? 'badge--write' : 'badge--read';
+        return '<tr onclick="App.openDoc(' + r.target_id + ')" style="cursor:pointer">' +
+          '<td><span class="badge badge--small ' + dirCls + '">' + escHtml(r.direction) + '</span></td>' +
+          '<td><span class="badge badge--small">' + escHtml(r.relation_type) + '</span></td>' +
+          '<td>' + escHtml(r.target_title) +
+            ' <span class="text-secondary" style="font-size:0.8rem">(' +
+              escHtml(r.target_type) + ' #' + r.target_id + ')</span></td>' +
+          '<td style="text-align:right">' +
+            (r.rel_id ?
+              '<button class="rel-delete-btn" onclick="event.stopPropagation(); App.confirmDeleteRelation(' + r.rel_id + ', \'' + escJsStr(r.target_title) + '\', ' + d.id + ')" title="Delete relation">' +
+                '<i data-lucide="x"></i></button>'
+              : '') +
+          '</td></tr>';
+      }).join('');
+    } else {
+      relCard.setAttribute('hidden', '');
+    }
+    // Show Restore button + hide Delete button when viewing a deleted doc
+    var isDeleted = d.status === 'deleted';
+    var delBtn = $('#doc-detail-delete-btn');
+    var restBtn = $('#doc-detail-restore-btn');
+    var editBtn = $('#doc-detail-edit-btn');
+    if (delBtn)  delBtn.style.display  = isDeleted ? 'none' : '';
+    if (restBtn) restBtn.style.display = isDeleted ? '' : 'none';
+    if (editBtn) editBtn.style.display = isDeleted ? 'none' : '';
+    // Visual "deleted" cue on whole page
+    var page = $('#page-doc-detail');
+    if (page) page.classList.toggle('is-doc-deleted', isDeleted);
+    // Store for edit-mode reuse
+    _currentDoc = d;
+    Icons.render();
+  }
+
+  async function confirmDeleteProjectRelation(relId, projName) {
+    if (!window.confirm('Remove project relation to "' + projName + '"?')) return;
+    try {
+      await Api.deleteProjectRelation(relId);
+      var proj = projectCache.find(function (p) { return p.id === currentProjectId; });
+      if (proj) loadProjectDashboard(currentProjectId, proj);
+    } catch (err) {
+      alert('Failed: ' + (err && err.message ? err.message : 'unknown'));
+    }
+  }
+
+  async function confirmRestoreDoc() {
+    if (!_currentDoc) return;
+    if (!window.confirm('Restore "' + (_currentDoc.title || _currentDoc.id) +
+      '"?\n\nSets status=active again.')) return;
+    try {
+      await Api.updateDocAdmin(_currentDoc.id, {
+        status: 'active',
+        change_reason: 'Restored via Admin-UI'
+      });
+      showAlert('doc-detail-alert', 'success', 'Document restored.');
+      var fresh = await Api.getDoc(_currentDoc.id);
+      renderDocDetail(fresh);
+    } catch (err) {
+      showAlert('doc-detail-alert', 'error',
+        'Restore failed: ' + (err && err.message ? err.message : 'unknown'));
+    }
+  }
+
+  // FR#3353 Phase C — doc edit / delete / relation-delete handlers
+  var _currentDoc = null;
+
+  function toggleDocEdit(on) {
+    var pre    = $('#doc-detail-content');
+    var ta     = $('#doc-detail-edit-area');
+    var reason = $('#doc-detail-edit-reason');
+    var editBtn   = $('#doc-detail-edit-btn');
+    var cancelBtn = $('#doc-detail-cancel-btn');
+    var saveBtn   = $('#doc-detail-save-btn');
+    var delBtn    = $('#doc-detail-delete-btn');
+    if (on) {
+      ta.value = _currentDoc ? (_currentDoc.content || '') : '';
+      $('#doc-detail-reason-input').value = '';
+      pre.setAttribute('hidden', '');
+      ta.removeAttribute('hidden');
+      reason.removeAttribute('hidden');
+      editBtn.setAttribute('hidden', '');
+      delBtn.setAttribute('hidden', '');
+      cancelBtn.removeAttribute('hidden');
+      saveBtn.removeAttribute('hidden');
+      ta.focus();
+    } else {
+      ta.setAttribute('hidden', '');
+      reason.setAttribute('hidden', '');
+      pre.removeAttribute('hidden');
+      cancelBtn.setAttribute('hidden', '');
+      saveBtn.setAttribute('hidden', '');
+      editBtn.removeAttribute('hidden');
+      delBtn.removeAttribute('hidden');
+    }
+  }
+
+  async function saveDocEdit() {
+    if (!_currentDoc) return;
+    var newContent = $('#doc-detail-edit-area').value;
+    var reason = $('#doc-detail-reason-input').value || 'Admin-UI content edit';
+    if (newContent === _currentDoc.content) {
+      showAlert('doc-detail-alert', 'info', 'No changes.');
+      toggleDocEdit(false);
+      return;
+    }
+    var saveBtn = $('#doc-detail-save-btn');
+    saveBtn.disabled = true;
+    try {
+      await Api.updateDocAdmin(_currentDoc.id, {
+        content: newContent,
+        change_reason: reason
+      });
+      showAlert('doc-detail-alert', 'success', 'Saved.');
+      toggleDocEdit(false);
+      // Reload doc detail
+      var fresh = await Api.getDoc(_currentDoc.id);
+      renderDocDetail(fresh);
+    } catch (err) {
+      var msg = err && err.message ? err.message : 'unknown';
+      showAlert('doc-detail-alert', 'error',
+        err && err.code === 'notes_require_mx_update_note'
+          ? 'Notes must be edited via mx_update_note (M2.5 edit-window).'
+          : 'Save failed: ' + msg);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  }
+
+  async function confirmDeleteDoc() {
+    if (!_currentDoc) return;
+    if (!window.confirm(
+      'Delete document "' + (_currentDoc.title || _currentDoc.id) +
+      '"?\n\nThis soft-deletes (status=deleted). Revisions are kept.'))
+      return;
+    try {
+      await Api.deleteDoc(_currentDoc.id);
+      showAlert('doc-detail-alert', 'success', 'Document deleted.');
+      backFromDoc();
+    } catch (err) {
+      showAlert('doc-detail-alert', 'error',
+        'Delete failed: ' + (err && err.message ? err.message : 'unknown'));
+    }
+  }
+
+  async function confirmDeleteDocFromList(docId, docTitle) {
+    if (!window.confirm('Delete "' + docTitle + '"?\n\nSoft-delete. Revisions kept.'))
+      return;
+    try {
+      await Api.deleteDoc(docId);
+      loadDocsList();
+    } catch (err) {
+      alert('Delete failed: ' + (err && err.message ? err.message : 'unknown'));
+    }
+  }
+
+  async function confirmDeleteRelation(relId, targetTitle, docId) {
+    if (!window.confirm('Remove relation to "' + targetTitle + '"?')) return;
+    try {
+      await Api.deleteRelation(relId);
+      // Reload current doc to refresh relations table
+      var fresh = await Api.getDoc(docId);
+      renderDocDetail(fresh);
+      showAlert('doc-detail-alert', 'success', 'Relation removed.');
+    } catch (err) {
+      showAlert('doc-detail-alert', 'error',
+        'Failed: ' + (err && err.message ? err.message : 'unknown'));
+    }
+  }
+
+  function backFromDoc() {
+    var prev = _prevHashBeforeDoc;
+    _prevHashBeforeDoc = null;
+    // 1) Preferred: return to the project/tab we came from
+    if (prev && prev.indexOf('project/') === 0) {
+      var parts = prev.split('/');
+      var pid = parseInt(parts[1], 10);
+      var tab = parts[2] || 'docs';
+      if (pid) {
+        openProject(pid).then(function () { switchProjectTab(tab, true); });
+        return;
+      }
+    }
+    // 2) Fallback: use the doc's own project (covers direct-link refresh)
+    if (_docProjectId) {
+      var pid2 = _docProjectId;
+      _docProjectId = null;
+      openProject(pid2).then(function () { switchProjectTab('docs', true); });
+      return;
+    }
+    // 3) Last resort: project list
+    navigateTo('projects');
+  }
+
+  // FR#3353 Phase A Gap#6 — inline Add-Member panel
+  function toggleAddMember() {
+    var panel = $('#pd-add-member');
+    var btn   = $('#btn-add-member');
+    if (!panel) return;
+    var opening = !panel.classList.contains('is-open');
+    panel.classList.toggle('is-open', opening);
+    panel.setAttribute('aria-hidden', opening ? 'false' : 'true');
+    if (btn) btn.classList.toggle('is-active', opening);
+    if (opening) {
+      populateAddMemberDropdown();
+    } else {
+      var devSel = $('#pd-add-dev');
+      var lvlSel = $('#pd-add-level');
+      if (devSel) devSel.value = '';
+      if (lvlSel) {
+        lvlSel.value = 'read';
+        lvlSel.className = 'acl-select acl-select--read add-member-form__level';
+      }
+    }
+  }
+
+  async function populateAddMemberDropdown() {
+    if (!currentProjectId) return;
+    var devSel = $('#pd-add-dev');
+    var saveBtn = $('#pd-add-save');
+    if (!devSel) return;
+    devSel.innerHTML = '<option value="" disabled selected>Loading&hellip;</option>';
+    if (saveBtn) saveBtn.disabled = true;
+    try {
+      var results = await Promise.all([
+        Api.getProjectDashboard(currentProjectId),
+        Api.getDevelopers()
+      ]);
+      var assigned = {};
+      (results[0].developers || []).forEach(function (d) { assigned[d.id] = true; });
+      var unassigned = (results[1].developers || []).filter(function (d) {
+        return d.is_active && !assigned[d.id];
+      });
+      if (unassigned.length === 0) {
+        devSel.innerHTML = '<option value="" disabled selected>&mdash; all developers assigned &mdash;</option>';
+        if (saveBtn) saveBtn.disabled = true;
+        return;
+      }
+      devSel.innerHTML = '<option value="" disabled selected>&mdash; select developer &mdash;</option>' +
+        unassigned.map(function (d) {
+          return '<option value="' + d.id + '">' + escHtml(d.name) + '</option>';
+        }).join('');
+      if (saveBtn) saveBtn.disabled = false;
+      devSel.focus();
+    } catch (err) {
+      devSel.innerHTML = '<option value="" disabled selected>&mdash; load error &mdash;</option>';
+    }
+  }
+
+  function onAddLevelChange(selectEl) {
+    selectEl.className = 'acl-select acl-select--' +
+      (selectEl.value === 'read-write' ? 'rw' : selectEl.value) + ' add-member-form__level';
+  }
+
+  async function submitAddMember() {
+    if (!currentProjectId) return;
+    var devSel = $('#pd-add-dev');
+    var lvlSel = $('#pd-add-level');
+    if (!devSel || !lvlSel) return;
+    var devId = parseInt(devSel.value, 10);
+    var level = lvlSel.value;
+    if (!devId || !level || level === 'none') {
+      showAlert('proj-detail-alert', 'error', 'Developer and access level required.');
+      return;
+    }
+    var saveBtn = $('#pd-add-save');
+    if (saveBtn) saveBtn.disabled = true;
+    try {
+      await Api.setProjectAccess(currentProjectId, devId, level);
+      showAlert('proj-detail-alert', 'success', 'Member added.');
+      toggleAddMember();
+      var proj = projectCache.find(function (p) { return p.id === currentProjectId; });
+      if (proj) loadProjectDashboard(currentProjectId, proj);
+    } catch (err) {
+      showAlert('proj-detail-alert', 'error',
+        'Failed: ' + (err && err.message ? err.message : 'unknown'));
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
+    }
+  }
+
+  // FR#3353 Phase A Gap#2: inline-edit ACL in project-detail member row
+  async function onAclChange(devId, selectEl) {
+    if (!currentProjectId) return;
+    var newLevel = selectEl.value;
+    var prevLevel = selectEl.getAttribute('data-prev') || '';
+    // Optimistic class swap for immediate feedback
+    selectEl.className = selectEl.className.replace(/\bacl-select--\S+/g, '');
+    selectEl.classList.add('acl-select');
+    selectEl.classList.add('acl-select--' + newLevel.replace('-', ''));
+    selectEl.disabled = true;
+    try {
+      await Api.setProjectAccess(currentProjectId, devId, newLevel);
+      selectEl.setAttribute('data-prev', newLevel);
+      showAlert('proj-detail-alert', 'success',
+        'Access updated: ' + newLevel);
+    } catch (err) {
+      showAlert('proj-detail-alert', 'error',
+        'Failed: ' + (err.message || 'unknown'));
+      // Revert on failure
+      if (prevLevel) selectEl.value = prevLevel;
+    } finally {
+      selectEl.disabled = false;
     }
   }
 
@@ -2803,8 +3404,19 @@ var App = (function () {
         }
       }
       if (restoreHash.indexOf('project/') === 0) {
-        var projId = parseInt(restoreHash.split('/')[1]);
-        if (projId) { openProject(projId); return; }
+        var projParts = restoreHash.split('/');
+        var projId = parseInt(projParts[1]);
+        var projTab = projParts[2] || 'team';
+        if (projId) {
+          openProject(projId).then(function () {
+            switchProjectTab(projTab, true);
+          });
+          return;
+        }
+      }
+      if (restoreHash.indexOf('doc/') === 0) {
+        var docId = parseInt(restoreHash.split('/')[1]);
+        if (docId) { openDoc(docId); return; }
       }
       if (restoreHash !== 'global' && restoreHash !== 'intelligence' && restoreHash !== 'developers' && restoreHash !== 'projects' && restoreHash !== 'settings' && restoreHash !== 'connect') restoreHash = 'global';
       navigateTo(restoreHash);
@@ -2827,6 +3439,23 @@ var App = (function () {
     loadProjectList: loadProjectList,
     openProject: openProject,
     confirmDeleteProject: confirmDeleteProject,
+    onAclChange: onAclChange,
+    switchProjectTab: switchProjectTab,
+    toggleAddMember: toggleAddMember,
+    submitAddMember: submitAddMember,
+    onAddLevelChange: onAddLevelChange,
+    loadDocsList: loadDocsList,
+    filterDocsByType: filterDocsByType,
+    onDocsFilterInput: onDocsFilterInput,
+    openDoc: openDoc,
+    backFromDoc: backFromDoc,
+    toggleDocEdit: toggleDocEdit,
+    saveDocEdit: saveDocEdit,
+    confirmDeleteDoc: confirmDeleteDoc,
+    confirmDeleteDocFromList: confirmDeleteDocFromList,
+    confirmDeleteRelation: confirmDeleteRelation,
+    confirmDeleteProjectRelation: confirmDeleteProjectRelation,
+    confirmRestoreDoc: confirmRestoreDoc,
     deleteEnvironment: deleteEnvironment,
     hardDeleteKey: hardDeleteKey,
     changeKeyRole: changeKeyRole,

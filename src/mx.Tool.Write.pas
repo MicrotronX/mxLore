@@ -382,108 +382,8 @@ end;
 // ---------------------------------------------------------------------------
 // mx_create_doc — Create a document with initial revision
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Helper: Notify related projects about high-signal document changes
-// Non-blocking: failures are logged but never propagate to the caller.
-// ---------------------------------------------------------------------------
-procedure NotifyRelatedProjects(AContext: IMxDbContext;
-  AProjectId: Integer; ADocId: Integer;
-  const ADocType, ATitle, AChangeReason, AProjectSlug: string);
-var
-  Qry: TFDQuery;
-  TargetId, SessionId, DevId: Integer;
-begin
-  // Only notify for high-signal doc types
-  if not MatchStr(ADocType, ['spec', 'plan', 'decision']) then
-    Exit;
-  try
-    SessionId := 0;
-    DevId := MxGetThreadAuth.DeveloperId;
-    // Get caller's active session
-    Qry := AContext.CreateQuery(
-      'SELECT id FROM sessions WHERE project_id = :pid AND ended_at IS NULL ' +
-      'ORDER BY started_at DESC LIMIT 1');
-    try
-      Qry.ParamByName('pid').AsInteger := AProjectId;
-      Qry.Open;
-      if not Qry.IsEmpty then
-        SessionId := Qry.FieldByName('id').AsInteger;
-    finally
-      Qry.Free;
-    end;
-
-    // Find all related projects (both directions)
-    Qry := AContext.CreateQuery(
-      'SELECT CASE WHEN source_project_id = :pid THEN target_project_id ' +
-      '  ELSE source_project_id END AS related_id ' +
-      'FROM project_relations ' +
-      'WHERE source_project_id = :pid2 OR target_project_id = :pid3');
-    try
-      Qry.ParamByName('pid').AsInteger := AProjectId;
-      Qry.ParamByName('pid2').AsInteger := AProjectId;
-      Qry.ParamByName('pid3').AsInteger := AProjectId;
-      Qry.Open;
-      while not Qry.Eof do
-      begin
-        TargetId := Qry.FieldByName('related_id').AsInteger;
-        // Deduplicate: remove older pending notification for same doc
-        var DelQry := AContext.CreateQuery(
-          'DELETE FROM agent_messages WHERE ref_doc_id = :did ' +
-          'AND target_project_id = :tid AND status = ''pending'' ' +
-          'AND message_type = ''info''');
-        try
-          DelQry.ParamByName('did').AsInteger := ADocId;
-          DelQry.ParamByName('tid').AsInteger := TargetId;
-          DelQry.ExecSQL;
-        finally
-          DelQry.Free;
-        end;
-        // Build payload as proper JSON (safe escaping)
-        var PayloadObj := TJSONObject.Create;
-        try
-          PayloadObj.AddPair('type', 'doc_changed');
-          PayloadObj.AddPair('doc_id', TJSONNumber.Create(ADocId));
-          PayloadObj.AddPair('doc_type', ADocType);
-          PayloadObj.AddPair('title', ATitle);
-          PayloadObj.AddPair('change_reason', AChangeReason);
-          PayloadObj.AddPair('project', AProjectSlug);
-          // Insert new notification (TTL 30 days)
-          var InsQry := AContext.CreateQuery(
-            'INSERT INTO agent_messages ' +
-            '(sender_session_id, sender_project_id, sender_developer_id, ' +
-            ' target_project_id, message_type, payload, ref_doc_id, ' +
-            ' priority, expires_at) ' +
-            'VALUES (:sid, :spid, :did, :tpid, ''info'', :payload, :rdid, ' +
-            ' ''normal'', DATE_ADD(NOW(), INTERVAL 30 DAY))');
-          try
-            if SessionId > 0 then
-              InsQry.ParamByName('sid').AsInteger := SessionId
-            else
-              InsQry.ParamByName('sid').AsInteger := 0;
-            InsQry.ParamByName('spid').AsInteger := AProjectId;
-            InsQry.ParamByName('did').AsInteger := DevId;
-            InsQry.ParamByName('tpid').AsInteger := TargetId;
-            InsQry.ParamByName('payload').AsString := PayloadObj.ToJSON;
-            InsQry.ParamByName('rdid').AsInteger := ADocId;
-            InsQry.ExecSQL;
-          finally
-            InsQry.Free;
-          end;
-        finally
-          PayloadObj.Free;
-        end;
-        Qry.Next;
-      end;
-    finally
-      Qry.Free;
-    end;
-  except
-    on E: Exception do
-      AContext.Logger.Log(mlWarning,
-        '[NotifyRelatedProjects] Failed for doc ' + IntToStr(ADocId) +
-        ': ' + E.Message);
-  end;
-end;
+// Bug#3348: Cross-project doc_changed auto-notifications removed — Agent-Inbox
+// is for explicit messages only. Spec#785 archived, ADR documents rationale.
 
 function HandleCreateDoc(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
@@ -535,6 +435,17 @@ begin
     raise EMxValidation.CreateFmt('Invalid doc_type "%s". Allowed: plan, spec, decision, status, workflow_log, session_note, finding, reference, snippet, note, bugreport, feature_request, todo, assumption, lesson, skill', [DocType]);
   if Title = '' then
     raise EMxValidation.Create('Parameter "title" is required');
+
+  // High-signal doc types MUST carry substantive content (defense-in-depth
+  // against caller-side body-drop, e.g. subagent crash / token-cap / empty
+  // return). An empty session_note / lesson / spec / plan / decision is never
+  // a legitimate outcome — reject it server-side.
+  if MatchStr(DocType, ['session_note', 'lesson', 'spec', 'plan', 'decision'])
+     and (Length(Trim(Content)) < 50) then
+    raise EMxValidation.CreateFmt(
+      'Parameter "content" required for doc_type="%s" (got %d chars, minimum 50). ' +
+      'Empty/trivial bodies cannot be persisted for high-signal documents.',
+      [DocType, Length(Trim(Content))]);
 
   // Generate slug from title
   Slug := GenerateSlug(Title);
@@ -772,9 +683,7 @@ begin
     end;
   end;
 
-  // Auto-notify related projects (non-blocking, after commit)
-  NotifyRelatedProjects(AContext, ProjectId, DocId, DocType, Title,
-    'New document created', ProjectSlug);
+  // Bug#3348: auto-notify removed (self-pollution of Agent-Inbox).
 
   Data := TJSONObject.Create;
   try
@@ -1138,17 +1047,7 @@ begin
     raise;
   end;
 
-  // Auto-notify related projects (non-blocking, after commit)
-  var NotifyDocType := CurrentDocType;
-  if DocType <> '' then NotifyDocType := DocType;
-  var NotifyTitle := CurrentTitle;
-  if Title <> '' then NotifyTitle := Title;
-  NotifyRelatedProjects(AContext, ProjectId, DocId, NotifyDocType,
-    NotifyTitle, ChangeReason, ProjectSlug);
-  // Also notify target project's related projects on doc-move
-  if NewProject <> '' then
-    NotifyRelatedProjects(AContext, NewProjectId, DocId, NotifyDocType,
-      NotifyTitle, 'Document moved from ' + ProjectSlug, NewProject);
+  // Bug#3348: auto-notify removed (self-pollution of Agent-Inbox).
 
   Data := TJSONObject.Create;
   try

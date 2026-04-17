@@ -469,7 +469,10 @@
   <div id="page-project-detail" class="page">
     <div class="page-header">
       <h2 class="page-header__title">
-        <button id="btn-back-proj" class="btn btn--ghost btn--small" style="margin-right:8px">&#8592;</button>
+        <button id="btn-back-proj" class="page-back-btn" title="Back (Esc)">
+          <i data-lucide="arrow-left"></i>
+          <span>Back</span>
+        </button>
         <i data-lucide="folder-open" class="icon-header"></i>
         <span class="chevron">/</span>
         <span id="proj-detail-title">Project</span>
@@ -478,127 +481,300 @@
 
     <div id="proj-detail-alert" class="alert"></div>
 
-    <!-- Stats -->
-    <div class="stats-bar" style="grid-template-columns: repeat(3, 1fr);">
-      <div class="stat-card">
-        <div class="stat-card__icon-wrap stat-card__icon-wrap--amber">
-          <i data-lucide="database" class="stat-card__icon"></i>
-        </div>
-        <div class="stat-card__content">
-          <div class="stat-card__value" id="pd-docs">-</div>
-          <div class="stat-card__label">Documents</div>
-        </div>
+    <!-- Compact stats strip -->
+    <div class="pd-stats-strip">
+      <div class="pd-stat">
+        <i data-lucide="database" class="pd-stat__icon"></i>
+        <div class="pd-stat__v" id="pd-docs">-</div>
+        <div class="pd-stat__l">documents</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-card__icon-wrap stat-card__icon-wrap--violet">
-          <i data-lucide="users" class="stat-card__icon"></i>
-        </div>
-        <div class="stat-card__content">
-          <div class="stat-card__value" id="pd-devs">-</div>
-          <div class="stat-card__label">Members</div>
-        </div>
+      <div class="pd-stat">
+        <i data-lucide="users" class="pd-stat__icon"></i>
+        <div class="pd-stat__v" id="pd-devs">-</div>
+        <div class="pd-stat__l">members</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-card__icon-wrap stat-card__icon-wrap--green">
-          <i data-lucide="clock" class="stat-card__icon"></i>
-        </div>
-        <div class="stat-card__content">
-          <div class="stat-card__value" id="pd-activity" style="font-size:0.85rem">-</div>
-          <div class="stat-card__label">Last activity</div>
-        </div>
+      <div class="pd-stat">
+        <i data-lucide="clock" class="pd-stat__icon"></i>
+        <div class="pd-stat__v pd-stat__v--small" id="pd-activity">-</div>
+        <div class="pd-stat__l">last activity</div>
       </div>
     </div>
 
-    <!-- Info Card -->
-    <div class="detail-card">
-      <div class="detail-card__header">
-        <span class="detail-card__title">
-          <i data-lucide="info" class="icon-sm"></i> Project info
-        </span>
-      </div>
-      <form id="proj-detail-form" class="detail-form">
-        <div class="form-group">
-          <label class="form-label" for="proj-detail-name">Name</label>
-          <input id="proj-detail-name" class="form-input" type="text" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Slug (read-only)</label>
-          <input id="proj-detail-slug" class="form-input mono" type="text" disabled style="opacity:0.6">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Status</label>
-          <span id="proj-detail-status" class="badge" style="width:fit-content"></span>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Created</label>
-          <span id="proj-detail-created" class="text-secondary" style="font-size:0.85rem"></span>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="proj-detail-creator">Created by</label>
-          <select id="proj-detail-creator" class="form-input">
-            <option value="">— loading —</option>
+    <!-- Compact info strip -->
+    <form id="proj-detail-form" class="pd-info-strip">
+      <div class="pd-info-strip__row">
+        <input id="proj-detail-name" class="pd-info-strip__name" type="text" required placeholder="Project name">
+        <input id="proj-detail-slug" class="pd-info-strip__slug mono" type="text" disabled>
+        <span id="proj-detail-status" class="badge pd-info-strip__status"></span>
+        <span id="proj-detail-created" class="pd-info-strip__created"></span>
+        <label class="pd-info-strip__creator">
+          <span class="pd-info-strip__label">creator</span>
+          <select id="proj-detail-creator">
+            <option value="">&mdash; loading &mdash;</option>
           </select>
-        </div>
-        <div class="form-group--full" style="grid-column: 1 / -1; display:flex; justify-content:flex-end; gap:8px; margin-top:8px">
-          <button type="submit" class="btn btn--primary">
-            <i data-lucide="save" class="icon-xs"></i> Save
+        </label>
+        <button type="submit" class="btn btn--primary btn--small pd-info-strip__save">
+          <i data-lucide="save" class="icon-xs"></i> Save
+        </button>
+      </div>
+    </form>
+
+    <!-- Tab navigation -->
+    <div class="pd-tabs" role="tablist" aria-label="Project detail sections">
+      <button class="pd-tab is-active" role="tab" data-tab="team"
+              aria-selected="true" tabindex="0"
+              onclick="App.switchProjectTab('team')">
+        <i data-lucide="users" class="icon-xs"></i>
+        <span>Team</span>
+      </button>
+      <button class="pd-tab" role="tab" data-tab="docs"
+              aria-selected="false" tabindex="-1"
+              onclick="App.switchProjectTab('docs')">
+        <i data-lucide="file-text" class="icon-xs"></i>
+        <span>Docs</span>
+      </button>
+      <button class="pd-tab" role="tab" data-tab="relations"
+              aria-selected="false" tabindex="-1"
+              onclick="App.switchProjectTab('relations')">
+        <i data-lucide="git-branch" class="icon-xs"></i>
+        <span>Relations</span>
+      </button>
+    </div>
+
+    <!-- Tab: Team -->
+    <div class="pd-tab-panel is-active" data-panel="team" role="tabpanel" aria-labelledby="tab-team">
+      <div class="detail-card">
+        <div class="detail-card__header">
+          <span class="detail-card__title">
+            <i data-lucide="users" class="icon-sm"></i> Member assignments
+          </span>
+          <button type="button" id="btn-add-member" class="pd-add-btn"
+                  onclick="App.toggleAddMember()" title="Add member to project">
+            <i data-lucide="user-plus" class="icon-xs"></i>
+            <span>Add</span>
           </button>
         </div>
-      </form>
+        <div id="pd-add-member" class="add-member-form" aria-hidden="true">
+          <select id="pd-add-dev" class="form-input add-member-form__dev">
+            <option value="" disabled selected>&mdash; select developer &mdash;</option>
+          </select>
+          <select id="pd-add-level"
+                  class="acl-select acl-select--read add-member-form__level"
+                  onchange="App.onAddLevelChange(this)">
+            <option value="comment">comment</option>
+            <option value="read" selected>read</option>
+            <option value="read-write">read-write</option>
+          </select>
+          <button type="button" id="pd-add-save"
+                  class="add-member-form__btn add-member-form__btn--save"
+                  onclick="App.submitAddMember()" title="Save">
+            <i data-lucide="check" class="icon-xs"></i>
+          </button>
+          <button type="button"
+                  class="add-member-form__btn add-member-form__btn--cancel"
+                  onclick="App.toggleAddMember()" title="Cancel">
+            <i data-lucide="x" class="icon-xs"></i>
+          </button>
+        </div>
+        <div class="data-table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Name</th>
+              <th>Access</th>
+              <th>UI Login</th>
+              <th>Msgs</th>
+              <th>Keys</th>
+            </tr></thead>
+            <tbody id="pd-devs-body"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
-    <!-- Dashboard: Doc Types -->
-    <div class="detail-card">
+    <!-- Tab: Docs -->
+    <div class="pd-tab-panel" data-panel="docs" role="tabpanel" hidden>
+      <!-- Compact type chips summary -->
+      <div id="pd-doctypes-chips" class="pd-doctypes-chips">
+        <span class="pd-doctypes-chips__empty">&mdash;</span>
+      </div>
+
+      <!-- Search + filter bar -->
+      <div class="pd-docs-filter">
+        <div class="pd-docs-filter__search">
+          <i data-lucide="search" class="icon-xs"></i>
+          <input id="pd-docs-q" type="text" placeholder="Search title or summary&hellip;"
+                 oninput="App.onDocsFilterInput()">
+        </div>
+        <select id="pd-docs-type" class="pd-docs-filter__select"
+                onchange="App.loadDocsList()">
+          <option value="">All types</option>
+          <option value="spec">spec</option>
+          <option value="plan">plan</option>
+          <option value="decision">decision</option>
+          <option value="bugreport">bugreport</option>
+          <option value="feature_request">feature_request</option>
+          <option value="note">note</option>
+          <option value="todo">todo</option>
+          <option value="lesson">lesson</option>
+          <option value="session_note">session_note</option>
+          <option value="workflow_log">workflow_log</option>
+          <option value="reference">reference</option>
+        </select>
+        <select id="pd-docs-status" class="pd-docs-filter__select"
+                onchange="App.loadDocsList()">
+          <option value="">Active (exc. deleted)</option>
+          <option value="active">active</option>
+          <option value="draft">draft</option>
+          <option value="archived">archived</option>
+          <option value="superseded">superseded</option>
+          <option value="deleted">deleted</option>
+        </select>
+        <span id="pd-docs-count" class="pd-docs-filter__count"></span>
+      </div>
+
+      <!-- Doc list -->
+      <div class="detail-card">
+        <div class="data-table-wrap">
+          <table class="data-table pd-docs-table">
+            <thead><tr>
+              <th style="width:35%">Title</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>By</th>
+              <th>Updated</th>
+              <th style="width:90px;text-align:right">Actions</th>
+            </tr></thead>
+            <tbody id="pd-docs-body">
+              <tr><td colspan="6"><div class="empty-state">Loading&hellip;</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Relations -->
+    <div class="pd-tab-panel" data-panel="relations" role="tabpanel" hidden>
+      <div class="detail-card">
+        <div class="detail-card__header">
+          <span class="detail-card__title">
+            <i data-lucide="git-branch" class="icon-sm"></i> Related projects
+          </span>
+        </div>
+        <div class="data-table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Project</th><th>Relation</th><th>Direction</th>
+              <th style="width:60px;text-align:right"></th>
+            </tr></thead>
+            <tbody id="pd-relations-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Doc Detail Page (FR#3353 Phase C, view-only) ===== -->
+  <div id="page-doc-detail" class="page">
+    <div class="doc-detail-header">
+      <button id="btn-back-doc" class="page-back-btn"
+              onclick="App.backFromDoc()" title="Back (Esc)">
+        <i data-lucide="arrow-left"></i>
+        <span>Back</span>
+      </button>
+      <div class="doc-detail-header__main">
+        <div class="doc-detail-header__topline">
+          <span id="doc-detail-type" class="doc-type-badge">doc</span>
+          <span id="doc-detail-id" class="doc-detail-header__id mono">#</span>
+          <span id="doc-detail-status" class="badge"></span>
+          <span id="doc-detail-tags" class="doc-detail-header__tags"></span>
+        </div>
+        <h2 id="doc-detail-title" class="doc-detail-header__title">Loading&hellip;</h2>
+        <div class="doc-detail-header__meta">
+          <span class="doc-detail-header__meta-item" title="Author">
+            <i data-lucide="user" class="icon-xs"></i>
+            <span id="doc-detail-author"></span>
+          </span>
+          <span class="doc-detail-header__meta-item" title="Created">
+            <i data-lucide="plus-circle" class="icon-xs"></i>
+            created <span id="doc-detail-created"></span>
+          </span>
+          <span class="doc-detail-header__meta-item" title="Last update">
+            <i data-lucide="refresh-cw" class="icon-xs"></i>
+            updated <span id="doc-detail-updated"></span>
+          </span>
+          <span class="doc-detail-header__meta-item" title="Project">
+            <i data-lucide="folder" class="icon-xs"></i>
+            <a id="doc-detail-project" href="#" class="link"></a>
+          </span>
+          <span class="doc-detail-header__meta-item" title="Token estimate">
+            <i data-lucide="cpu" class="icon-xs"></i>
+            <span id="doc-detail-tokens"></span>
+          </span>
+          <span class="doc-detail-header__meta-item doc-detail-header__conf"
+                title="Confidence score" id="doc-detail-conf-wrap" hidden>
+            <i data-lucide="gauge" class="icon-xs"></i>
+            <span id="doc-detail-conf"></span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div id="doc-detail-alert" class="alert"></div>
+
+    <div id="doc-detail-summary" class="doc-detail__summary"></div>
+
+    <div class="doc-detail__content">
+      <div class="doc-detail__content-toolbar">
+        <button type="button" id="doc-detail-delete-btn" class="doc-action-btn doc-action-btn--danger"
+                onclick="App.confirmDeleteDoc()" title="Delete document">
+          <i data-lucide="trash-2"></i>
+          <span>Delete</span>
+        </button>
+        <button type="button" id="doc-detail-restore-btn" class="doc-action-btn doc-action-btn--success"
+                onclick="App.confirmRestoreDoc()" title="Restore document" hidden>
+          <i data-lucide="archive-restore"></i>
+          <span>Restore</span>
+        </button>
+        <div style="flex:1"></div>
+        <button type="button" id="doc-detail-edit-btn" class="doc-action-btn doc-action-btn--primary"
+                onclick="App.toggleDocEdit(true)">
+          <i data-lucide="edit-3"></i>
+          <span>Edit</span>
+        </button>
+        <button type="button" id="doc-detail-cancel-btn" class="doc-action-btn"
+                onclick="App.toggleDocEdit(false)" hidden>
+          <i data-lucide="x"></i>
+          <span>Cancel</span>
+        </button>
+        <button type="button" id="doc-detail-save-btn" class="doc-action-btn doc-action-btn--success"
+                onclick="App.saveDocEdit()" hidden>
+          <i data-lucide="save"></i>
+          <span>Save</span>
+        </button>
+      </div>
+      <pre id="doc-detail-content" class="doc-detail__body"></pre>
+      <textarea id="doc-detail-edit-area" class="doc-detail__edit" hidden spellcheck="false"></textarea>
+      <div id="doc-detail-edit-reason" class="doc-detail__edit-reason" hidden>
+        <label for="doc-detail-reason-input">Change reason (optional):</label>
+        <input type="text" id="doc-detail-reason-input" placeholder="e.g. 'fix typo', 'add M4 task'" maxlength="200">
+      </div>
+    </div>
+
+    <div class="detail-card" id="doc-detail-relations-card" hidden>
       <div class="detail-card__header">
         <span class="detail-card__title">
-          <i data-lucide="file-text" class="icon-sm"></i> Documents
+          <i data-lucide="git-branch" class="icon-sm"></i> Relations
         </span>
       </div>
       <div class="data-table-wrap">
         <table class="data-table">
-          <thead><tr><th>Type</th><th>Count</th></tr></thead>
-          <tbody id="pd-doctypes-body"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Dashboard: Recent Activity -->
-    <div class="detail-card">
-      <div class="detail-card__header">
-        <span class="detail-card__title">
-          <i data-lucide="activity" class="icon-sm"></i> Recent changes
-        </span>
-      </div>
-      <div id="pd-activity-body" style="padding:8px 16px">
-      </div>
-    </div>
-
-    <!-- Dashboard: Developers -->
-    <div class="detail-card">
-      <div class="detail-card__header">
-        <span class="detail-card__title">
-          <i data-lucide="users" class="icon-sm"></i> Member assignments
-        </span>
-      </div>
-      <div class="data-table-wrap">
-        <table class="data-table">
-          <thead><tr><th>Name</th><th>Access</th></tr></thead>
-          <tbody id="pd-devs-body"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Dashboard: Related Projects -->
-    <div class="detail-card">
-      <div class="detail-card__header">
-        <span class="detail-card__title">
-          <i data-lucide="git-branch" class="icon-sm"></i> Related projects
-        </span>
-      </div>
-      <div class="data-table-wrap">
-        <table class="data-table">
-          <thead><tr><th>Project</th><th>Relation</th><th>Direction</th></tr></thead>
-          <tbody id="pd-relations-body"></tbody>
+          <thead><tr>
+            <th style="width:90px">Direction</th>
+            <th style="width:130px">Type</th>
+            <th>Target</th>
+            <th style="width:60px"></th>
+          </tr></thead>
+          <tbody id="doc-detail-relations-body"></tbody>
         </table>
       </div>
     </div>

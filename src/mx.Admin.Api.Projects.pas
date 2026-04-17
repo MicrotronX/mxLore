@@ -23,10 +23,39 @@ procedure HandleUpdateDevProjects(const C: THttpServerContext;
 procedure HandleGetDashboard(const C: THttpServerContext;
   APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
 
+// FR#3353 Phase A Gap#2: PUT /projects/:id/access { developer_id, access_level }
+procedure HandleSetProjectAccess(const C: THttpServerContext;
+  APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
+
+// FR#3353 Phase C: GET /projects/:id/documents?type=&q=&status=&limit=&offset=
+procedure HandleListProjectDocs(const C: THttpServerContext;
+  APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
+
+// FR#3353 Phase C: GET /docs/:id — full document detail (view-only)
+procedure HandleGetDocDetail(const C: THttpServerContext;
+  APool: TMxConnectionPool; ADocId: Integer; ALogger: IMxLogger);
+
+// FR#3353 Phase C: DELETE /docs/:id — soft-delete (status='deleted')
+procedure HandleDeleteDoc(const C: THttpServerContext;
+  APool: TMxConnectionPool; ADocId: Integer; ALogger: IMxLogger);
+
+// FR#3353 Phase C: PUT /docs/:id — admin-side content/title/summary/status edit
+procedure HandleUpdateDocAdmin(const C: THttpServerContext;
+  APool: TMxConnectionPool; ADocId: Integer; ALogger: IMxLogger);
+
+// FR#3353 Phase C: DELETE /relations/:id — remove single doc_relations row
+procedure HandleDeleteRelation(const C: THttpServerContext;
+  APool: TMxConnectionPool; ARelId: Integer; ALogger: IMxLogger);
+
+// FR#3353 Phase C: DELETE /project-relations/:id — remove project_relations row
+procedure HandleDeleteProjectRelation(const C: THttpServerContext;
+  APool: TMxConnectionPool; ARelId: Integer; ALogger: IMxLogger);
+
 implementation
 
 uses
-  System.SysUtils, System.JSON, Data.DB, FireDAC.Comp.Client,
+  System.SysUtils, System.StrUtils, System.JSON, System.Net.URLClient,
+  Data.DB, FireDAC.Comp.Client,
   mx.Admin.Server, mx.Logic.Projects;
 
 procedure HandleGetProjects(const C: THttpServerContext;
@@ -441,9 +470,14 @@ begin
 
         if ProjId = 0 then Continue;
 
-        // Whitelist access_level
-        if not SameText(Level, 'read') and not SameText(Level, 'write') then
+        // Whitelist access_level (Bug#3356 M1 4-level ACL per ADR#3264)
+        if not SameText(Level, 'none') and
+           not SameText(Level, 'comment') and
+           not SameText(Level, 'read') and
+           not SameText(Level, 'read-write') then
           Level := 'read';
+        // 'none' = skip insert (= no access row)
+        if SameText(Level, 'none') then Continue;
 
         Qry := Ctx.CreateQuery(
           'INSERT INTO developer_project_access ' +
@@ -470,6 +504,90 @@ begin
     Json := TJSONObject.Create;
     try
       Json.AddPair('ok', TJSONBool.Create(True));
+      MxSendJson(C, 200, Json);
+    finally
+      Json.Free;
+    end;
+  finally
+    Body.Free;
+  end;
+end;
+
+procedure HandleSetProjectAccess(const C: THttpServerContext;
+  APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
+var
+  Body, Json: TJSONObject;
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  DevId: Integer;
+  Level: string;
+begin
+  Body := MxParseBody(C);
+  if Body = nil then
+  begin
+    MxSendError(C, 400, 'invalid_body');
+    Exit;
+  end;
+  try
+    DevId := Body.GetValue<Integer>('developer_id', 0);
+    Level := Body.GetValue<string>('access_level', '');
+    if (DevId = 0) or (AProjId = 0) then
+    begin
+      MxSendError(C, 400, 'missing_ids');
+      Exit;
+    end;
+
+    // Whitelist per ADR#3264 — 'none' = delete row
+    if not SameText(Level, 'none') and
+       not SameText(Level, 'comment') and
+       not SameText(Level, 'read') and
+       not SameText(Level, 'read-write') then
+    begin
+      MxSendError(C, 400, 'invalid_access_level');
+      Exit;
+    end;
+
+    Ctx := APool.AcquireContext;
+    if SameText(Level, 'none') then
+    begin
+      // Remove access
+      Qry := Ctx.CreateQuery(
+        'DELETE FROM developer_project_access ' +
+        'WHERE developer_id = :dev_id AND project_id = :proj_id');
+      try
+        Qry.ParamByName('dev_id').AsInteger := DevId;
+        Qry.ParamByName('proj_id').AsInteger := AProjId;
+        Qry.ExecSQL;
+      finally
+        Qry.Free;
+      end;
+    end
+    else
+    begin
+      // Upsert
+      Qry := Ctx.CreateQuery(
+        'INSERT INTO developer_project_access ' +
+        '  (developer_id, project_id, access_level) ' +
+        'VALUES (:dev_id, :proj_id, :level) ' +
+        'ON DUPLICATE KEY UPDATE access_level = VALUES(access_level)');
+      try
+        Qry.ParamByName('dev_id').AsInteger := DevId;
+        Qry.ParamByName('proj_id').AsInteger := AProjId;
+        Qry.ParamByName('level').AsString := LowerCase(Level);
+        Qry.ExecSQL;
+      finally
+        Qry.Free;
+      end;
+    end;
+
+    ALogger.Log(mlInfo, Format(
+      'Project access set: proj=%d dev=%d level=%s',
+      [AProjId, DevId, Level]));
+
+    Json := TJSONObject.Create;
+    try
+      Json.AddPair('ok', TJSONBool.Create(True));
+      Json.AddPair('access_level', LowerCase(Level));
       MxSendJson(C, 200, Json);
     finally
       Json.Free;
@@ -537,12 +655,23 @@ begin
     end;
     Json.AddPair('recent_changes', Changes);
 
-    // Developers with access
+    // Developers with access (FR#3353 Phase A: enrich with UI-Login + Key-Stats)
     Devs := TJSONArray.Create;
     Qry := Ctx.CreateQuery(
-      'SELECT d.id, d.name, dpa.access_level ' +
+      'SELECT d.id, d.name, dpa.access_level, ' +
+      '       d.ui_login_enabled, d.accept_agent_messages, ' +
+      '       COALESCE(ks.active_keys, 0) AS active_keys, ' +
+      '       ks.next_expiry, ' +
+      '       COALESCE(ks.revoked_keys, 0) AS revoked_keys ' +
       'FROM developer_project_access dpa ' +
       'JOIN developers d ON dpa.developer_id = d.id ' +
+      'LEFT JOIN ( ' +
+      '  SELECT developer_id, ' +
+      '    SUM(CASE WHEN revoked_at IS NULL THEN 1 ELSE 0 END) AS active_keys, ' +
+      '    MIN(CASE WHEN revoked_at IS NULL THEN expires_at END) AS next_expiry, ' +
+      '    SUM(CASE WHEN revoked_at IS NOT NULL THEN 1 ELSE 0 END) AS revoked_keys ' +
+      '  FROM client_keys GROUP BY developer_id ' +
+      ') ks ON ks.developer_id = d.id ' +
       'WHERE dpa.project_id = :pid AND d.is_active = TRUE ' +
       'ORDER BY d.name');
     try
@@ -554,6 +683,19 @@ begin
         Dev.AddPair('id', TJSONNumber.Create(Qry.FieldByName('id').AsInteger));
         Dev.AddPair('name', Qry.FieldByName('name').AsString);
         Dev.AddPair('access_level', Qry.FieldByName('access_level').AsString);
+        Dev.AddPair('ui_login_enabled',
+          TJSONBool.Create(Qry.FieldByName('ui_login_enabled').AsBoolean));
+        Dev.AddPair('accept_agent_messages',
+          TJSONBool.Create(Qry.FieldByName('accept_agent_messages').AsBoolean));
+        Dev.AddPair('active_keys',
+          TJSONNumber.Create(Qry.FieldByName('active_keys').AsInteger));
+        Dev.AddPair('revoked_keys',
+          TJSONNumber.Create(Qry.FieldByName('revoked_keys').AsInteger));
+        if Qry.FieldByName('next_expiry').IsNull then
+          Dev.AddPair('next_expiry', TJSONNull.Create)
+        else
+          Dev.AddPair('next_expiry',
+            MxDateStr(Qry.FieldByName('next_expiry')));
         Devs.Add(Dev);
         Qry.Next;
       end;
@@ -562,15 +704,15 @@ begin
     end;
     Json.AddPair('developers', Devs);
 
-    // Related projects
+    // Related projects (incl. pr.id for delete)
     Rels := TJSONArray.Create;
     Qry := Ctx.CreateQuery(
-      'SELECT p.id, p.slug, p.name, pr.relation_type, ''outgoing'' AS direction ' +
+      'SELECT pr.id AS rel_id, p.id, p.slug, p.name, pr.relation_type, ''outgoing'' AS direction ' +
       'FROM project_relations pr ' +
       'JOIN projects p ON pr.target_project_id = p.id ' +
       'WHERE pr.source_project_id = :pid ' +
       'UNION ALL ' +
-      'SELECT p.id, p.slug, p.name, pr.relation_type, ' +
+      'SELECT pr.id AS rel_id, p.id, p.slug, p.name, pr.relation_type, ' +
       'CASE WHEN pr.relation_type = ''related_to'' THEN ''outgoing'' ELSE ''incoming'' END AS direction ' +
       'FROM project_relations pr ' +
       'JOIN projects p ON pr.source_project_id = p.id ' +
@@ -583,6 +725,7 @@ begin
       while not Qry.Eof do
       begin
         var Rel := TJSONObject.Create;
+        Rel.AddPair('rel_id', TJSONNumber.Create(Qry.FieldByName('rel_id').AsInteger));
         Rel.AddPair('id', TJSONNumber.Create(Qry.FieldByName('id').AsInteger));
         Rel.AddPair('slug', Qry.FieldByName('slug').AsString);
         Rel.AddPair('name', Qry.FieldByName('name').AsString);
@@ -603,6 +746,582 @@ begin
     begin
       Json.Free;
       ALogger.Log(mlError, 'Dashboard error: ' + E.Message);
+      MxSendError(C, 500, 'internal_error');
+    end;
+  end;
+end;
+
+// Local helper: URL-decode + param extraction from a query string like
+//   'type=spec&q=Hello%20World&limit=50'
+function QGet(const AQuery, AName: string): string;
+var
+  Q: string;
+  Parts: TArray<string>;
+  I, EqPos: Integer;
+  Key: string;
+begin
+  Result := '';
+  if AQuery = '' then Exit;
+  // Sparkle Uri.Query may include the leading '?' — strip it so the first
+  // param-name (e.g. "status" in "?status=deleted") isn't misread as "?status".
+  Q := AQuery;
+  if (Length(Q) > 0) and (Q[1] = '?') then
+    Q := Copy(Q, 2, MaxInt);
+  Parts := Q.Split(['&']);
+  for I := 0 to High(Parts) do
+  begin
+    EqPos := Pos('=', Parts[I]);
+    if EqPos <= 0 then Continue;
+    Key := Copy(Parts[I], 1, EqPos - 1);
+    if SameText(Key, AName) then
+    begin
+      Result := Copy(Parts[I], EqPos + 1, MaxInt);
+      // Minimal URL-decode: + → space, %XX → char
+      Result := StringReplace(Result, '+', ' ', [rfReplaceAll]);
+      Result := System.Net.URLClient.TURI.URLDecode(Result);
+      Exit;
+    end;
+  end;
+end;
+
+// ===========================================================================
+// FR#3353 Phase C — Project-scoped document list (filterable)
+// GET /projects/:id/documents?type=X&q=Y&status=Z&limit=N&offset=N
+// ===========================================================================
+procedure HandleListProjectDocs(const C: THttpServerContext;
+  APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  Json: TJSONObject;
+  Items: TJSONArray;
+  SQL, FilterType, FilterQ, FilterStatus, Qstr: string;
+  Lim, Off: Integer;
+begin
+  Qstr := C.Request.Uri.Query;
+  FilterType   := Trim(QGet(Qstr, 'type'));
+  FilterQ      := Trim(QGet(Qstr, 'q'));
+  FilterStatus := Trim(QGet(Qstr, 'status'));
+  Lim := StrToIntDef(QGet(Qstr, 'limit'), 100);
+  Off := StrToIntDef(QGet(Qstr, 'offset'), 0);
+  if Lim < 1  then Lim := 1;
+  if Lim > 500 then Lim := 500;
+  if Off < 0  then Off := 0;
+
+  SQL :=
+    'SELECT d.id, d.doc_type, d.slug, d.title, d.status, ' +
+    '       d.summary_l1, d.created_by, d.created_by_developer_id, ' +
+    '       dev.name AS author_name, ' +
+    '       d.created_at, d.updated_at, d.token_estimate ' +
+    'FROM documents d ' +
+    'LEFT JOIN developers dev ON d.created_by_developer_id = dev.id ' +
+    'WHERE d.project_id = :pid';
+  // Hide deleted docs by default; show them when explicitly requested via filter.
+  if FilterStatus = '' then
+    SQL := SQL + ' AND d.status <> ''deleted''';
+  if FilterType <> '' then
+    SQL := SQL + ' AND d.doc_type = :ftype';
+  if FilterStatus <> '' then
+    SQL := SQL + ' AND d.status = :fstatus';
+  if FilterQ <> '' then
+    SQL := SQL + ' AND (d.title LIKE :fq OR d.summary_l1 LIKE :fq)';
+  SQL := SQL + ' ORDER BY d.updated_at DESC LIMIT :lim OFFSET :off';
+
+  Json := TJSONObject.Create;
+  try
+    Ctx := APool.AcquireContext;
+    Items := TJSONArray.Create;
+    Qry := Ctx.CreateQuery(SQL);
+    try
+      Qry.ParamByName('pid').AsInteger := AProjId;
+      if FilterType <> '' then
+        Qry.ParamByName('ftype').AsString := LowerCase(FilterType);
+      if FilterStatus <> '' then
+        Qry.ParamByName('fstatus').AsString := LowerCase(FilterStatus);
+      if FilterQ <> '' then
+        Qry.ParamByName('fq').AsString := '%' + FilterQ + '%';
+      Qry.ParamByName('lim').AsInteger := Lim;
+      Qry.ParamByName('off').AsInteger := Off;
+      Qry.Open;
+      while not Qry.Eof do
+      begin
+        var Row := TJSONObject.Create;
+        Row.AddPair('id',
+          TJSONNumber.Create(Qry.FieldByName('id').AsInteger));
+        Row.AddPair('doc_type', Qry.FieldByName('doc_type').AsString);
+        Row.AddPair('slug', Qry.FieldByName('slug').AsString);
+        Row.AddPair('title', Qry.FieldByName('title').AsString);
+        Row.AddPair('status', Qry.FieldByName('status').AsString);
+        Row.AddPair('summary_l1', Qry.FieldByName('summary_l1').AsString);
+        Row.AddPair('created_by', Qry.FieldByName('created_by').AsString);
+        if Qry.FieldByName('created_by_developer_id').IsNull then
+          Row.AddPair('author_name', TJSONNull.Create)
+        else
+          Row.AddPair('author_name',
+            Qry.FieldByName('author_name').AsString);
+        Row.AddPair('created_at',
+          MxDateStr(Qry.FieldByName('created_at')));
+        Row.AddPair('updated_at',
+          MxDateStr(Qry.FieldByName('updated_at')));
+        Row.AddPair('token_estimate',
+          TJSONNumber.Create(Qry.FieldByName('token_estimate').AsInteger));
+        Items.Add(Row);
+        Qry.Next;
+      end;
+    finally
+      Qry.Free;
+    end;
+    Json.AddPair('documents', Items);
+    Json.AddPair('limit', TJSONNumber.Create(Lim));
+    Json.AddPair('offset', TJSONNumber.Create(Off));
+    MxSendJson(C, 200, Json);
+    Json.Free;
+  except
+    on E: Exception do
+    begin
+      Json.Free;
+      ALogger.Log(mlError, '[ListProjectDocs] ' + E.Message);
+      MxSendError(C, 500, 'internal_error');
+    end;
+  end;
+end;
+
+// ===========================================================================
+// FR#3353 Phase C — Full document detail (view-only)
+// GET /docs/:id
+// ===========================================================================
+procedure HandleGetDocDetail(const C: THttpServerContext;
+  APool: TMxConnectionPool; ADocId: Integer; ALogger: IMxLogger);
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  Json: TJSONObject;
+  Tags, Rels: TJSONArray;
+begin
+  if ADocId <= 0 then
+  begin
+    MxSendError(C, 400, 'invalid_id');
+    Exit;
+  end;
+
+  Json := TJSONObject.Create;
+  try
+    Ctx := APool.AcquireContext;
+
+    // Main doc + project (include deleted so admin can see + restore)
+    Qry := Ctx.CreateQuery(
+      'SELECT d.id, d.project_id, p.slug AS project_slug, p.name AS project_name, ' +
+      '       d.doc_type, d.slug, d.title, d.status, ' +
+      '       d.summary_l1, d.summary_l2, d.content, ' +
+      '       d.confidence, d.token_estimate, ' +
+      '       d.created_by, d.created_by_developer_id, dev.name AS author_name, ' +
+      '       d.created_at, d.updated_at ' +
+      'FROM documents d ' +
+      'JOIN projects p ON d.project_id = p.id ' +
+      'LEFT JOIN developers dev ON d.created_by_developer_id = dev.id ' +
+      'WHERE d.id = :id');
+    try
+      Qry.ParamByName('id').AsInteger := ADocId;
+      Qry.Open;
+      if Qry.IsEmpty then
+      begin
+        MxSendError(C, 404, 'not_found');
+        Exit;  // finally frees Qry; outer finally frees Json (no double-free)
+      end;
+      Json.AddPair('id',
+        TJSONNumber.Create(Qry.FieldByName('id').AsInteger));
+      Json.AddPair('project_id',
+        TJSONNumber.Create(Qry.FieldByName('project_id').AsInteger));
+      Json.AddPair('project_slug', Qry.FieldByName('project_slug').AsString);
+      Json.AddPair('project_name', Qry.FieldByName('project_name').AsString);
+      Json.AddPair('doc_type', Qry.FieldByName('doc_type').AsString);
+      Json.AddPair('slug', Qry.FieldByName('slug').AsString);
+      Json.AddPair('title', Qry.FieldByName('title').AsString);
+      Json.AddPair('status', Qry.FieldByName('status').AsString);
+      Json.AddPair('summary_l1', Qry.FieldByName('summary_l1').AsString);
+      Json.AddPair('summary_l2', Qry.FieldByName('summary_l2').AsString);
+      Json.AddPair('content', Qry.FieldByName('content').AsString);
+      Json.AddPair('confidence',
+        TJSONNumber.Create(Qry.FieldByName('confidence').AsFloat));
+      Json.AddPair('token_estimate',
+        TJSONNumber.Create(Qry.FieldByName('token_estimate').AsInteger));
+      Json.AddPair('created_by', Qry.FieldByName('created_by').AsString);
+      if Qry.FieldByName('created_by_developer_id').IsNull then
+        Json.AddPair('author_name', TJSONNull.Create)
+      else
+        Json.AddPair('author_name',
+          Qry.FieldByName('author_name').AsString);
+      Json.AddPair('created_at',
+        MxDateStr(Qry.FieldByName('created_at')));
+      Json.AddPair('updated_at',
+        MxDateStr(Qry.FieldByName('updated_at')));
+    finally
+      Qry.Free;
+    end;
+
+    // Tags (doc_tags has direct 'tag' string column, no separate tags table)
+    Tags := TJSONArray.Create;
+    Qry := Ctx.CreateQuery(
+      'SELECT tag FROM doc_tags WHERE doc_id = :id ORDER BY tag');
+    try
+      Qry.ParamByName('id').AsInteger := ADocId;
+      Qry.Open;
+      while not Qry.Eof do
+      begin
+        Tags.Add(Qry.FieldByName('tag').AsString);
+        Qry.Next;
+      end;
+    finally
+      Qry.Free;
+    end;
+    Json.AddPair('tags', Tags);
+
+    // Relations (bidirectional, include rel_id for delete)
+    Rels := TJSONArray.Create;
+    Qry := Ctx.CreateQuery(
+      'SELECT r.id AS rel_id, r.relation_type, ''outbound'' AS direction, ' +
+      '       d2.id AS target_id, d2.title AS target_title, d2.doc_type AS target_type ' +
+      'FROM doc_relations r ' +
+      'JOIN documents d2 ON r.target_doc_id = d2.id ' +
+      'WHERE r.source_doc_id = :id ' +
+      'UNION ALL ' +
+      'SELECT r.id AS rel_id, r.relation_type, ''inbound'' AS direction, ' +
+      '       d2.id AS target_id, d2.title AS target_title, d2.doc_type AS target_type ' +
+      'FROM doc_relations r ' +
+      'JOIN documents d2 ON r.source_doc_id = d2.id ' +
+      'WHERE r.target_doc_id = :id2 ' +
+      'ORDER BY direction, target_title');
+    try
+      Qry.ParamByName('id').AsInteger := ADocId;
+      Qry.ParamByName('id2').AsInteger := ADocId;
+      Qry.Open;
+      while not Qry.Eof do
+      begin
+        var Rel := TJSONObject.Create;
+        Rel.AddPair('rel_id',
+          TJSONNumber.Create(Qry.FieldByName('rel_id').AsInteger));
+        Rel.AddPair('relation_type',
+          Qry.FieldByName('relation_type').AsString);
+        Rel.AddPair('direction', Qry.FieldByName('direction').AsString);
+        Rel.AddPair('target_id',
+          TJSONNumber.Create(Qry.FieldByName('target_id').AsInteger));
+        Rel.AddPair('target_title', Qry.FieldByName('target_title').AsString);
+        Rel.AddPair('target_type', Qry.FieldByName('target_type').AsString);
+        Rels.Add(Rel);
+        Qry.Next;
+      end;
+    finally
+      Qry.Free;
+    end;
+    Json.AddPair('relations', Rels);
+
+    MxSendJson(C, 200, Json);
+    Json.Free;
+  except
+    on E: Exception do
+    begin
+      Json.Free;
+      ALogger.Log(mlError, '[GetDocDetail] ' + E.Message);
+      MxSendError(C, 500, 'internal_error');
+    end;
+  end;
+end;
+
+
+// ===========================================================================
+// FR#3353 Phase C — Soft-delete document
+// DELETE /docs/:id
+// ===========================================================================
+procedure HandleDeleteDoc(const C: THttpServerContext;
+  APool: TMxConnectionPool; ADocId: Integer; ALogger: IMxLogger);
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  Json: TJSONObject;
+begin
+  if ADocId <= 0 then
+  begin
+    MxSendError(C, 400, 'invalid_id');
+    Exit;
+  end;
+  try
+    Ctx := APool.AcquireContext;
+    Qry := Ctx.CreateQuery(
+      'UPDATE documents SET status = ''deleted'', updated_at = NOW() ' +
+      'WHERE id = :id AND status <> ''deleted''');
+    try
+      Qry.ParamByName('id').AsInteger := ADocId;
+      Qry.ExecSQL;
+      if Qry.RowsAffected = 0 then
+      begin
+        MxSendError(C, 404, 'not_found_or_already_deleted');
+        Exit;
+      end;
+    finally
+      Qry.Free;
+    end;
+    ALogger.Log(mlInfo, 'Doc soft-deleted: id=' + IntToStr(ADocId));
+    Json := TJSONObject.Create;
+    try
+      Json.AddPair('ok', TJSONBool.Create(True));
+      Json.AddPair('id', TJSONNumber.Create(ADocId));
+      MxSendJson(C, 200, Json);
+    finally
+      Json.Free;
+    end;
+  except
+    on E: Exception do
+    begin
+      ALogger.Log(mlError, '[DeleteDoc] ' + E.Message);
+      MxSendError(C, 500, 'internal_error');
+    end;
+  end;
+end;
+
+// ===========================================================================
+// FR#3353 Phase C — Admin-side document edit
+// PUT /docs/:id  body: {title?, summary_l1?, content?, status?, change_reason?}
+// Notes (doc_type='note') MUST use mx_update_note (M2.5 edit-window enforcement).
+// ===========================================================================
+procedure HandleUpdateDocAdmin(const C: THttpServerContext;
+  APool: TMxConnectionPool; ADocId: Integer; ALogger: IMxLogger);
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  Body, Json: TJSONObject;
+  NewTitle, NewSummary, NewContent, NewStatus, ChangeReason, DocType: string;
+  HasTitle, HasSummary, HasContent, HasStatus: Boolean;
+  SetClauses: string;
+begin
+  if ADocId <= 0 then
+  begin
+    MxSendError(C, 400, 'invalid_id');
+    Exit;
+  end;
+  Body := MxParseBody(C);
+  if Body = nil then
+  begin
+    MxSendError(C, 400, 'invalid_body');
+    Exit;
+  end;
+  try
+    HasTitle   := Body.FindValue('title')      <> nil;
+    HasSummary := Body.FindValue('summary_l1') <> nil;
+    HasContent := Body.FindValue('content')    <> nil;
+    HasStatus  := Body.FindValue('status')     <> nil;
+    NewTitle      := Body.GetValue<string>('title',        '');
+    NewSummary    := Body.GetValue<string>('summary_l1',   '');
+    NewContent    := Body.GetValue<string>('content',      '');
+    NewStatus     := Body.GetValue<string>('status',       '');
+    ChangeReason  := Body.GetValue<string>('change_reason',
+                      'Admin-UI edit');
+
+    if not (HasTitle or HasSummary or HasContent or HasStatus) then
+    begin
+      MxSendError(C, 400, 'nothing_to_update');
+      Exit;
+    end;
+    // Whitelist status (prevent arbitrary values reaching DB)
+    if HasStatus and not MatchStr(LowerCase(NewStatus),
+         ['active', 'draft', 'archived', 'superseded', 'deleted']) then
+    begin
+      MxSendError(C, 400, 'invalid_status');
+      Exit;
+    end;
+
+    Ctx := APool.AcquireContext;
+
+    // Block notes — M2.5 enforces edit-window via mx_update_note only
+    Qry := Ctx.CreateQuery(
+      'SELECT doc_type FROM documents WHERE id = :id');
+    try
+      Qry.ParamByName('id').AsInteger := ADocId;
+      Qry.Open;
+      if Qry.IsEmpty then
+      begin
+        MxSendError(C, 404, 'not_found');
+        Exit;  // finally frees Qry (no double-free)
+      end;
+      DocType := Qry.FieldByName('doc_type').AsString;
+    finally
+      Qry.Free;
+    end;
+    // Notes have an edit-window enforced via mx_update_note — block content
+    // edits here. Status-only changes (restore, archive, etc.) are safe and
+    // must pass through so admin can un-delete a note.
+    if SameText(DocType, 'note') and (HasTitle or HasSummary or HasContent) then
+    begin
+      MxSendError(C, 409, 'notes_require_mx_update_note');
+      Exit;
+    end;
+
+    // Build dynamic SET clause
+    SetClauses := '';
+    if HasTitle   then SetClauses := SetClauses + ', title = :t';
+    if HasSummary then SetClauses := SetClauses + ', summary_l1 = :s';
+    if HasContent then SetClauses := SetClauses + ', content = :c';
+    if HasStatus  then SetClauses := SetClauses + ', status = :st';
+    // Strip leading ", "
+    if (Length(SetClauses) >= 2) and (Copy(SetClauses, 1, 2) = ', ') then
+      SetClauses := Copy(SetClauses, 3, MaxInt);
+
+    Ctx.StartTransaction;
+    try
+      // Archive new revision (schema: doc_id, revision, content, summary_l2,
+      // changed_by, change_reason). Revision auto-increments per doc.
+      Qry := Ctx.CreateQuery(
+        'INSERT INTO doc_revisions ' +
+        '  (doc_id, revision, content, summary_l2, changed_by, change_reason) ' +
+        'SELECT :id, ' +
+        '       COALESCE((SELECT MAX(revision) FROM doc_revisions dr2 WHERE dr2.doc_id = :id2), 0) + 1, ' +
+        '       content, summary_l2, ''admin'', :reason ' +
+        'FROM documents WHERE id = :id3');
+      try
+        Qry.ParamByName('id').AsInteger  := ADocId;
+        Qry.ParamByName('id2').AsInteger := ADocId;
+        Qry.ParamByName('id3').AsInteger := ADocId;
+        Qry.ParamByName('reason').AsString := Copy(ChangeReason, 1, 500);
+        Qry.ExecSQL;
+      finally
+        Qry.Free;
+      end;
+
+      // Update documents
+      Qry := Ctx.CreateQuery(
+        'UPDATE documents SET ' + SetClauses +
+        ', updated_at = NOW() WHERE id = :id');
+      try
+        if HasTitle   then Qry.ParamByName('t').AsString  := NewTitle;
+        if HasSummary then Qry.ParamByName('s').AsString  := NewSummary;
+        if HasContent then Qry.ParamByName('c').AsString  := NewContent;
+        if HasStatus  then Qry.ParamByName('st').AsString := NewStatus;
+        Qry.ParamByName('id').AsInteger := ADocId;
+        Qry.ExecSQL;
+      finally
+        Qry.Free;
+      end;
+
+      Ctx.Commit;
+    except
+      Ctx.Rollback;
+      raise;
+    end;
+
+    var FieldTag := '';
+    if HasTitle   then FieldTag := FieldTag + 'T';
+    if HasSummary then FieldTag := FieldTag + 'S';
+    if HasContent then FieldTag := FieldTag + 'C';
+    if HasStatus  then FieldTag := FieldTag + 'St';
+    ALogger.Log(mlInfo, Format(
+      'Doc admin-edit: id=%d fields=[%s] reason=%s',
+      [ADocId, FieldTag, ChangeReason]));
+
+    Json := TJSONObject.Create;
+    try
+      Json.AddPair('ok', TJSONBool.Create(True));
+      Json.AddPair('id', TJSONNumber.Create(ADocId));
+      MxSendJson(C, 200, Json);
+    finally
+      Json.Free;
+    end;
+  finally
+    Body.Free;
+  end;
+end;
+
+// ===========================================================================
+// FR#3353 Phase C — Delete single relation row
+// DELETE /relations/:id
+// ===========================================================================
+procedure HandleDeleteRelation(const C: THttpServerContext;
+  APool: TMxConnectionPool; ARelId: Integer; ALogger: IMxLogger);
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  Json: TJSONObject;
+begin
+  if ARelId <= 0 then
+  begin
+    MxSendError(C, 400, 'invalid_id');
+    Exit;
+  end;
+  try
+    Ctx := APool.AcquireContext;
+    Qry := Ctx.CreateQuery(
+      'DELETE FROM doc_relations WHERE id = :id');
+    try
+      Qry.ParamByName('id').AsInteger := ARelId;
+      Qry.ExecSQL;
+      if Qry.RowsAffected = 0 then
+      begin
+        MxSendError(C, 404, 'not_found');
+        Exit;
+      end;
+    finally
+      Qry.Free;
+    end;
+    ALogger.Log(mlInfo, 'Relation deleted: id=' + IntToStr(ARelId));
+    Json := TJSONObject.Create;
+    try
+      Json.AddPair('ok', TJSONBool.Create(True));
+      Json.AddPair('id', TJSONNumber.Create(ARelId));
+      MxSendJson(C, 200, Json);
+    finally
+      Json.Free;
+    end;
+  except
+    on E: Exception do
+    begin
+      ALogger.Log(mlError, '[DeleteRelation] ' + E.Message);
+      MxSendError(C, 500, 'internal_error');
+    end;
+  end;
+end;
+
+// ===========================================================================
+// FR#3353 Phase C — Delete single project-relation row
+// DELETE /project-relations/:id
+// ===========================================================================
+procedure HandleDeleteProjectRelation(const C: THttpServerContext;
+  APool: TMxConnectionPool; ARelId: Integer; ALogger: IMxLogger);
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  Json: TJSONObject;
+begin
+  if ARelId <= 0 then
+  begin
+    MxSendError(C, 400, 'invalid_id');
+    Exit;
+  end;
+  try
+    Ctx := APool.AcquireContext;
+    Qry := Ctx.CreateQuery(
+      'DELETE FROM project_relations WHERE id = :id');
+    try
+      Qry.ParamByName('id').AsInteger := ARelId;
+      Qry.ExecSQL;
+      if Qry.RowsAffected = 0 then
+      begin
+        MxSendError(C, 404, 'not_found');
+        Exit;
+      end;
+    finally
+      Qry.Free;
+    end;
+    ALogger.Log(mlInfo, 'Project-relation deleted: id=' + IntToStr(ARelId));
+    Json := TJSONObject.Create;
+    try
+      Json.AddPair('ok', TJSONBool.Create(True));
+      Json.AddPair('id', TJSONNumber.Create(ARelId));
+      MxSendJson(C, 200, Json);
+    finally
+      Json.Free;
+    end;
+  except
+    on E: Exception do
+    begin
+      ALogger.Log(mlError, '[DeleteProjectRelation] ' + E.Message);
       MxSendError(C, 500, 'internal_error');
     end;
   end;

@@ -696,6 +696,86 @@ begin
         mx.Admin.Api.Projects.HandleGetDashboard(C, FPool, Id, FLogger);
         Exit;
       end;
+
+      // PUT /projects/:id/access  body: {developer_id, access_level}
+      if (Len = 3) and SameText(ASegments[2], 'access') and
+         (C.Request.MethodType = THttpMethod.Put) then
+      begin
+        mx.Admin.Api.Projects.HandleSetProjectAccess(C, FPool, Id, FLogger);
+        Exit;
+      end;
+
+      // GET /projects/:id/documents  — FR#3353 Phase C filterable doc list
+      if (Len = 3) and SameText(ASegments[2], 'documents') and
+         (C.Request.MethodType = THttpMethod.Get) then
+      begin
+        mx.Admin.Api.Projects.HandleListProjectDocs(C, FPool, Id, FLogger);
+        Exit;
+      end;
+    end;
+
+    MxSendError(C, 404, 'not_found');
+    Exit;
+  end;
+
+  // /docs/:id  — FR#3353 Phase C doc detail + soft-delete
+  if SameText(ASegments[0], 'docs') then
+  begin
+    if (Len = 2) then
+    begin
+      var DocId := StrToIntDef(ASegments[1], 0);
+      if DocId > 0 then
+      begin
+        if C.Request.MethodType = THttpMethod.Get then
+        begin
+          mx.Admin.Api.Projects.HandleGetDocDetail(C, FPool, DocId, FLogger);
+          Exit;
+        end;
+        if C.Request.MethodType = THttpMethod.Delete then
+        begin
+          mx.Admin.Api.Projects.HandleDeleteDoc(C, FPool, DocId, FLogger);
+          Exit;
+        end;
+        if C.Request.MethodType = THttpMethod.Put then
+        begin
+          mx.Admin.Api.Projects.HandleUpdateDocAdmin(C, FPool, DocId, FLogger);
+          Exit;
+        end;
+      end;
+    end;
+
+    MxSendError(C, 404, 'not_found');
+    Exit;
+  end;
+
+  // /relations/:id  — FR#3353 Phase C single-relation delete
+  if SameText(ASegments[0], 'relations') then
+  begin
+    if (Len = 2) and (C.Request.MethodType = THttpMethod.Delete) then
+    begin
+      var RelId := StrToIntDef(ASegments[1], 0);
+      if RelId > 0 then
+      begin
+        mx.Admin.Api.Projects.HandleDeleteRelation(C, FPool, RelId, FLogger);
+        Exit;
+      end;
+    end;
+
+    MxSendError(C, 404, 'not_found');
+    Exit;
+  end;
+
+  // /project-relations/:id  — FR#3353 Phase C project-relation delete
+  if SameText(ASegments[0], 'project-relations') then
+  begin
+    if (Len = 2) and (C.Request.MethodType = THttpMethod.Delete) then
+    begin
+      var PRelId := StrToIntDef(ASegments[1], 0);
+      if PRelId > 0 then
+      begin
+        mx.Admin.Api.Projects.HandleDeleteProjectRelation(C, FPool, PRelId, FLogger);
+        Exit;
+      end;
     end;
 
     MxSendError(C, 404, 'not_found');

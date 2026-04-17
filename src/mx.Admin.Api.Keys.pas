@@ -271,11 +271,20 @@ begin
       Exit;
     end;
 
+    // Bug#3351: role change must re-align expires_at per M3.3 role-defaults,
+    // otherwise admin->read keeps the 180d window (policy drift).
+    var RoleDays: Integer := 30;
+    if SameText(Permissions, 'admin') then RoleDays := 180
+    else if SameText(Permissions, 'readwrite') then RoleDays := 90;
+
     Ctx := APool.AcquireContext;
     Qry := Ctx.CreateQuery(
-      'UPDATE client_keys SET permissions = :perms WHERE id = :id');
+      'UPDATE client_keys SET permissions = :perms, ' +
+      '  expires_at = DATE_ADD(NOW(), INTERVAL :days DAY) ' +
+      'WHERE id = :id');
     try
       Qry.ParamByName('perms').AsString := Permissions;
+      Qry.ParamByName('days').AsInteger := RoleDays;
       Qry.ParamByName('id').AsInteger := AKeyId;
       Qry.ExecSQL;
 
@@ -289,7 +298,8 @@ begin
     end;
 
     ALogger.Log(mlInfo, 'Key role changed: ID ' + IntToStr(AKeyId) +
-      ' -> ' + Permissions);
+      ' -> ' + Permissions + ' (expiry realigned to ' +
+      IntToStr(RoleDays) + 'd)');
 
     Json := TJSONObject.Create;
     try
@@ -450,7 +460,7 @@ begin
   UserAgent := '';
   C.Request.Headers.GetIfExists('X-Forwarded-For', ClientIP);
   if ClientIP = '' then
-    ClientIP := C.Request.RemoteAddress;
+    ClientIP := C.Request.RemoteIp;
   C.Request.Headers.GetIfExists('User-Agent', UserAgent);
   if Length(ClientIP) > 45 then ClientIP := Copy(ClientIP, 1, 45);
   if Length(UserAgent) > 255 then UserAgent := Copy(UserAgent, 1, 255);
@@ -492,6 +502,12 @@ begin
     Qry.ParamByName('atype').AsString := ActorType;
     Qry.ParamByName('id').AsInteger := AKeyId;
     Qry.ExecSQL;
+    // Bug#3350: TOCTOU — lost revoke race between pre-SELECT and UPDATE
+    if Qry.RowsAffected = 0 then
+    begin
+      MxSendError(C, 409, 'already_revoked');
+      Exit;
+    end;
   finally
     Qry.Free;
   end;

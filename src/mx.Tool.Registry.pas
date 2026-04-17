@@ -91,6 +91,19 @@ begin
       end;
     end;
   except
+    // Bug#3357: Client-side validation rejections and not-found are EXPECTED
+    // server behaviour — log at INFO, not WARNING. Only genuine server errors
+    // (generic EMxError without a specific client-error subclass) stay WARN.
+    on E: EMxValidation do
+    begin
+      ALogger.Log(mlInfo, 'Client validation: ' + E.Message);
+      Result := MxErrorResponse(E.Code, E.Message);
+    end;
+    on E: EMxNotFound do
+    begin
+      ALogger.Log(mlInfo, 'Not found: ' + E.Message);
+      Result := MxErrorResponse(E.Code, E.Message);
+    end;
     on E: EMxError do
     begin
       ALogger.Log(mlWarning, E.Message);
@@ -98,6 +111,7 @@ begin
     end;
     on E: EMxAccessDenied do
     begin
+      // Access-denied remains WARN — could indicate probing/abuse.
       ALogger.Log(mlWarning, 'Access denied: ' + E.Message);
       Result := MxErrorResponse('ACCESS_DENIED', E.Message);
     end;

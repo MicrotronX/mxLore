@@ -63,15 +63,25 @@
     var visible = threads.slice(0, MAX_VISIBLE);
     var rest = threads.length - visible.length;
     var rows = visible.map(function (t) {
-      var rootLabel = t.root_title
-        ? '#' + t.root_parent_doc_id + ' ' + escapeHtml(t.root_title)
-        : '(orphan root)';
       var projAttr = (t.project_id != null) ? ' data-project-id="' +
         escapeHtml(t.project_id) + '"' : '';
+      // Thread-note link (the actual review-note doc)
+      var threadLink =
+        '<a href="#" data-doc-id="' + escapeHtml(t.id) + '"' + projAttr + '>' +
+        escapeHtml(t.title) + '</a>';
+      // Root-parent link (the spec/plan being reviewed) — click = open that doc
+      var rootLabel;
+      if (t.root_title && t.root_parent_doc_id) {
+        rootLabel =
+          '<a href="#" data-doc-id="' + escapeHtml(t.root_parent_doc_id) + '"' + projAttr + '>' +
+          '#' + escapeHtml(t.root_parent_doc_id) + ' ' +
+          escapeHtml(t.root_title) + '</a>';
+      } else {
+        rootLabel = '<span class="mx-dt-orphan">(orphan root)</span>';
+      }
       return '<li>' +
         '<span class="mx-dt-depth">depth ' + escapeHtml(t.depth) + '</span> ' +
-        '<a href="#" data-doc-id="' + escapeHtml(t.id) + '"' + projAttr + '>' +
-        escapeHtml(t.title) + '</a> ' +
+        threadLink + ' ' +
         '<span class="mx-dt-root">on ' + rootLabel +
         ' <em>(' + escapeHtml(t.project) + ')</em></span>' +
         '</li>';
@@ -121,14 +131,17 @@
       hideAlert();
     });
 
-    // Click delegation: jump straight into the note's project dashboard.
-    // Falls back to projects-list if App.openProject missing or no project_id.
+    // Click delegation: open doc detail directly (FR#3353 Phase C).
+    // Fallbacks: project dashboard → projects-list.
     body.addEventListener('click', function (ev) {
       var link = ev.target.closest('a[data-doc-id]');
       if (!link) return;
       ev.preventDefault();
+      var docId  = parseInt(link.getAttribute('data-doc-id'), 10);
       var projId = link.getAttribute('data-project-id');
-      if (projId && window.App && typeof App.openProject === 'function') {
+      if (docId && window.App && typeof App.openDoc === 'function') {
+        App.openDoc(docId);
+      } else if (projId && window.App && typeof App.openProject === 'function') {
         App.openProject(parseInt(projId, 10));
       } else if (window.App && typeof App.navigateTo === 'function') {
         App.navigateTo('projects');

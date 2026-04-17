@@ -64,3 +64,6 @@ mxHannesMCP_AnsatzC_Claude_Instruction.json
 iis-rewrite-rules.xml
 iis-url-rewrite-rule.xml
 config/
+
+# Local session-safety-net handoff docs (CLAUDE.md rule)
+docs/handoff-*.md

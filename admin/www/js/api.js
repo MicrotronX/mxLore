@@ -225,6 +225,53 @@ const Api = (function () {
     });
   }
 
+  // FR#3353 Phase A Gap#2 — single-pair project-access upsert/delete
+  function setProjectAccess(projId, developerId, accessLevel) {
+    return request('PUT', '/projects/' + projId + '/access', {
+      developer_id: developerId,
+      access_level: accessLevel
+    });
+  }
+
+  // FR#3353 Phase C — filterable document list per project
+  function listProjectDocs(projId, opts) {
+    opts = opts || {};
+    var qs = [];
+    if (opts.type)   qs.push('type='   + encodeURIComponent(opts.type));
+    if (opts.q)      qs.push('q='      + encodeURIComponent(opts.q));
+    if (opts.status) qs.push('status=' + encodeURIComponent(opts.status));
+    if (opts.limit)  qs.push('limit='  + opts.limit);
+    if (opts.offset) qs.push('offset=' + opts.offset);
+    var path = '/projects/' + projId + '/documents' +
+               (qs.length ? '?' + qs.join('&') : '');
+    return request('GET', path);
+  }
+
+  // FR#3353 Phase C — full document detail (view-only)
+  function getDoc(docId) {
+    return request('GET', '/docs/' + docId);
+  }
+
+  // FR#3353 Phase C — soft-delete document
+  function deleteDoc(docId) {
+    return request('DELETE', '/docs/' + docId);
+  }
+
+  // FR#3353 Phase C — delete single relation row
+  function deleteRelation(relId) {
+    return request('DELETE', '/relations/' + relId);
+  }
+
+  // FR#3353 Phase C — admin-side document edit
+  function updateDocAdmin(docId, changes) {
+    return request('PUT', '/docs/' + docId, changes);
+  }
+
+  // FR#3353 Phase C — delete project-relation
+  function deleteProjectRelation(relId) {
+    return request('DELETE', '/project-relations/' + relId);
+  }
+
   // --- Notes (FR#2936/Plan#3266 M2.6) ---
   function getDeepThreads() {
     return request('GET', '/notes/deep-threads');
@@ -250,6 +297,13 @@ const Api = (function () {
     getProjects: getProjects,
     updateProject: updateProject,
     getProjectDashboard: getProjectDashboard,
+    setProjectAccess: setProjectAccess,
+    listProjectDocs: listProjectDocs,
+    getDoc: getDoc,
+    deleteDoc: deleteDoc,
+    deleteRelation: deleteRelation,
+    updateDocAdmin: updateDocAdmin,
+    deleteProjectRelation: deleteProjectRelation,
     deleteProject: deleteProject,
     mergeProjects: mergeProjects,
     getGlobalStats: getGlobalStats,
