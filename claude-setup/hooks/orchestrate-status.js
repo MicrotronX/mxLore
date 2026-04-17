@@ -44,13 +44,15 @@ try {
   const parkedCount = stack.length - 1;
   const adhocCount = (state.adhoc_tasks || []).length;
   const deltas = state.state_deltas || 0;
-  // Derive last action from events_log. Bug#3229: array order is not guaranteed chrono —
-  // some skills prepend (newest at [0]), others append (newest at [last]). Sort by ts desc
-  // defensively so `last:` always shows the truly most-recent event.
+  // Bug#3229 proper fix: prefer explicit last_save_summary field (written by mxSave Step 4,
+  // max 200 chars, narrative pointer). Fallback to events_log ts-desc sort for backward-compat
+  // with pre-fix state files.
   const events = state.events_log || [];
   const sortedEvents = events.slice().sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0));
   const lastEvent = sortedEvents.length > 0 ? sortedEvents[0] : null;
-  const lastAction = lastEvent ? `${lastEvent.type}: ${lastEvent.detail || lastEvent.wf}` : '–';
+  const lastAction = state.last_save_summary
+    ? `mxsave: ${state.last_save_summary}`
+    : (lastEvent ? `${lastEvent.type}: ${lastEvent.detail || lastEvent.wf}` : '–');
 
   // Team agents status
   const agents = state.team_agents || [];

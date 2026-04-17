@@ -99,12 +99,17 @@ Read `.claude/orchestrate-state.json`. If present+not empty:
 
 - **Push unsynced:** WFs with `unsynced=true`→`mx_update_doc`→`unsynced=false`. Events with `synced=false`→session note→`synced=true`
 - **Snapshot (Spec#2152, Clear-Cycle pre-reset):** `last_save_deltas = state_deltas` — MUST be set BEFORE reset below. Single Source of Truth for this field.
+- **⚡ last_save_summary (Bug#3229 proper fix):** After Step 5 creates the session_note, write:
+  - `state.last_save_summary` = 1-line narrative, **max 200 chars**, describing this save's main artefacts (new/updated specs/plans/ADRs, bug-fixes, commits, WF-step-flips). NO internal reasoning, NO timestamps (those are in `last_save`). Example: `"Spec#3194 v3 + ADR#3264 + Plan#3266 (33 tasks M1-M3); Bug#3229/3230/3239 fixed (commits d327b92+577dff3)"`.
+  - `state.last_save_session_note_doc_id` = doc_id of the session_note created in Step 5. Pointer for Resume/cross-session enrichment (Bug#3230 pairing).
+  - Both fields are **required** (not optional). The statusline hook prefers them over events_log parsing for the `last:` display.
+  - If Step 5 failed (MCP down, subagent error) → write `last_save_summary` anyway with the local summary + set `last_save_session_note_doc_id = null` (signals "summary is real, but no MCP-archive link").
 - **Finalize:** `state_deltas`→0, `last_save`→now, `last_reconciliation`→now
 - ⚡ Do NOT archive workflows. Only sync+reset.
 - Write state file back
-- ⚡ Token discipline: use Edit for surgical field updates (e.g. `last_save_deltas` snapshot+reset), Write for full rewrites only. Per global rule "Edit surgical 1-5L, multi-line→Write".
+- ⚡ Token discipline: use Edit for surgical field updates (e.g. `last_save_deltas` snapshot+reset + `last_save_summary` + `last_save_session_note_doc_id`), Write for full rewrites only. Per global rule "Edit surgical 1-5L, multi-line→Write".
 - ∅file or empty stack→skip
-- Output: `Orchestrate: <N> unsynced pushed, deltas reset`
+- Output: `Orchestrate: <N> unsynced pushed, deltas reset, summary written`
 
 ### 5) Session Summary as MCP Note (MCP)
 ```
