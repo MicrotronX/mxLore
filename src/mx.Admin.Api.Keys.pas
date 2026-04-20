@@ -24,6 +24,12 @@ procedure HandleUpdateKey(const C: THttpServerContext;
 procedure HandleRevokeKey(const C: THttpServerContext;
   APool: TMxConnectionPool; AKeyId: Integer;
   AActorDevId: Integer; ALogger: IMxLogger);
+// FR#2936/Plan#3266 M3.5 — POST /api/keys/{id}/rotate. Atomic rotate-in-tx:
+// revokes old + creates new (same dev, name, permissions, fresh expires_at
+// per role-default). One-time plaintext key returned.
+procedure HandleRotateKey(const C: THttpServerContext;
+  APool: TMxConnectionPool; AKeyId: Integer;
+  AActorDevId: Integer; ALogger: IMxLogger);
 procedure HandleGetEnvironments(const C: THttpServerContext;
   APool: TMxConnectionPool; ADevId: Integer; ALogger: IMxLogger);
 procedure HandleDeleteEnvironment(const C: THttpServerContext;
@@ -389,6 +395,173 @@ begin
   try
     Json.AddPair('ok', TJSONBool.Create(True));
     MxSendJson(C, 200, Json);
+  finally
+    Json.Free;
+  end;
+end;
+
+// FR#2936/Plan#3266 M3.5 — atomic key rotation. Single DB transaction:
+// revoke old + create new, same developer/name/permissions, fresh expires_at
+// per role-default. All-or-nothing → no orphan state → no boot reconcile
+// pass needed (Plan M3.5 RotationOrphansReconcile intentionally omitted).
+procedure HandleRotateKey(const C: THttpServerContext;
+  APool: TMxConnectionPool; AKeyId: Integer;
+  AActorDevId: Integer; ALogger: IMxLogger);
+var
+  Json: TJSONObject;
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  OwnerDevId, NewKeyId, DefaultDays: Integer;
+  OldName, OldPermissions: string;
+  NewRawKey, NewKeyHash, GuidStr, ClientIP, UserAgent: string;
+  G: TGUID;
+  InTx: Boolean;
+begin
+  if AActorDevId <= 0 then
+  begin
+    MxSendError(C, 401, 'no_session');
+    Exit;
+  end;
+
+  Ctx := APool.AcquireContext;
+
+  // Pre-check: key exists, not already revoked → capture name/permissions
+  Qry := Ctx.CreateQuery(
+    'SELECT developer_id, name, permissions, revoked_at ' +
+    'FROM client_keys WHERE id = :id');
+  try
+    Qry.ParamByName('id').AsInteger := AKeyId;
+    Qry.Open;
+    if Qry.IsEmpty then
+    begin
+      MxSendError(C, 404, 'key_not_found');
+      Exit;
+    end;
+    if not Qry.FieldByName('revoked_at').IsNull then
+    begin
+      MxSendError(C, 409, 'already_revoked');
+      Exit;
+    end;
+    OwnerDevId     := Qry.FieldByName('developer_id').AsInteger;
+    OldName        := Qry.FieldByName('name').AsString;
+    OldPermissions := Qry.FieldByName('permissions').AsString;
+  finally
+    Qry.Free;
+  end;
+
+  CreateGUID(G);
+  GuidStr := StringReplace(GUIDToString(G), '{', '', [rfReplaceAll]);
+  GuidStr := StringReplace(GuidStr, '}', '', [rfReplaceAll]);
+  GuidStr := StringReplace(GuidStr, '-', '', [rfReplaceAll]);
+  NewRawKey  := 'mxk_' + LowerCase(GuidStr);
+  NewKeyHash := MxHashKey(NewRawKey);
+
+  DefaultDays := 30;
+  if SameText(OldPermissions, 'admin') then DefaultDays := 180
+  else if SameText(OldPermissions, 'readwrite') then DefaultDays := 90;
+
+  ClientIP := '';
+  C.Request.Headers.GetIfExists('X-Forwarded-For', ClientIP);
+  if ClientIP = '' then ClientIP := C.Request.RemoteIp;
+  UserAgent := '';
+  C.Request.Headers.GetIfExists('User-Agent', UserAgent);
+  if Length(ClientIP) > 45 then ClientIP := Copy(ClientIP, 1, 45);
+  if Length(UserAgent) > 255 then UserAgent := Copy(UserAgent, 1, 255);
+
+  InTx := False;
+  try
+    Ctx.StartTransaction;
+    InTx := True;
+
+    Qry := Ctx.CreateQuery(
+      'UPDATE client_keys SET ' +
+      '  revoked_at = NOW(), revoked_by = :actor, revoked_reason = :reason, ' +
+      '  revoke_ip = :ip, revoke_user_agent = :ua, ' +
+      '  revoke_actor_type = ''rotation'', is_active = FALSE ' +
+      'WHERE id = :id AND revoked_at IS NULL');
+    try
+      Qry.ParamByName('actor').AsInteger := AActorDevId;
+      Qry.ParamByName('reason').AsWideString := 'rotation';
+      if ClientIP <> '' then
+        Qry.ParamByName('ip').AsWideString := ClientIP
+      else
+      begin
+        Qry.ParamByName('ip').DataType := ftString;
+        Qry.ParamByName('ip').Clear;
+      end;
+      if UserAgent <> '' then
+        Qry.ParamByName('ua').AsWideString := UserAgent
+      else
+      begin
+        Qry.ParamByName('ua').DataType := ftString;
+        Qry.ParamByName('ua').Clear;
+      end;
+      Qry.ParamByName('id').AsInteger := AKeyId;
+      Qry.ExecSQL;
+      if Qry.RowsAffected = 0 then
+      begin
+        Ctx.Rollback;
+        InTx := False;
+        MxSendError(C, 409, 'already_revoked');
+        Exit;
+      end;
+    finally
+      Qry.Free;
+    end;
+
+    Qry := Ctx.CreateQuery(
+      'INSERT INTO client_keys ' +
+      '(developer_id, name, key_hash, key_prefix, permissions, expires_at) ' +
+      'VALUES (:dev_id, :name, :hash, :prefix, :perms, :expires)');
+    try
+      Qry.ParamByName('dev_id').AsInteger := OwnerDevId;
+      Qry.ParamByName('name').AsWideString := OldName;
+      Qry.ParamByName('hash').AsWideString := NewKeyHash;
+      Qry.ParamByName('prefix').AsWideString := Copy(NewRawKey, 1, 12);
+      Qry.ParamByName('perms').AsWideString := OldPermissions;
+      Qry.ParamByName('expires').AsDateTime := IncDay(Now, DefaultDays);
+      Qry.ExecSQL;
+    finally
+      Qry.Free;
+    end;
+
+    Qry := Ctx.CreateQuery('SELECT LAST_INSERT_ID() AS id');
+    try
+      Qry.Open;
+      NewKeyId := Qry.FieldByName('id').AsInteger;
+    finally
+      Qry.Free;
+    end;
+
+    Ctx.Commit;
+    InTx := False;
+  except
+    on E: Exception do
+    begin
+      if InTx then
+      begin
+        try Ctx.Rollback; except end;
+      end;
+      ALogger.Log(mlWarning, Format(
+        'Key rotation failed: old_id=%d actor_dev=%d (%s)',
+        [AKeyId, AActorDevId, E.Message]));
+      MxSendError(C, 500, 'rotation_failed');
+      Exit;
+    end;
+  end;
+
+  ALogger.Log(mlInfo, Format(
+    'Key rotated: old_id=%d new_id=%d owner_dev=%d actor_dev=%d',
+    [AKeyId, NewKeyId, OwnerDevId, AActorDevId]));
+
+  Json := TJSONObject.Create;
+  try
+    Json.AddPair('ok', TJSONBool.Create(True));
+    Json.AddPair('old_id', TJSONNumber.Create(AKeyId));
+    Json.AddPair('id', TJSONNumber.Create(NewKeyId));
+    Json.AddPair('key', NewRawKey); // shown ONCE
+    Json.AddPair('name', OldName);
+    MxSendJson(C, 201, Json);
   finally
     Json.Free;
   end;

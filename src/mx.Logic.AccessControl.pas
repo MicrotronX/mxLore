@@ -29,6 +29,11 @@ type
     // project_id -> access_level
     FProjectAccess: TDictionary<Integer, TAccessLevel>;
     FLogger: IMxLogger;
+    // FR#2936/Plan#3266 M3.12 — set by LoadPermissions when the ACL-lookup
+    // query times out or fails. While TRUE, EffectiveLevel caps at alReadOnly
+    // regardless of global role, and Authorize surfaces AR_DB_CHECK_DEGRADED
+    // on denial so the caller sees a distinct reason code (not "no access").
+    FDegraded: Boolean;
     procedure LoadPermissions(AConnection: TFDConnection);
     procedure LoadGlobalProjectId(AConnection: TFDConnection);
     function EffectiveLevel(AProjLevel: TAccessLevel): TAccessLevel;
@@ -43,6 +48,9 @@ type
     function IsAdmin: Boolean;
     function CheckProject(AProjectId: Integer; ALevel: TAccessLevel): Boolean;
     function GetAllowedProjectIds(ALevel: TAccessLevel): TArray<Integer>;
+    // M3.12 surface — lets Authorize distinguish "no assignment" from
+    // "DB-lookup failed, capped to alReadOnly".
+    function IsDegraded: Boolean;
   end;
 
   // FR#2936/Plan#3266 M1.6: Tool-Authorization wrapper.
@@ -92,6 +100,7 @@ type
     function IsAdmin: Boolean;
     function CheckProject(AProjectId: Integer; ALevel: TAccessLevel): Boolean;
     function GetAllowedProjectIds(ALevel: TAccessLevel): TArray<Integer>;
+    function IsDegraded: Boolean;
   end;
 
 implementation
@@ -326,10 +335,28 @@ begin
 
   if not ACL.CheckProject(ACtx.ProjectId, MinLevel) then
   begin
-    Result.DenialCode := 'WRONG_LEVEL';
-    Result.DenialReason := Format(
-      'Insufficient access for tool "%s" on project %d: need %s',
-      [ACtx.Tool, ACtx.ProjectId, AccessLevelToString(MinLevel)]);
+    // FR#2936/Plan#3266 M3.12 — when the ACL-lookup degraded and the required
+    // level exceeds the read-only cap, surface AR_DB_CHECK_DEGRADED so the
+    // client knows the denial is transient (retry after DB recovery) rather
+    // than policy (rotate key, request access).
+    if ACL.IsDegraded then
+    begin
+      // DenialCode uses the uppercase-short convention consistent with
+      // WRONG_LEVEL/NO_ACCESS/ADMIN_ONLY. AR_DB_CHECK_DEGRADED (mx.Types)
+      // is a separate namespace used for tool_call_log.auth_reason and
+      // RFC7807 mxlore.reason — surfaced elsewhere via MxRfc7807Response.
+      Result.DenialCode := 'DB_DEGRADED';
+      Result.DenialReason := Format(
+        'Tool "%s" requires %s but session is capped at alReadOnly (DB-check degraded)',
+        [ACtx.Tool, AccessLevelToString(MinLevel)]);
+    end
+    else
+    begin
+      Result.DenialCode := 'WRONG_LEVEL';
+      Result.DenialReason := Format(
+        'Insufficient access for tool "%s" on project %d: need %s',
+        [ACtx.Tool, ACtx.ProjectId, AccessLevelToString(MinLevel)]);
+    end;
     // Step 6: Denial-Log (CheckProject also logs internally when amAudit,
     // but we log again at the Authorize layer for tool-level trace).
     LogDenial;
@@ -366,6 +393,7 @@ begin
   FAclMode := AAclMode;
   FGlobalRole := AGlobalRole;
   FLogger := ALogger;
+  FDegraded := False; // M3.12: explicit, prevents silent reliance on Delphi zero-init
   FProjectAccess := TDictionary<Integer, TAccessLevel>.Create;
   LoadGlobalProjectId(AConnection);
   if not FIsAdmin then
@@ -397,18 +425,41 @@ begin
 end;
 
 procedure TMxAccessControl.LoadPermissions(AConnection: TFDConnection);
+const
+  // M3.12 default. AC-25: clients experiencing timeouts should see
+  // degraded-mode (read-only) rather than a hard auth failure. Fast bound
+  // so the caller's own request doesn't inherit a long ACL-lookup stall.
+  // INI override plumbing deferred to M3.12-follow-up.
+  DB_CHECK_TIMEOUT_MS = 500;
 var
   Qry: TFDQuery;
 begin
   Qry := TFDQuery.Create(nil);
   try
     Qry.Connection := AConnection;
+    Qry.ResourceOptions.CmdExecTimeout := DB_CHECK_TIMEOUT_MS;
     Qry.SQL.Text :=
       'SELECT project_id, access_level ' +
       'FROM developer_project_access ' +
       'WHERE developer_id = :dev_id';
     Qry.ParamByName('dev_id').AsInteger := FDeveloperId;
-    Qry.Open;
+    try
+      Qry.Open;
+    except
+      on E: Exception do
+      begin
+        // M3.12 Degraded-Mode: ACL-lookup failed (timeout, disconnect, other).
+        // Cap effective access at alReadOnly via FDegraded — the session
+        // continues to function for reads across assigned projects. Anomaly
+        // detection (>3/h / >5/day admin-alert) is a follow-up FR.
+        FDegraded := True;
+        if Assigned(FLogger) then
+          FLogger.Log(mlWarning, Format(
+            'ACL lookup degraded (dev_id=%d timeout=%dms): %s — session capped at alReadOnly',
+            [FDeveloperId, DB_CHECK_TIMEOUT_MS, E.Message]));
+        Exit;
+      end;
+    end;
     while not Qry.Eof do
     begin
       var ProjId := Qry.FieldByName('project_id').AsInteger;
@@ -425,6 +476,11 @@ begin
   finally
     Qry.Free;
   end;
+end;
+
+function TMxAccessControl.IsDegraded: Boolean;
+begin
+  Result := FDegraded;
 end;
 
 function TMxAccessControl.EffectiveLevel(AProjLevel: TAccessLevel): TAccessLevel;
@@ -468,6 +524,16 @@ begin
   // _global project: always accessible for all authenticated developers
   if (FGlobalProjectId > 0) and (AProjectId = FGlobalProjectId) then
     Exit(True);
+
+  // FR#2936/Plan#3266 M3.12 — Degraded-Mode cap: ACL-lookup failed for this
+  // session, so FProjectAccess is empty. Allow any alReadOnly-or-below check
+  // for any project (permissive read fallback keeps the session usable);
+  // reject alComment+ (write paths must not proceed without verified ACL).
+  if FDegraded then
+  begin
+    Result := IsAtLeast(alReadOnly, ALevel);
+    Exit;
+  end;
 
   // Check if developer has any access to this project
   if not FProjectAccess.TryGetValue(AProjectId, ProjLevel) then
@@ -578,6 +644,11 @@ function TMxNullAccessControl.GetAllowedProjectIds(
   ALevel: TAccessLevel): TArray<Integer>;
 begin
   Result := nil; // nil = all projects allowed
+end;
+
+function TMxNullAccessControl.IsDegraded: Boolean;
+begin
+  Result := False; // Null ACL has no DB-lookup, never degraded
 end;
 
 // FR#2936/Plan#3266 M2.9: Draft-Filter X2 helper.

@@ -52,6 +52,10 @@ type
     function IsAdmin: Boolean;
     function CheckProject(AProjectId: Integer; ALevel: TAccessLevel): Boolean;
     function GetAllowedProjectIds(ALevel: TAccessLevel): TArray<Integer>;
+    // FR#2936/Plan#3266 M3.12 — TRUE when the ACL-lookup failed/timed out
+    // during session setup; consumer auth layers cap effective access at
+    // alReadOnly and may surface AR_DB_CHECK_DEGRADED.
+    function IsDegraded: Boolean;
   end;
 
   IMxDbContext = interface
@@ -98,6 +102,10 @@ type
     // (Session 267 mxDesignChecker WARN#1 fix).
     RemoteIp: string;
     UserAgent: string;
+    // FR#2936/Plan#3266 M3.4b — expiry horizon for X-Key-Expires-In header.
+    // Copy of client_keys.expires_at (0 = no expiry set / unlimited key).
+    // Populated by ValidateKey in both PBKDF2 and legacy paths.
+    ExpiresAt: TDateTime;
   end;
 
   // FR#2936/Plan#3266 M1.5: Authorize-wrapper input/output records.
@@ -166,7 +174,26 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 102;  // Build 102 (Session 265 release-cut): Bug#3348 NotifyRelatedProjects strip (ADR#3349 — Agent-Inbox only for explicit messages, cross-project doc_changed auto-broadcast removed). Bug#3350 HandleRevokeKey TOCTOU 409 guard. Bug#3351 HandleUpdateKey expires_at realign per M3.3 role-defaults (admin/readwrite/read = 180/90/30d). FR#3352 M3.1 Dedup R1 60min filed as followup. 0/0/0 checker findings (2 WARN fixed inline). // Build 101 (Session 264, FR#2936/Plan#3266 M3 Bundles 1+2+3 partial): sql/049 schema + M3.1 asymmetric agent-messaging + M3.2 opt-out + M3.3 role-default expires_at + M3.4 Grace-Period + M3.6 Revocation + M3.7 Forensik + M3.8 active_prefix UNIQUE. M3.5 Rotation + M3.4 cadence + M3.9-M3.12 RFC7807/Degraded-Mode DEFERRED.
+  MXAI_BUILD   = 103;
+  // Build 103 (Session 268 release-cut): FR#2936 Plan#3266 M3 KOMPLETT 12/12 —
+  //   M3.4a Cadence-Writer boot-integrated + M3.4b X-Key-Expires-In HTTP-Header
+  //   (3 auth-paths) + M3.5 atomic Rotation-API POST /api/keys/:id/rotate
+  //   + M3.12 DB-Timeout Degraded-Mode (CmdExecTimeout=500ms, FDegraded flag,
+  //   DenialCode='DB_DEGRADED') + M3.4c Emergency Recovery via doc#3473 Phase 7
+  //   DB-direct (no CLI). Bug#3345 FireDAC .AsWideString migration across
+  //   297 sites/33 units (ACP-triple-hop fixed, trip-wire-verified doc#3496).
+  //   Checker-pass 0 CRIT, 5 inline fixes. FR#3504+FR#3517 track 9 follow-ups.
+  // Build 102 (Session 265 release-cut): Bug#3348 NotifyRelatedProjects strip
+  //   (ADR#3349 — Agent-Inbox only for explicit messages, cross-project
+  //   doc_changed auto-broadcast removed). Bug#3350 HandleRevokeKey TOCTOU 409
+  //   guard. Bug#3351 HandleUpdateKey expires_at realign per M3.3 role-defaults
+  //   (admin/readwrite/read = 180/90/30d). FR#3352 M3.1 Dedup R1 60min filed
+  //   as followup. 0/0/0 checker findings (2 WARN fixed inline).
+  // Build 101 (Session 264, FR#2936/Plan#3266 M3 Bundles 1+2+3 partial):
+  //   sql/049 schema + M3.1 asymmetric agent-messaging + M3.2 opt-out
+  //   + M3.3 role-default expires_at + M3.4 Grace-Period + M3.6 Revocation
+  //   + M3.7 Forensik + M3.8 active_prefix UNIQUE. M3.5 Rotation + M3.4 cadence
+  //   + M3.9-M3.12 RFC7807/Degraded-Mode DEFERRED.
   MX_KEY_PREFIX = 'mxk_';
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';
@@ -193,6 +220,9 @@ const
   AR_MSG_DUPLICATE           = 'msg_duplicate';
   AR_RECIPIENT_OPT_OUT       = 'recipient_opt_out';
   AR_DB_CHECK_DEGRADED       = 'db_check_degraded';
+  // Reserved: never emitted by current code. M3.5 rotation is single-tx
+  // (all-or-nothing, no orphan state, no boot-reconcile pass). Kept as a
+  // forward-slot in case the design ever moves to two-phase.
   AR_ROTATION_CRASH_RECOVERED = 'rotation_crash_recovered';
   AR_BREAK_GLASS_USED        = 'break_glass_used';
 

@@ -77,6 +77,9 @@ begin
   Result.AuthReason := AR_KEY_INVALID;
   Result.RemoteIp := '';
   Result.UserAgent := '';
+  // M3.4b: explicit zero so X-Key-Expires-In header never surfaces garbage
+  // on any valid=false path. 0 = no expiry (unlimited key).
+  Result.ExpiresAt := 0;
 
   RawKey := ABearerToken;
   if RawKey.StartsWith('Bearer ', True) then
@@ -123,6 +126,9 @@ begin
         Result.DeveloperId := Qry.FieldByName('dev_id').AsInteger;
         Result.DeveloperName := Qry.FieldByName('dev_name').AsString;
         Result.IsAdmin := (Result.Permissions = mpAdmin);
+        // M3.4b: surface expiry horizon for X-Key-Expires-In header.
+        if not Qry.FieldByName('expires_at').IsNull then
+          Result.ExpiresAt := Qry.FieldByName('expires_at').AsDateTime;
         // M3.4 Grace-Period: if the key is past its hard expiry but within 24h,
         // downgrade to read-only so the holder can rotate without lock-out.
         if (not Qry.FieldByName('expires_at').IsNull)
@@ -172,6 +178,9 @@ begin
         Result.DeveloperId := Qry.FieldByName('dev_id').AsInteger;
         Result.DeveloperName := Qry.FieldByName('dev_name').AsString;
         Result.IsAdmin := (Result.Permissions = mpAdmin);
+        // M3.4b: surface expiry horizon (same as PBKDF2 path above).
+        if not Qry.FieldByName('expires_at').IsNull then
+          Result.ExpiresAt := Qry.FieldByName('expires_at').AsDateTime;
         // M3.4 Grace-Period (legacy path): same downgrade as PBKDF2 path above.
         if (not Qry.FieldByName('expires_at').IsNull)
            and (Qry.FieldByName('expires_at').AsDateTime < Now) then

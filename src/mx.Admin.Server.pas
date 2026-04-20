@@ -508,6 +508,15 @@ begin
       Exit;
     end;
 
+    // POST /keys/:id/rotate  (FR#2936/Plan#3266 M3.5 — atomic rotation)
+    if (Len = 3) and TryStrToInt(ASegments[1], Id)
+       and SameText(ASegments[2], 'rotate')
+       and (C.Request.MethodType = THttpMethod.Post) then
+    begin
+      mx.Admin.Api.Keys.HandleRotateKey(C, FPool, Id, ASession.DeveloperId, FLogger);
+      Exit;
+    end;
+
     MxSendError(C, 404, 'not_found');
     Exit;
   end;

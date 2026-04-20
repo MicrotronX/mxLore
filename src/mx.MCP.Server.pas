@@ -146,6 +146,25 @@ begin
   C.Response.Close(Bytes);
 end;
 
+// FR#2936/Plan#3266 M3.4b — set X-Key-Expires-In header when the authenticated
+// key has a finite expiry. Value = integer seconds remaining (analogous to
+// HTTP Retry-After). Skipped when ExpiresAt=0 (unlimited key) OR when the key
+// is already in grace-period (seconds <= 0, header would mislead clients).
+procedure SetKeyExpiryHeader(const C: THttpServerContext;
+  const AAuth: TMxAuthResult);
+var
+  Secs: Int64;
+begin
+  if AAuth.ExpiresAt <= 0 then
+    Exit;
+  // Trunc (not Round) so clients get a conservative "at most N seconds left"
+  // reading — never one second past actual expiry due to banker's rounding.
+  Secs := Trunc((AAuth.ExpiresAt - Now) * 86400);
+  if Secs <= 0 then
+    Exit;
+  C.Response.Headers.SetValue('X-Key-Expires-In', IntToStr(Secs));
+end;
+
 procedure TMxMcpApiModule.ProcessRequest(const C: THttpServerContext);
 var
   AuthHeader, Body, ResponseJson: string;
@@ -246,6 +265,9 @@ begin
     // Store auth for tool handlers (threadvar)
     MxSetThreadAuth(AuthResult);
 
+    // M3.4b — publish remaining key lifetime to the client (secs)
+    SetKeyExpiryHeader(C, AuthResult);
+
     // Read request body
     Body := TEncoding.UTF8.GetString(C.Request.Content);
 
@@ -341,6 +363,10 @@ begin
       'rotate');
     Exit;
   end;
+
+  // M3.4b — publish remaining key lifetime (before Ctx acquisition so the
+  // header is set even if the handler exits early on an error).
+  SetKeyExpiryHeader(C, AuthResult);
 
   try
     Ctx := FPool.AcquireAuthContext(AuthResult, FLogger);
@@ -458,6 +484,9 @@ begin
       'rotate');
     Exit;
   end;
+
+  // M3.4b — publish remaining key lifetime
+  SetKeyExpiryHeader(C, AuthResult);
 
   try
     Ctx := FPool.AcquireAuthContext(AuthResult, FLogger);

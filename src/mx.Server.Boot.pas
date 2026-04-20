@@ -30,6 +30,7 @@ type
     procedure RunDiagnostics;
     procedure RunAutoCleanup;
     procedure RunAutoBackup;
+    procedure RunKeyExpiryWarningCadence;
     procedure SetupServer;
     procedure SetupShutdownHandler;
   public
@@ -886,6 +887,11 @@ begin
   // 6b. Auto-cleanup old session notes
   RunAutoCleanup;
 
+  // 6b'. FR#2936 M3.4a — Key-Expiry Warning Cadence (14d/7d/3d/24h/1h)
+  // Boot-integrated (per Plan#3266 M3.4a alternative). Timer-based promotion
+  // is a follow-up once boot-cadence proves stable.
+  RunKeyExpiryWarningCadence;
+
   // 6c. Predictive Prefetch: Boot-Time Scoring
   try
     var Prefetch := TMxPrefetchCalculator.Create(FPool, FLogger);
@@ -1262,6 +1268,175 @@ begin
   except
     on E: Exception do
       FLogger.Log(mlWarning, 'Auto-backup failed: ' + E.Message);
+  end;
+end;
+
+// FR#2936 M3.4a — Key-Expiry Warning Cadence Writer.
+// Emits an agent_message per client_key when the remaining-lifetime crosses a
+// cadence stage (14d/7d/3d/24h/1h). Dedupe via client_keys.last_warned_stage
+// (sql/049 step 2). Monotonic: only advances stages (LastOrdinal → NewOrdinal
+// where New > Last); a re-extended expiry does not re-emit earlier stages.
+// Bypasses developers.accept_agent_messages opt-out (security-critical, per
+// M3.2 admin-priority-override semantics).
+function KeyStageOrdinal(const AStage: string): Integer;
+begin
+  if AStage = '1h' then Result := 5
+  else if AStage = '24h' then Result := 4
+  else if AStage = '3d' then Result := 3
+  else if AStage = '7d' then Result := 2
+  else if AStage = '14d' then Result := 1
+  else Result := 0;
+end;
+
+procedure TMxServerBoot.RunKeyExpiryWarningCadence;
+const
+  // SQL fragment translating a stage label to its monotonic ordinal.
+  // Used both for the atomic "advance-only" UPDATE (mxBugChecker WARN#2 TOCTOU)
+  // and would be a duplicate-safe guard against concurrent boots.
+  STAGE_ORDINAL_SQL =
+    '(CASE %s WHEN ''1h'' THEN 5 WHEN ''24h'' THEN 4 WHEN ''3d'' THEN 3 ' +
+    'WHEN ''7d'' THEN 2 WHEN ''14d'' THEN 1 ELSE 0 END)';
+var
+  Ctx: IMxDbContext;
+  Qry, InsQry, UpdQry: TFDQuery;
+  KeyId, DevId, TargetProjectId: Integer;
+  LastStage, NewStage, KeyName, Payload: string;
+  HoursLeft: Double;
+  Rows: Integer;
+  Msg: TJSONObject;
+  EmittedCount, FailedCount: Integer;
+begin
+  EmittedCount := 0;
+  FailedCount := 0;
+  try
+    Ctx := FPool.AcquireContext;
+
+    // Select active keys in the 14-day warning horizon. Skip already-expired
+    // keys (grace-period handled by ValidateKey), revoked keys, and keys whose
+    // developer has no project access (no inbox surface). hours_left computed
+    // server-side via TIMESTAMPDIFF — TZ/clock-skew safe (mxBugChecker WARN#5).
+    Qry := Ctx.CreateQuery(
+      'SELECT ck.id, ck.developer_id, ck.name, ' +
+      '       COALESCE(ck.last_warned_stage, '''') AS last_stage, ' +
+      '       TIMESTAMPDIFF(SECOND, NOW(), ck.expires_at) / 3600.0 AS hours_left, ' +
+      '       (SELECT MIN(project_id) FROM developer_project_access ' +
+      '          WHERE developer_id = ck.developer_id) AS target_project_id ' +
+      'FROM client_keys ck ' +
+      'WHERE ck.revoked_at IS NULL ' +
+      '  AND ck.is_active = 1 ' +
+      '  AND ck.expires_at IS NOT NULL ' +
+      '  AND ck.expires_at > NOW() ' +
+      '  AND ck.expires_at <= DATE_ADD(NOW(), INTERVAL 14 DAY)');
+    try
+      Qry.Open;
+      while not Qry.Eof do
+      begin
+        try
+          KeyId     := Qry.FieldByName('id').AsInteger;
+          DevId     := Qry.FieldByName('developer_id').AsInteger;
+          LastStage := Qry.FieldByName('last_stage').AsString;
+          KeyName   := Qry.FieldByName('name').AsString;
+          HoursLeft := Qry.FieldByName('hours_left').AsFloat;
+          TargetProjectId := Qry.FieldByName('target_project_id').AsInteger;
+
+          if HoursLeft <= 1.0 then NewStage := '1h'
+          else if HoursLeft <= 24.0 then NewStage := '24h'
+          else if HoursLeft <= 72.0 then NewStage := '3d'
+          else if HoursLeft <= 168.0 then NewStage := '7d'
+          else NewStage := '14d';
+
+          // Cheap app-level guard; authoritative atomic check is in the UPDATE.
+          if (TargetProjectId <= 0)
+             or (KeyStageOrdinal(NewStage) <= KeyStageOrdinal(LastStage)) then
+          begin
+            Qry.Next;
+            Continue;
+          end;
+
+          // Atomic advance-only UPDATE — serialises concurrent boots + rules
+          // out redundant emissions. RowsAffected=0 => another process already
+          // recorded this (or a later) stage → skip INSERT.
+          UpdQry := Ctx.CreateQuery(
+            'UPDATE client_keys SET last_warned_stage = :st ' +
+            'WHERE id = :id ' +
+            '  AND ' + Format(STAGE_ORDINAL_SQL, ['COALESCE(last_warned_stage, '''')']) +
+            '       < ' + Format(STAGE_ORDINAL_SQL, [':st']));
+          Rows := 0;
+          try
+            UpdQry.ParamByName('st').AsWideString := NewStage;
+            UpdQry.ParamByName('id').AsInteger := KeyId;
+            UpdQry.ExecSQL;
+            Rows := UpdQry.RowsAffected;
+          finally
+            UpdQry.Free;
+          end;
+
+          if Rows <= 0 then
+          begin
+            Qry.Next;
+            Continue;
+          end;
+
+          // Build payload via TJSONObject — escapes \ " \n \r \t correctly.
+          Msg := TJSONObject.Create;
+          try
+            Msg.AddPair('type', 'key_expiry_warning');
+            Msg.AddPair('key_id', TJSONNumber.Create(KeyId));
+            Msg.AddPair('key_name', KeyName);
+            Msg.AddPair('stage', NewStage);
+            Msg.AddPair('hours_left', TJSONNumber.Create(HoursLeft));
+            Payload := Msg.ToJSON;
+          finally
+            Msg.Free;
+          end;
+
+          // sender_project_id must satisfy FK → reuse TargetProjectId (same as
+          // target; system-originated, sender_session_id=0 + sender_developer_id=0
+          // are the sentinels that identify system messages).
+          InsQry := Ctx.CreateQuery(
+            'INSERT INTO agent_messages ' +
+            '(sender_session_id, sender_project_id, sender_developer_id, ' +
+            ' target_project_id, target_developer_id, message_type, payload, ' +
+            ' priority, expires_at) ' +
+            'VALUES (0, :pid, 0, :pid, :did, ''key_expiry_warning'', :pl, ' +
+            '        CASE WHEN :st IN (''24h'',''1h'') THEN ''urgent'' ELSE ''normal'' END, ' +
+            '        DATE_ADD(NOW(), INTERVAL 7 DAY))');
+          try
+            InsQry.ParamByName('pid').AsInteger := TargetProjectId;
+            InsQry.ParamByName('did').AsInteger := DevId;
+            InsQry.ParamByName('pl').AsWideString := Payload;
+            InsQry.ParamByName('st').AsWideString := NewStage;
+            InsQry.ExecSQL;
+          finally
+            InsQry.Free;
+          end;
+
+          Inc(EmittedCount);
+        except
+          on E: Exception do
+          begin
+            // Per-key isolation (mxBugChecker WARN#7) — one bad key must not
+            // abort the remainder of the horizon.
+            FLogger.Log(mlWarning, Format(
+              'Key-expiry cadence: key_id=%d failed (%s)', [KeyId, E.Message]));
+            Inc(FailedCount);
+          end;
+        end;
+        Qry.Next;
+      end;
+    finally
+      Qry.Free;
+    end;
+
+    if (EmittedCount > 0) or (FailedCount > 0) then
+      FLogger.Log(mlInfo, Format(
+        'Key-expiry cadence: %d warnings emitted, %d failed',
+        [EmittedCount, FailedCount]))
+    else
+      FLogger.Log(mlDebug, 'Key-expiry cadence: no stage transitions');
+  except
+    on E: Exception do
+      FLogger.Log(mlWarning, 'Key-expiry cadence failed: ' + E.Message);
   end;
 end;
 
