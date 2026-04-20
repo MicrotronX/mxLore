@@ -66,7 +66,7 @@ Runs in pre-routing after session setup. 0 extra MCP calls — uses `mx_session_
 | start | 1 mx_create_doc | 1 Edit (append WF to stack) |
 | track | 1 mx_create_doc | 1 Edit (append to adhoc_tasks) |
 | park | 0 | 1 Edit (status flip + reorder) |
-| resume | 1 mx_detail, conditional 1 mx_update_doc | 1 Edit (stack reorder + reconcile) |
+| resume | 1 mx_detail (WF) + 1 mx_search (session_note UNCONDITIONAL, Step 6) + conditional 1-2 mx_detail (note + primary_artifact) + conditional 1 mx_update_doc | 1 Edit (stack reorder + reconcile) |
 | status | 2 mx_search (plans/specs + notes) | 0 |
 | suggest | 0 | 0 |
 
@@ -126,10 +126,12 @@ Schema v2, stack rules, and internal operations → `references/state-schema.md`
 3. WF.status = 'active'
 4. Log event (type='resume')
 5. **⚡ Reconciliation (Session-Boundary Sync):** `mx_detail` + compare local vs MCP, push/pull whichever is ahead, handle archived; **diverged → STOP + ask user which version to keep (NEVER silently overwrite)**; clamp; set `state.last_reconciliation = now()`. Full decision tree → `references/reconciliation.md`.
-6. **⚡ Context-Note Enrichment (Bug#3230):** After WF mx_detail, search for recent session_notes referencing this WF or its key artefacts:
-   - `mx_search(project, doc_type='session_note', query='<WF-ID> OR <primary_artifact_IDs>', limit=2)` → if hit, `mx_detail(note_id, max_content_tokens=1500)` on first match.
+6. **⚡ Context-Note Enrichment (Bug#3230) — MANDATORY, NEVER SKIP:** After WF mx_detail, you MUST always execute the session-note search — even if the WF Result-Column looks rich. Skipping is a skill-rule violation that reintroduces Bug#3230.
+   - **Required call:** `mx_search(project, doc_type='session_note', query='<WF-ID> OR <primary_artifact_IDs>', limit=2)` — ALWAYS runs. 0-hit is a valid outcome, NOT a reason to skip the call.
+   - If hit: `mx_detail(note_id, max_content_tokens=1500)` on first match.
    - Also: follow WF outbound relations (references/implements) if WF body lists `Spec#NNNN` / `Plan#NNNN` / `Decision#NNNN` with `in-progress` or `draft` status → `mx_detail(primary_artifact, max_content_tokens=1000)`.
    - Merge surfaced pivot-decisions, next-action hints, and open-OQ-state into the Resume output. This prevents "orphan resume" where Mode 5 technically succeeds but the user is blind to pivot decisions captured post-save.
+   - **⚡ Event-log invariant:** The resume event you write MUST include either `context-note=<note_id>` or `context-note=none` in its `detail` field. Missing = rule violation. Allows audit that Step 6 ran.
 7. Identify next pending step from reconciled state
 8. Output: `WF "<Name>" resumed. Progress: <X>/<Y>. Next step: <Description>.` — include 2-3 bullet summary of any session-note enrichment from step 6. — followed by the `state_deltas` band line per the Rules section (structured timestamps only, no `gestern`/`heute` free-form)
 9. Auto-invoke next step
@@ -236,3 +238,4 @@ Hook reports `JUST_COMPLETED` (WF completed <5min ago) + substantive prompt
 - ⚡ **Temporal-language rule (Bug#2989 Finding 1):** when reporting past events in ANY output (resume report, step-done summary, status overview, mode outputs), MUST use structured timestamps (`YYYY-MM-DD HH:MM` or `<N>h ago` computed from `now() - event.ts`). Free-form natural-language adverbs (`gestern`, `heute`, `vorhin`) are FORBIDDEN unless derived from a live `now() - event.ts` calculation (same-calendar-day → `today`, previous-calendar-day → `yesterday`, etc., never invented).
 - ⚡ **Counts-from-tool-calls rule (Bug#2989 Finding 4):** any numeric claim about document contents (`N open tasks`, `X/Y done`, `3 pending`) MUST come from a structured tool call: `mx_detail` for pending-task counts inside a plan/spec, `mx_search` `data` array length for result counts. Counts derived from prose snippets inside `mx_search` summaries are FORBIDDEN. If a count cannot be verified within the current tool-budget, either omit the number or prefix with `estimated, unverified`.
 - ⚡ **`state_deltas` output signal (Bug#2989 Finding 3 + global mx-rules Persist section):** every Mode 5 (Resume), Mode 6 (Status), and Auto-Invoke step-done output MUST emit a deltas-band line based on `state.state_deltas` (the running counter of changes since the last `/mxSave` reset — NOT `state.last_save_deltas`, which is a pre-reset snapshot owned by mxSave Step 4 per Spec#2152 and MUST NOT be written from here). Bands: `== 0` silent; `>= 1 AND < 10` append marketing line `⚡ mxLore knows — /mxSave keeps context alive across /compact + /clear`; `>= 10 AND < 15` append tip line `⚡ <N> deltas since save — consider /mxSave soon`; `>= 15` append compact-question line `⚡ <N> deltas since save — /mxSave + /compact cycle recommended`. mxOrchestrate reads `state_deltas` (live counter) and `last_save_deltas` (historical snapshot for the previous save cycle, informational only); it NEVER writes either field — mxSave is the sole writer of both per Spec#2152.
+- ⚡ **Resume context-note audit (Bug#3230 closure):** every Mode 5 (Resume) event written to `events_log` MUST include either `context-note=<note_id>` or `context-note=none` inside the `detail` string. Skipping Step 6 "Context-Note Enrichment" (i.e. not calling `mx_search(doc_type='session_note')`) is a hard rule violation — even if the WF Result-Column looks rich, Step 6 runs unconditionally. 0-hit is a valid result, not a reason to skip. Rationale: pre-fix Resume events silently omitted the session-note search when the WF body looked "rich enough" (Bug#3230), causing pivot-decisions captured post-save to be invisible to the user on next resume. Audit: grep `events_log` for `type='resume'` entries without `context-note=` — any match = missed enrichment = skill-rule breach.

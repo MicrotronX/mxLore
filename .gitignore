@@ -28,6 +28,7 @@ logs/
 backups/
 release/
 lib/
+bin/
 docs/status.md
 docs/reference/
 docs/ops/
@@ -67,3 +68,4 @@ config/
 
 # Local session-safety-net handoff docs (CLAUDE.md rule)
 docs/handoff-*.md
+docs/session-*.md

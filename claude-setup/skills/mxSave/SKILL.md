@@ -151,13 +151,16 @@ Step 5 runs in Main context synchronously (see Execution Mode Phase 3 + Step 5 h
 ⚡ **Body-Validation Gate — BEFORE mx_create_doc:**
 The subagent-returned body string MAY be empty/truncated/error-prose when the subagent crashes, hits its token cap, or returns a meta-reply instead of the template content. Persisting such a body produces a session_note whose `content=""` — the next session's resume has no archived context. Gate to prevent that:
 
-Validate the body string against BOTH criteria:
+Validate the body string against ALL THREE criteria:
 1. **Length:** `len(body) >= 500` chars.
 2. **Structure:** contains at least 3 of the template section headers (`## What was done`, `## Changed files`, `## Commits`, `## Docs created this session`, `## Next step`).
+3. **Archive-Fidelity (Bug#3239 hardening):** if the chat history contains structured decision artefacts — markdown tables with ≥5 rows, `## Step N`, `## Substep`, `## Konsens`, `## Brainstorm`, `## Review` headings, or Q/A-resolution blocks — the returned body MUST contain at least one matching `## Appendix:` heading per detected artefact-class. Regex: detect artefacts via `^\|[^\n]+\|$` ×≥5 consecutive lines OR `^## (Step \d+|Substep|Konsens|Brainstorm|Review)` in chat; body must carry `^## Appendix:` followed by the verbatim block. Missing appendix for a detected artefact = fidelity-fail.
 
-If either criterion fails: DO NOT pass the subagent body to `mx_create_doc`. Instead, Main builds a fallback body directly in the current context (no subagent) using the same template, reading from chat history / tool-call returns / git state. Then log once:
-`WARN: Step 5 body-subagent returned N chars (< threshold); fallback to local prose.`
-Invariant: the body passed to `mx_create_doc` is NEVER empty AND NEVER shorter than the local fallback — a degraded fallback beats a silent body-drop.
+If ANY criterion fails: DO NOT pass the subagent body to `mx_create_doc`. Instead, Main builds a fallback body directly in the current context (no subagent) using the same template, reading from chat history / tool-call returns / git state — and MUST include all detected decision artefacts verbatim under `## Appendix:` sections. Then log once:
+`WARN: Step 5 body-subagent returned N chars, K sections, M/X fidelity-artefacts preserved (< threshold); fallback to local prose.`
+Invariant: the body passed to `mx_create_doc` is NEVER empty AND NEVER shorter than the local fallback AND NEVER drops detected decision artefacts — a degraded fallback beats a silent body-drop or compression-loss.
+
+⚡ **Subagent dispatch hardening (Bug#3239):** when spawning the body-builder subagent, pre-scan the chat history for the artefact classes above and pass an explicit `required_appendices` list in the subagent prompt (e.g. `required_appendices: ["Konsens-Tabelle Step 4", "CC2050 Review Outcome", "Q3 Body-Limits 2000/8000"]`). Raise the token budget hint to 8000 for Brainstorm/Review-heavy sessions (already allowed per Archive-Fidelity Rule). The subagent cannot "forget" appendices under compression pressure when they are enumerated as required parameters.
 
 ⚡ **Status must be `active`:** Session-notes are finalised at save-time. Pass `status='active'` explicitly — leaving it at the server's `draft` default breaks resume-enrichment pairing in the next session.
 ```
