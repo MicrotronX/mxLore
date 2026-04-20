@@ -1314,6 +1314,12 @@
         <i data-lucide="network" class="icon-xs"></i>
         <span>Connect URLs</span>
       </button>
+      <button class="pd-tab" role="tab" data-tab="runtime"
+              aria-selected="false" tabindex="-1"
+              onclick="App.switchSettingsTab('runtime')">
+        <i data-lucide="settings" class="icon-xs"></i>
+        <span>Runtime Config</span>
+      </button>
       <button class="pd-tab" role="tab" data-tab="syslog"
               aria-selected="false" tabindex="-1"
               onclick="App.switchSettingsTab('syslog')">
@@ -1407,6 +1413,21 @@
           </button>
         </div>
       </form>
+    </div>
+
+    <!-- Tab: Runtime Config (FR#3610 — editable INI settings with 3-tier safety) -->
+    <div class="pd-tab-panel" data-panel="runtime" role="tabpanel" hidden>
+      <div class="alert alert--warning visible" style="display:block; max-width: 880px">
+        <strong>🔒 Security boundary:</strong>
+        Secrets (<code>*ApiKey</code>, <code>*Password</code>, <code>*_Enc</code>)
+        are masked as <code>***</code> and never editable through this UI.
+        High-impact infrastructure keys (BindAddress, ServerPort, DB.Host etc.)
+        are shown but not editable — change those directly in
+        <code>mxLoreMCP.ini</code> on the server host and restart the service.
+      </div>
+      <div id="runtime-config-body" class="runtime-config" style="max-width: 880px">
+        <div class="empty-state"><span class="spinner"></span></div>
+      </div>
     </div>
 
     <!-- Tab: Syslog (FR#3296 Phase B — placeholder until backend endpoint ships) -->

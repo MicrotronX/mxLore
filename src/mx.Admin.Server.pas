@@ -92,7 +92,7 @@ uses
   mx.Admin.Api.Global, mx.Admin.Api.Skills,
   mx.Admin.Api.Settings, mx.Admin.Api.Invite,
   mx.Admin.Api.SelfUpdate, mx.Admin.Api.Notes,
-  mx.Admin.Api.Intelligence;
+  mx.Admin.Api.Intelligence, mx.Admin.Api.IniEditor;
 
 { Shared helpers }
 
@@ -653,6 +653,23 @@ begin
       Exit;
     end;
 
+    MxSendError(C, 404, 'not_found');
+    Exit;
+  end;
+
+  // /ini + /settings/reload — FR#3610 runtime config editor
+  if SameText(ASegments[0], 'ini') then
+  begin
+    if (Len = 1) and (C.Request.MethodType = THttpMethod.Get) then
+    begin
+      mx.Admin.Api.IniEditor.HandleGetIni(C, FPool, FConfig, FLogger);
+      Exit;
+    end;
+    if (Len = 1) and (C.Request.MethodType = THttpMethod.Put) then
+    begin
+      mx.Admin.Api.IniEditor.HandleSetIni(C, FPool, FConfig, FLogger);
+      Exit;
+    end;
     MxSendError(C, 404, 'not_found');
     Exit;
   end;

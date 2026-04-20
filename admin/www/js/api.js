@@ -293,6 +293,16 @@ const Api = (function () {
     return request('GET', '/projects/' + encodeURIComponent(projId) + '/reviews');
   }
 
+  // --- INI editor (FR#3610 runtime config) ---
+  function getIni() {
+    return request('GET', '/ini');
+  }
+  function setIniValue(section, key, value) {
+    return request('PUT', '/ini', {
+      section: section, key: key, value: value
+    });
+  }
+
   return {
     setCsrfToken: setCsrfToken,
     getCsrfToken: getCsrfToken,
@@ -348,6 +358,10 @@ const Api = (function () {
     getIntelligenceStatus: getIntelligenceStatus,
     getDocThread: getDocThread,
     getProjectReviews: getProjectReviews,
+
+    // --- FR#3610 Runtime Config (INI editor) ---
+    getIni: getIni,
+    setIniValue: setIniValue,
 
     // --- Settings (v2.4.0) ---
     getSettings: function () {

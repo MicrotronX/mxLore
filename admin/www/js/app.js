@@ -660,7 +660,7 @@ var App = (function () {
   // ============================================================
   // FR#3296 — Settings-Page tab switching (mirrors switchDocTab).
   function switchSettingsTab(tabName, skipHashUpdate) {
-    var valid = ['self-update', 'connect', 'syslog'];
+    var valid = ['self-update', 'connect', 'runtime', 'syslog'];
     if (valid.indexOf(tabName) < 0) tabName = 'self-update';
     $$('#page-settings .pd-tab').forEach(function (btn) {
       var on = btn.dataset.tab === tabName;
@@ -677,7 +677,90 @@ var App = (function () {
     if (!skipHashUpdate) {
       location.hash = 'settings' + (tabName !== 'self-update' ? '/' + tabName : '');
     }
+    if (tabName === 'runtime') loadRuntimeConfig();
     Icons.render();
+  }
+
+  // FR#3610 — Runtime Config (INI editor) render + per-key save.
+  async function loadRuntimeConfig() {
+    var body = $('#runtime-config-body');
+    if (!body) return;
+    body.innerHTML = '<div class="empty-state"><span class="spinner"></span></div>';
+    try {
+      var resp = await Api.getIni();
+      var sections = (resp && resp.sections) || {};
+      var sectionNames = Object.keys(sections).sort();
+      if (!sectionNames.length) {
+        body.innerHTML = '<div class="empty-state">INI is empty.</div>';
+        return;
+      }
+      body.innerHTML = sectionNames.map(function (sec) {
+        var keys = Object.keys(sections[sec] || {}).sort();
+        var rows = keys.map(function (k) {
+          var info = sections[sec][k] || {};
+          var tier = info.tier || 'editable';
+          var value = info.value == null ? '' : String(info.value);
+          var safeId = 'rc-' + sec.replace(/\W/g, '_') + '-' + k.replace(/\W/g, '_');
+          if (tier === 'editable') {
+            return '<div class="rc-row rc-row--editable">' +
+              '<label for="' + safeId + '" class="rc-row__key">' + escHtml(k) + '</label>' +
+              '<input id="' + safeId + '" type="text" class="rc-row__input form-input" ' +
+                'value="' + escHtml(value) + '" ' +
+                'data-section="' + escHtml(sec) + '" data-key="' + escHtml(k) + '" ' +
+                'data-original="' + escHtml(value) + '">' +
+              '<button type="button" class="btn btn--primary rc-row__save" ' +
+                'onclick="App.saveIniValue(\'' + escJsStr(sec) + '\', \'' + escJsStr(k) + '\', \'' + safeId + '\')">' +
+                '<i data-lucide="save" class="icon-xs"></i> Save' +
+              '</button>' +
+            '</div>';
+          }
+          // tier=read_only OR secret — disabled input
+          var lockHint = tier === 'secret'
+            ? 'Secret — managed in mxLoreMCP.ini'
+            : 'High-impact — managed in mxLoreMCP.ini + restart';
+          return '<div class="rc-row rc-row--' + tier + '">' +
+            '<label class="rc-row__key">' + escHtml(k) +
+              ' <i data-lucide="lock" class="icon-xs" title="' + escHtml(lockHint) + '"></i></label>' +
+            '<input type="text" class="rc-row__input form-input" value="' + escHtml(value) + '" disabled>' +
+            '<span class="rc-row__hint">' + escHtml(lockHint) + '</span>' +
+          '</div>';
+        }).join('');
+        return '<div class="rc-section">' +
+          '<h4 class="rc-section__title">[' + escHtml(sec) + ']</h4>' +
+          rows +
+        '</div>';
+      }).join('');
+      Icons.render();
+    } catch (err) {
+      body.innerHTML = '<div class="empty-state">Failed to load INI: ' +
+        escHtml((err && err.message) || 'unknown') + '</div>';
+    }
+  }
+
+  async function saveIniValue(section, key, inputId) {
+    var el = document.getElementById(inputId);
+    if (!el) return;
+    var newValue = el.value;
+    var originalValue = el.getAttribute('data-original') || '';
+    if (newValue === originalValue) {
+      showAlert('settings-alert', 'info', 'No change for [' + section + '] ' + key);
+      return;
+    }
+    el.disabled = true;
+    try {
+      var resp = await Api.setIniValue(section, key, newValue);
+      el.setAttribute('data-original', newValue);
+      var restartHint = resp && resp.restart_required
+        ? ' (⚠ server restart required to apply)'
+        : ' — re-read on next server boot';
+      showAlert('settings-alert', 'success',
+        'Saved [' + section + '] ' + key + restartHint);
+    } catch (err) {
+      showAlert('settings-alert', 'error',
+        'Save failed: ' + ((err && err.message) || 'unknown'));
+    } finally {
+      el.disabled = false;
+    }
   }
 
   async function loadSettingsPage() {
@@ -3744,6 +3827,7 @@ var App = (function () {
     loadGlobalPage: loadGlobalPage,
     loadSkillsPage: loadSkillsPage,
     switchSettingsTab: switchSettingsTab,
+    saveIniValue: saveIniValue,
     switchSkillTab: switchSkillTab,
     skillFeedback: skillFeedback,
     runCleanup: runCleanup,

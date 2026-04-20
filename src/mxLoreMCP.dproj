@@ -224,6 +224,7 @@
         <DCCReference Include="mx.Admin.Api.Global.pas"/>
         <DCCReference Include="mx.Admin.Api.Notes.pas"/>
         <DCCReference Include="mx.Admin.Api.Intelligence.pas"/>
+        <DCCReference Include="mx.Admin.Api.IniEditor.pas"/>
         <DCCReference Include="mx.Tool.Notes.pas"/>
         <DCCReference Include="mx.Tool.Keys.pas"/>
         <DCCReference Include="mx.Tool.Env.pas"/>
