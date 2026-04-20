@@ -51,6 +51,18 @@ procedure HandleDeleteRelation(const C: THttpServerContext;
 procedure HandleDeleteProjectRelation(const C: THttpServerContext;
   APool: TMxConnectionPool; ARelId: Integer; ALogger: IMxLogger);
 
+// FR#3472 A (SPEC#3583): GET /docs/:id/thread — hierarchischer Review-Thread
+// ausgehend von Doc :id, via WITH RECURSIVE CTE über doc_relations.review-on.
+// depth<10 cap + LIMIT 200 rows.
+procedure HandleGetDocThread(const C: THttpServerContext;
+  APool: TMxConnectionPool; ADocId: Integer; ALogger: IMxLogger);
+
+// FR#3472 C (SPEC#3583): GET /projects/:id/reviews — Root-Aggregate aller
+// Review-Threads im Projekt (Docs mit review-Kindern), 1-Query GROUP BY
+// root_parent_doc_id, ORDER BY last_activity DESC, LIMIT 100.
+procedure HandleListProjectReviews(const C: THttpServerContext;
+  APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
+
 implementation
 
 uses
@@ -796,13 +808,20 @@ var
   Qry: TFDQuery;
   Json: TJSONObject;
   Items: TJSONArray;
-  SQL, FilterType, FilterQ, FilterStatus, Qstr: string;
-  Lim, Off: Integer;
+  SQL, FilterType, FilterQ, FilterStatus, FilterDocIdStr, Qstr: string;
+  FilterDocId, Lim, Off: Integer;
 begin
   Qstr := C.Request.Uri.Query;
   FilterType   := Trim(QGet(Qstr, 'type'));
   FilterQ      := Trim(QGet(Qstr, 'q'));
   FilterStatus := Trim(QGet(Qstr, 'status'));
+  // FR#3472 B: explicit doc-id lookup short-path. Accepts `123` or `#123`.
+  // When set AND numeric -> ignores type/q/status/limit/offset and returns
+  // the single matching row (or empty array for cross-project / not-found).
+  FilterDocIdStr := Trim(QGet(Qstr, 'doc_id'));
+  if (Length(FilterDocIdStr) > 0) and (FilterDocIdStr[1] = '#') then
+    FilterDocIdStr := Copy(FilterDocIdStr, 2, Length(FilterDocIdStr) - 1);
+  FilterDocId := StrToIntDef(FilterDocIdStr, 0);
   Lim := StrToIntDef(QGet(Qstr, 'limit'), 100);
   Off := StrToIntDef(QGet(Qstr, 'offset'), 0);
   if Lim < 1  then Lim := 1;
@@ -817,16 +836,27 @@ begin
     'FROM documents d ' +
     'LEFT JOIN developers dev ON d.created_by_developer_id = dev.id ' +
     'WHERE d.project_id = :pid';
-  // Hide deleted docs by default; show them when explicitly requested via filter.
-  if FilterStatus = '' then
-    SQL := SQL + ' AND d.status <> ''deleted''';
-  if FilterType <> '' then
-    SQL := SQL + ' AND d.doc_type = :ftype';
-  if FilterStatus <> '' then
-    SQL := SQL + ' AND d.status = :fstatus';
-  if FilterQ <> '' then
-    SQL := SQL + ' AND (d.title LIKE :fq OR d.summary_l1 LIKE :fq)';
-  SQL := SQL + ' ORDER BY d.updated_at DESC LIMIT :lim OFFSET :off';
+  if FilterDocId > 0 then
+  begin
+    // Exact-id short-path: scope to project_id prevents cross-project leaks
+    // (unknown/foreign id returns empty set, not 404 — same as q-filter misses).
+    SQL := SQL + ' AND d.id = :did';
+    // Intentional: skip status, type, q filters when doing id-lookup.
+    SQL := SQL + ' ORDER BY d.updated_at DESC LIMIT 1';
+  end
+  else
+  begin
+    // Hide deleted docs by default; show them when explicitly requested via filter.
+    if FilterStatus = '' then
+      SQL := SQL + ' AND d.status <> ''deleted''';
+    if FilterType <> '' then
+      SQL := SQL + ' AND d.doc_type = :ftype';
+    if FilterStatus <> '' then
+      SQL := SQL + ' AND d.status = :fstatus';
+    if FilterQ <> '' then
+      SQL := SQL + ' AND (d.title LIKE :fq OR d.summary_l1 LIKE :fq)';
+    SQL := SQL + ' ORDER BY d.updated_at DESC LIMIT :lim OFFSET :off';
+  end;
 
   Json := TJSONObject.Create;
   try
@@ -835,14 +865,21 @@ begin
     Qry := Ctx.CreateQuery(SQL);
     try
       Qry.ParamByName('pid').AsInteger := AProjId;
-      if FilterType <> '' then
-        Qry.ParamByName('ftype').AsWideString :=LowerCase(FilterType);
-      if FilterStatus <> '' then
-        Qry.ParamByName('fstatus').AsWideString :=LowerCase(FilterStatus);
-      if FilterQ <> '' then
-        Qry.ParamByName('fq').AsWideString :='%' + FilterQ + '%';
-      Qry.ParamByName('lim').AsInteger := Lim;
-      Qry.ParamByName('off').AsInteger := Off;
+      if FilterDocId > 0 then
+      begin
+        Qry.ParamByName('did').AsInteger := FilterDocId;
+      end
+      else
+      begin
+        if FilterType <> '' then
+          Qry.ParamByName('ftype').AsWideString :=LowerCase(FilterType);
+        if FilterStatus <> '' then
+          Qry.ParamByName('fstatus').AsWideString :=LowerCase(FilterStatus);
+        if FilterQ <> '' then
+          Qry.ParamByName('fq').AsWideString :='%' + FilterQ + '%';
+        Qry.ParamByName('lim').AsInteger := Lim;
+        Qry.ParamByName('off').AsInteger := Off;
+      end;
       Qry.Open;
       while not Qry.Eof do
       begin
@@ -1332,6 +1369,242 @@ begin
       ALogger.Log(mlError, '[DeleteProjectRelation] ' + E.Message);
       MxSendError(C, 500, 'internal_error');
     end;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// FR#3472 A — GET /docs/:id/thread
+// Hierarchischer Review-Thread via WITH RECURSIVE CTE über
+// doc_relations.review-on (Edge source=child, target=parent).
+// ---------------------------------------------------------------------------
+procedure HandleGetDocThread(const C: THttpServerContext;
+  APool: TMxConnectionPool; ADocId: Integer; ALogger: IMxLogger);
+const
+  DEPTH_CAP = 10;
+  ROW_CAP   = 200;
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  Json: TJSONObject;
+  Thread: TJSONArray;
+  Item: TJSONObject;
+  RowCount, MaxDepth: Integer;
+  RootFound: Boolean;
+begin
+  if ADocId <= 0 then
+  begin
+    MxSendError(C, 400, 'invalid_id');
+    Exit;
+  end;
+
+  Json := TJSONObject.Create;
+  try
+    Ctx := APool.AcquireContext;
+
+    // Existence pre-check: 404 wenn Root-Doc gar nicht existiert (oder deleted).
+    RootFound := False;
+    Qry := Ctx.CreateQuery(
+      'SELECT 1 FROM documents WHERE id = :id AND status <> ''deleted'' LIMIT 1');
+    try
+      Qry.ParamByName('id').AsInteger := ADocId;
+      Qry.Open;
+      RootFound := not Qry.IsEmpty;
+    finally
+      Qry.Free;
+    end;
+    if not RootFound then
+    begin
+      MxSendError(C, 404, 'not_found');
+      Exit;
+    end;
+
+    Qry := Ctx.CreateQuery(
+      'WITH RECURSIVE thread AS (' +
+      '  SELECT d.id, d.doc_type, d.title, d.summary_l1, d.status, ' +
+      '         d.created_at, d.created_by_developer_id, ' +
+      '         0 AS depth, CAST(NULL AS SIGNED) AS parent_doc_id ' +
+      '  FROM documents d WHERE d.id = :root_id AND d.status <> ''deleted'' ' +
+      '  UNION ALL ' +
+      '  SELECT d.id, d.doc_type, d.title, d.summary_l1, d.status, ' +
+      '         d.created_at, d.created_by_developer_id, ' +
+      '         t.depth + 1 AS depth, r.target_doc_id AS parent_doc_id ' +
+      '  FROM documents d ' +
+      '  JOIN doc_relations r ON r.source_doc_id = d.id ' +
+      '                      AND r.relation_type = ''review-on'' ' +
+      '  JOIN thread t ON r.target_doc_id = t.id ' +
+      '  WHERE t.depth < :depth_cap AND d.status <> ''deleted'' ' +
+      ') ' +
+      'SELECT t.id, t.doc_type, t.title, t.summary_l1, t.status, ' +
+      '       t.created_at, t.created_by_developer_id, ' +
+      '       dev.name AS author_name, ' +
+      '       t.depth, t.parent_doc_id ' +
+      'FROM thread t ' +
+      'LEFT JOIN developers dev ON dev.id = t.created_by_developer_id ' +
+      'ORDER BY t.depth, t.created_at ' +
+      'LIMIT :lim');
+    try
+      Qry.ParamByName('root_id').AsInteger    := ADocId;
+      Qry.ParamByName('depth_cap').AsInteger  := DEPTH_CAP;
+      Qry.ParamByName('lim').AsInteger        := ROW_CAP;
+      Qry.Open;
+
+      Thread := TJSONArray.Create;
+      try
+        RowCount := 0;
+        MaxDepth := 0;
+        while not Qry.Eof do
+        begin
+          Item := TJSONObject.Create;
+          try
+            Item.AddPair('id',
+              TJSONNumber.Create(Qry.FieldByName('id').AsInteger));
+            Item.AddPair('doc_type',   Qry.FieldByName('doc_type').AsString);
+            Item.AddPair('title',      Qry.FieldByName('title').AsString);
+            Item.AddPair('summary_l1', Qry.FieldByName('summary_l1').AsString);
+            Item.AddPair('status',     Qry.FieldByName('status').AsString);
+            Item.AddPair('created_at',
+              FormatDateTime('yyyy-mm-dd"T"hh:nn:ss',
+                Qry.FieldByName('created_at').AsDateTime));
+            if Qry.FieldByName('created_by_developer_id').IsNull then
+            begin
+              Item.AddPair('created_by_developer_id', TJSONNull.Create);
+              Item.AddPair('author_name', TJSONNull.Create);
+            end
+            else
+            begin
+              Item.AddPair('created_by_developer_id',
+                TJSONNumber.Create(
+                  Qry.FieldByName('created_by_developer_id').AsInteger));
+              Item.AddPair('author_name',
+                Qry.FieldByName('author_name').AsString);
+            end;
+            Item.AddPair('depth',
+              TJSONNumber.Create(Qry.FieldByName('depth').AsInteger));
+            if Qry.FieldByName('parent_doc_id').IsNull then
+              Item.AddPair('parent_doc_id', TJSONNull.Create)
+            else
+              Item.AddPair('parent_doc_id',
+                TJSONNumber.Create(
+                  Qry.FieldByName('parent_doc_id').AsInteger));
+            Thread.AddElement(Item);
+          except
+            Item.Free;
+            raise;
+          end;
+          if Qry.FieldByName('depth').AsInteger > MaxDepth then
+            MaxDepth := Qry.FieldByName('depth').AsInteger;
+          Inc(RowCount);
+          Qry.Next;
+        end;
+
+        Json.AddPair('root_id', TJSONNumber.Create(ADocId));
+        Json.AddPair('thread', Thread);
+        Thread := nil;  // ownership transferred to Json
+        Json.AddPair('max_depth_reached', TJSONBool.Create(MaxDepth >= DEPTH_CAP));
+        Json.AddPair('truncated',         TJSONBool.Create(RowCount >= ROW_CAP));
+      except
+        Thread.Free;
+        raise;
+      end;
+    finally
+      Qry.Free;
+    end;
+
+    MxSendJson(C, 200, Json);
+  finally
+    Json.Free;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// FR#3472 C — GET /projects/:id/reviews
+// Root-Aggregate aller Review-Threads im Projekt. 1-Query GROUP BY, kein N+1.
+// ---------------------------------------------------------------------------
+procedure HandleListProjectReviews(const C: THttpServerContext;
+  APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
+const
+  LIMIT_ROWS = 100;
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  Json: TJSONObject;
+  Reviews: TJSONArray;
+  Item: TJSONObject;
+  RowCount: Integer;
+begin
+  if AProjId <= 0 then
+  begin
+    MxSendError(C, 400, 'invalid_id');
+    Exit;
+  end;
+
+  Json := TJSONObject.Create;
+  try
+    Ctx := APool.AcquireContext;
+
+    Qry := Ctx.CreateQuery(
+      'SELECT r.id AS root_id, r.doc_type, r.title, r.status, ' +
+      '  COUNT(c.id) AS reply_count, ' +
+      '  MAX(c.depth) AS max_depth, ' +
+      '  MAX(c.created_at) AS last_activity ' +
+      'FROM documents r ' +
+      'JOIN documents c ON c.root_parent_doc_id = r.id ' +
+      'WHERE r.project_id = :pid ' +
+      '  AND c.project_id = :pid ' +
+      '  AND c.status <> ''deleted'' ' +
+      '  AND r.status <> ''deleted'' ' +
+      'GROUP BY r.id, r.doc_type, r.title, r.status ' +
+      'ORDER BY MAX(c.created_at) DESC ' +
+      'LIMIT :lim');
+    try
+      Qry.ParamByName('pid').AsInteger := AProjId;
+      Qry.ParamByName('lim').AsInteger := LIMIT_ROWS;
+      Qry.Open;
+
+      Reviews := TJSONArray.Create;
+      try
+        RowCount := 0;
+        while not Qry.Eof do
+        begin
+          Item := TJSONObject.Create;
+          try
+            Item.AddPair('root_id',
+              TJSONNumber.Create(Qry.FieldByName('root_id').AsInteger));
+            Item.AddPair('doc_type', Qry.FieldByName('doc_type').AsString);
+            Item.AddPair('title',    Qry.FieldByName('title').AsString);
+            Item.AddPair('status',   Qry.FieldByName('status').AsString);
+            Item.AddPair('reply_count',
+              TJSONNumber.Create(Qry.FieldByName('reply_count').AsInteger));
+            Item.AddPair('max_depth',
+              TJSONNumber.Create(Qry.FieldByName('max_depth').AsInteger));
+            Item.AddPair('last_activity',
+              FormatDateTime('yyyy-mm-dd"T"hh:nn:ss',
+                Qry.FieldByName('last_activity').AsDateTime));
+            Reviews.AddElement(Item);
+          except
+            Item.Free;
+            raise;
+          end;
+          Inc(RowCount);
+          Qry.Next;
+        end;
+
+        Json.AddPair('reviews', Reviews);
+        Reviews := nil;  // ownership transferred to Json
+        Json.AddPair('total', TJSONNumber.Create(RowCount));
+        Json.AddPair('truncated',
+          TJSONBool.Create(RowCount >= LIMIT_ROWS));
+      except
+        Reviews.Free;
+        raise;
+      end;
+    finally
+      Qry.Free;
+    end;
+
+    MxSendJson(C, 200, Json);
+  finally
+    Json.Free;
   end;
 end;
 

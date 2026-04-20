@@ -533,6 +533,13 @@
         <i data-lucide="file-text" class="icon-xs"></i>
         <span>Docs</span>
       </button>
+      <button class="pd-tab" role="tab" data-tab="reviews"
+              aria-selected="false" tabindex="-1"
+              onclick="App.switchProjectTab('reviews')">
+        <i data-lucide="git-branch" class="icon-xs"></i>
+        <span>Reviews</span>
+        <span id="pd-reviews-count" class="badge badge--small" hidden></span>
+      </button>
       <button class="pd-tab" role="tab" data-tab="relations"
               aria-selected="false" tabindex="-1"
               onclick="App.switchProjectTab('relations')">
@@ -629,6 +636,12 @@
           <option value="superseded">superseded</option>
           <option value="deleted">deleted</option>
         </select>
+        <!-- FR#3472 B — dedicated #Doc-ID lookup field -->
+        <input id="pd-docs-id" type="text" inputmode="numeric" maxlength="8"
+               class="pd-docs-filter__id" placeholder="# Doc-ID"
+               title="Exact doc-id lookup (ignores other filters)"
+               onkeydown="if(event.key==='Enter'){App.loadDocsList()}"
+               oninput="App.onDocsIdInput()">
         <span id="pd-docs-count" class="pd-docs-filter__count"></span>
       </div>
 
@@ -649,6 +662,19 @@
             </tbody>
           </table>
         </div>
+      </div>
+    </div>
+
+    <!-- Tab: Reviews (FR#3472 C / SPEC#3583) -->
+    <div class="pd-tab-panel" data-panel="reviews" role="tabpanel" hidden>
+      <div class="detail-card">
+        <div class="detail-card__header">
+          <span class="detail-card__title">
+            <i data-lucide="git-branch" class="icon-sm"></i> Review threads
+          </span>
+          <span id="pd-reviews-hint" class="detail-card__hint" hidden></span>
+        </div>
+        <div id="pd-reviews-body" class="reviews-list"></div>
       </div>
     </div>
 
@@ -777,6 +803,19 @@
           <tbody id="doc-detail-relations-body"></tbody>
         </table>
       </div>
+    </div>
+
+    <!-- FR#3472 A / SPEC#3583 — Review-thread hierarchy -->
+    <div class="detail-card" id="doc-detail-thread-card" hidden>
+      <div class="detail-card__header">
+        <span class="detail-card__title">
+          <i data-lucide="git-branch" class="icon-sm"></i>
+          Review Thread
+          <span id="doc-detail-thread-count" class="badge badge--small"></span>
+        </span>
+        <span id="doc-detail-thread-warn" class="detail-card__hint" hidden></span>
+      </div>
+      <div id="doc-detail-thread-body" class="thread-list"></div>
     </div>
   </div>
 
@@ -959,6 +998,9 @@
       </h2>
       <p class="page-header__sub">Skills, Lessons, Knowledge Graph &amp; Recall — self-improving AI memory</p>
     </div>
+
+    <!-- FR#3294 / SPEC#3583 — Semantic Search status banner -->
+    <div id="intel-banner" class="alert" style="margin-bottom:var(--gap-md);display:none"></div>
 
     <div id="skills-alert" class="alert" style="margin-bottom:var(--gap-md)"></div>
 
@@ -1704,5 +1746,6 @@
 <script src="js/app.js"></script>
 <script src="js/self-update.js"></script>
   <script src="js/deep-threads.js"></script>
+  <script src="js/intelligence.js"></script>
 </body>
 </html>

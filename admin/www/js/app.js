@@ -2803,9 +2803,9 @@ var App = (function () {
     }
   }
 
-  // FR#3353 Phase B — project-detail tab switching + hash persistence
+  // FR#3353 Phase B / FR#3472 C — project-detail tab switching + hash persistence
   function switchProjectTab(tabName, skipHashUpdate) {
-    var valid = ['team', 'docs', 'relations'];
+    var valid = ['team', 'docs', 'reviews', 'relations'];
     if (valid.indexOf(tabName) < 0) tabName = 'team';
     $$('.pd-tab').forEach(function (btn) {
       var on = btn.dataset.tab === tabName;
@@ -2823,13 +2823,143 @@ var App = (function () {
       location.hash = 'project/' + currentProjectId + '/' + tabName;
     }
     Icons.render();
-    // Lazy load docs list when switching to docs tab
+    // Lazy load per-tab content
     if (tabName === 'docs') loadDocsList();
+    if (tabName === 'reviews') loadProjectReviews();
+  }
+
+  // FR#3472 C / SPEC#3583 — Project-Detail Reviews-Tab
+  async function loadProjectReviews() {
+    if (!currentProjectId) return;
+    var body = $('#pd-reviews-body');
+    var cntEl = $('#pd-reviews-count');
+    var hintEl = $('#pd-reviews-hint');
+    if (!body) return;
+    body.innerHTML = '<div class="empty-state"><span class="spinner"></span></div>';
+    try {
+      var resp = await Api.getProjectReviews(currentProjectId);
+      var reviews = (resp && resp.reviews) || [];
+      var total = (resp && resp.total != null) ? resp.total : reviews.length;
+      if (cntEl) {
+        if (total > 0) {
+          cntEl.textContent = total;
+          cntEl.removeAttribute('hidden');
+        } else {
+          cntEl.setAttribute('hidden', '');
+        }
+      }
+      if (hintEl) {
+        if (resp && resp.truncated) {
+          hintEl.textContent = 'Showing first 100 threads — older threads are not listed.';
+          hintEl.removeAttribute('hidden');
+        } else {
+          hintEl.setAttribute('hidden', '');
+        }
+      }
+      if (!reviews.length) {
+        body.innerHTML = '<div class="reviews-empty">No review-threads in this project yet.</div>';
+        return;
+      }
+      body.innerHTML = reviews.map(function (r) {
+        var typeCls = 'doc-cell-type doc-cell-type--' + (r.doc_type || 'note');
+        var statusCls = r.status === 'active' ? 'active'
+                       : r.status === 'archived' ? 'inactive'
+                       : r.status === 'draft' ? 'read' : 'write';
+        var when = r.last_activity ? formatRelativeTime(r.last_activity) : '';
+        return '<div class="review-row" data-root-id="' + r.root_id + '">' +
+          '<span class="review-row__chevron mono">&#9656;</span>' +
+          '<span class="doc-type-badge ' + typeCls + '">' + escHtml(r.doc_type || 'doc') + '</span>' +
+          '<span class="review-row__title">' + escHtml(r.title || '(untitled)') + ' ' +
+            '<span class="mono" style="opacity:0.55;font-size:0.85em">#' + r.root_id + '</span>' +
+          '</span>' +
+          '<span class="badge badge--small badge--' + statusCls + '">' + escHtml(r.status || '—') + '</span>' +
+          '<span class="review-row__stats">' +
+            (r.reply_count || 0) + ' replies · depth ' + (r.max_depth || 0) +
+            ' · ' + escHtml(when) +
+          '</span>' +
+        '</div>';
+      }).join('');
+      // Wire up inline-expand: first click -> expand via /docs/:id/thread,
+      // second click -> collapse.
+      body.querySelectorAll('.review-row').forEach(function (row) {
+        row.addEventListener('click', onReviewRowClick);
+      });
+      Icons.render();
+    } catch (err) {
+      body.innerHTML = '<div class="reviews-empty">Failed to load reviews: ' +
+        escHtml((err && err.message) || 'unknown') + '</div>';
+    }
+  }
+
+  async function onReviewRowClick(ev) {
+    var row = ev.currentTarget;
+    var rootId = parseInt(row.getAttribute('data-root-id'), 10);
+    if (!rootId) return;
+    var next = row.nextElementSibling;
+    // Collapse if expansion already exists directly below.
+    if (next && next.classList.contains('review-expand') &&
+        next.getAttribute('data-root-id') === String(rootId)) {
+      next.parentNode.removeChild(next);
+      row.classList.remove('review-row--open');
+      return;
+    }
+    // Remove any other open expansion first (only one at a time).
+    var openExp = row.parentNode.querySelector('.review-expand');
+    if (openExp) {
+      openExp.parentNode.removeChild(openExp);
+      var prevOpenRow = row.parentNode.querySelector('.review-row--open');
+      if (prevOpenRow) prevOpenRow.classList.remove('review-row--open');
+    }
+    var expand = document.createElement('div');
+    expand.className = 'review-expand';
+    expand.setAttribute('data-root-id', String(rootId));
+    expand.innerHTML = '<div class="empty-state"><span class="spinner"></span></div>';
+    row.parentNode.insertBefore(expand, row.nextSibling);
+    row.classList.add('review-row--open');
+    try {
+      var resp = await Api.getDocThread(rootId);
+      var thread = (resp && resp.thread) || [];
+      if (thread.length <= 1) {
+        expand.innerHTML = '<div class="reviews-empty" style="padding:var(--gap-sm)">No replies.</div>';
+        return;
+      }
+      expand.innerHTML = '<div class="thread-list">' + thread.map(function (n) {
+        var typeCls = 'doc-cell-type doc-cell-type--' + (n.doc_type || 'note');
+        var statusCls = n.status === 'active' ? 'active'
+                       : n.status === 'archived' ? 'inactive'
+                       : n.status === 'draft' ? 'read' : 'write';
+        var author = n.author_name || '—';
+        var when = n.created_at ? formatRelativeTime(n.created_at) : '';
+        var titleLink =
+          '<a href="#" class="thread-node__title link" onclick="event.preventDefault();event.stopPropagation();App.openDoc(' + n.id + ')">' +
+          escHtml(n.title || '(untitled)') + '</a>';
+        return '<div class="thread-node" style="padding-left:' + (n.depth * 20) + 'px">' +
+          '<span class="doc-type-badge ' + typeCls + '">' + escHtml(n.doc_type || 'doc') + '</span> ' +
+          titleLink +
+          ' <span class="badge badge--small badge--' + statusCls + '">' + escHtml(n.status || '—') + '</span>' +
+          ' <span class="thread-node__meta"><span class="thread-node__id mono">#' + n.id + '</span> · ' +
+          escHtml(author) + ' · ' + escHtml(when) + '</span>' +
+          '</div>';
+      }).join('') + '</div>';
+    } catch (err) {
+      expand.innerHTML = '<div class="reviews-empty" style="padding:var(--gap-sm)">Failed to load thread: ' +
+        escHtml((err && err.message) || 'unknown') + '</div>';
+    }
   }
 
   // FR#3353 Phase C — doc list in docs tab
   var _docsFilterTimer = null;
   function onDocsFilterInput() {
+    if (_docsFilterTimer) clearTimeout(_docsFilterTimer);
+    _docsFilterTimer = setTimeout(loadDocsList, 300);
+  }
+  // FR#3472 B — debounce doc-id input; strip leading # + non-digits live.
+  function onDocsIdInput() {
+    var el = $('#pd-docs-id');
+    if (el) {
+      var cleaned = String(el.value || '').replace(/[^0-9#]/g, '').replace(/#/g, '');
+      if (cleaned !== el.value) el.value = cleaned;
+    }
     if (_docsFilterTimer) clearTimeout(_docsFilterTimer);
     _docsFilterTimer = setTimeout(loadDocsList, 300);
   }
@@ -2847,10 +2977,12 @@ var App = (function () {
     var body  = $('#pd-docs-body');
     var cntEl = $('#pd-docs-count');
     if (!body) return;
+    var docIdRaw = String(($('#pd-docs-id') || {}).value || '').trim().replace(/^#/, '');
     var opts = {
       type:   ($('#pd-docs-type')   || {}).value || '',
       status: ($('#pd-docs-status') || {}).value || '',
       q:      ($('#pd-docs-q')      || {}).value || '',
+      doc_id: /^\d+$/.test(docIdRaw) ? docIdRaw : '',
       limit:  200
     };
     body.innerHTML = '<tr><td colspan="5"><div class="empty-state"><span class="spinner"></span></div></td></tr>';
@@ -2919,14 +3051,73 @@ var App = (function () {
     $('#doc-detail-summary').textContent = '';
     $('#doc-detail-tags').innerHTML = '';
     $('#doc-detail-relations-card').setAttribute('hidden', '');
+    $('#doc-detail-thread-card').setAttribute('hidden', '');
     try {
       var d = await Api.getDoc(docId);
       _docProjectId = d.project_id || null;
       renderDocDetail(d);
+      // FR#3472 A — fire-and-forget thread-load; silent on error/empty
+      loadDocThread(docId);
     } catch (err) {
       showAlert('doc-detail-alert', 'error',
         'Failed to load doc: ' + (err && err.message ? err.message : 'unknown'));
       $('#doc-detail-title').textContent = 'Error';
+    }
+  }
+
+  // FR#3472 A / SPEC#3583 — render review-thread card on doc-detail page.
+  async function loadDocThread(docId) {
+    var card = $('#doc-detail-thread-card');
+    var body = $('#doc-detail-thread-body');
+    var count = $('#doc-detail-thread-count');
+    var warn = $('#doc-detail-thread-warn');
+    if (!card || !body) return;
+    try {
+      var resp = await Api.getDocThread(docId);
+      var thread = (resp && resp.thread) || [];
+      // Hide card entirely when only root-row (no review-children).
+      if (thread.length <= 1) {
+        card.setAttribute('hidden', '');
+        return;
+      }
+      body.innerHTML = thread.map(function (n) {
+        var typeCls = 'doc-cell-type doc-cell-type--' + (n.doc_type || 'note');
+        var statusCls = n.status === 'active' ? 'active'
+                       : n.status === 'archived' ? 'inactive'
+                       : n.status === 'draft' ? 'read' : 'write';
+        var author = n.author_name || '—';
+        var when = n.created_at ? formatRelativeTime(n.created_at) : '';
+        var titleLink = (n.id === docId)
+          ? '<span class="thread-node__title thread-node__title--self">' + escHtml(n.title || '(untitled)') + '</span>'
+          : '<a href="#" class="thread-node__title link" onclick="event.preventDefault();App.openDoc(' + n.id + ')">' +
+              escHtml(n.title || '(untitled)') + '</a>';
+        return '<div class="thread-node" style="padding-left:' + (n.depth * 20) + 'px">' +
+          '<span class="doc-type-badge ' + typeCls + '">' + escHtml(n.doc_type || 'doc') + '</span> ' +
+          titleLink +
+          ' <span class="badge badge--small badge--' + statusCls + '">' + escHtml(n.status || '—') + '</span>' +
+          ' <span class="thread-node__meta"><span class="thread-node__id mono">#' + n.id + '</span> · ' +
+          escHtml(author) + ' · ' + escHtml(when) + '</span>' +
+          '</div>';
+      }).join('');
+      // reply_count excludes root itself
+      if (count) count.textContent = (thread.length - 1);
+      // Cap warnings — guard count/warn spans AND resp fields (mxBugChecker W1)
+      if (warn) {
+        var warnMsgs = [];
+        if (resp && resp.max_depth_reached) warnMsgs.push('max depth 10 reached — thread truncated');
+        if (resp && resp.truncated)         warnMsgs.push('row cap 200 reached — additional replies not shown');
+        if (warnMsgs.length) {
+          warn.textContent = warnMsgs.join(' · ');
+          warn.removeAttribute('hidden');
+        } else {
+          warn.setAttribute('hidden', '');
+        }
+      }
+      card.removeAttribute('hidden');
+      Icons.render();
+    } catch (e) {
+      // 404 or other → silently leave card hidden; doc-detail itself already errored-alert on hard failures.
+      card.setAttribute('hidden', '');
     }
   }
 
@@ -3447,7 +3638,10 @@ var App = (function () {
     loadDocsList: loadDocsList,
     filterDocsByType: filterDocsByType,
     onDocsFilterInput: onDocsFilterInput,
+    onDocsIdInput: onDocsIdInput,
     openDoc: openDoc,
+    loadDocThread: loadDocThread,
+    loadProjectReviews: loadProjectReviews,
     backFromDoc: backFromDoc,
     toggleDocEdit: toggleDocEdit,
     saveDocEdit: saveDocEdit,

@@ -240,6 +240,7 @@ const Api = (function () {
     if (opts.type)   qs.push('type='   + encodeURIComponent(opts.type));
     if (opts.q)      qs.push('q='      + encodeURIComponent(opts.q));
     if (opts.status) qs.push('status=' + encodeURIComponent(opts.status));
+    if (opts.doc_id) qs.push('doc_id=' + encodeURIComponent(opts.doc_id));
     if (opts.limit)  qs.push('limit='  + opts.limit);
     if (opts.offset) qs.push('offset=' + opts.offset);
     var path = '/projects/' + projId + '/documents' +
@@ -275,6 +276,21 @@ const Api = (function () {
   // --- Notes (FR#2936/Plan#3266 M2.6) ---
   function getDeepThreads() {
     return request('GET', '/notes/deep-threads');
+  }
+
+  // --- Intelligence status (FR#3294 / SPEC#3583) ---
+  function getIntelligenceStatus() {
+    return request('GET', '/intelligence/status');
+  }
+
+  // --- Doc review thread (FR#3472 A / SPEC#3583) ---
+  function getDocThread(docId) {
+    return request('GET', '/docs/' + encodeURIComponent(docId) + '/thread');
+  }
+
+  // --- Project reviews list (FR#3472 C / SPEC#3583) ---
+  function getProjectReviews(projId) {
+    return request('GET', '/projects/' + encodeURIComponent(projId) + '/reviews');
   }
 
   return {
@@ -327,6 +343,11 @@ const Api = (function () {
 
     // --- Notes (FR#2936/Plan#3266 M2.6) ---
     getDeepThreads: getDeepThreads,
+
+    // --- FR#3294 Intelligence / FR#3472 Thread-Viewer (SPEC#3583) ---
+    getIntelligenceStatus: getIntelligenceStatus,
+    getDocThread: getDocThread,
+    getProjectReviews: getProjectReviews,
 
     // --- Settings (v2.4.0) ---
     getSettings: function () {

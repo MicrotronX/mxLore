@@ -91,7 +91,8 @@ uses
   mx.Admin.Api.Keys, mx.Admin.Api.Projects,
   mx.Admin.Api.Global, mx.Admin.Api.Skills,
   mx.Admin.Api.Settings, mx.Admin.Api.Invite,
-  mx.Admin.Api.SelfUpdate, mx.Admin.Api.Notes;
+  mx.Admin.Api.SelfUpdate, mx.Admin.Api.Notes,
+  mx.Admin.Api.Intelligence;
 
 { Shared helpers }
 
@@ -641,6 +642,21 @@ begin
     Exit;
   end;
 
+  // /intelligence/* — FR#3294 Semantic Search status
+  if SameText(ASegments[0], 'intelligence') then
+  begin
+    if (Len = 2) and SameText(ASegments[1], 'status') and
+       (C.Request.MethodType = THttpMethod.Get) then
+    begin
+      mx.Admin.Api.Intelligence.HandleGetIntelligenceStatus(
+        C, FPool, FConfig, FLogger);
+      Exit;
+    end;
+
+    MxSendError(C, 404, 'not_found');
+    Exit;
+  end;
+
   // /skills/*
   if SameText(ASegments[0], 'skills') then
   begin
@@ -721,6 +737,14 @@ begin
         mx.Admin.Api.Projects.HandleListProjectDocs(C, FPool, Id, FLogger);
         Exit;
       end;
+
+      // GET /projects/:id/reviews  — FR#3472 C Reviews-Tab Root-Aggregate
+      if (Len = 3) and SameText(ASegments[2], 'reviews') and
+         (C.Request.MethodType = THttpMethod.Get) then
+      begin
+        mx.Admin.Api.Projects.HandleListProjectReviews(C, FPool, Id, FLogger);
+        Exit;
+      end;
     end;
 
     MxSendError(C, 404, 'not_found');
@@ -728,26 +752,34 @@ begin
   end;
 
   // /docs/:id  — FR#3353 Phase C doc detail + soft-delete
+  // /docs/:id/thread — FR#3472 A hierarchischer Review-Thread
   if SameText(ASegments[0], 'docs') then
   begin
-    if (Len = 2) then
+    if (Len >= 2) then
     begin
       var DocId := StrToIntDef(ASegments[1], 0);
       if DocId > 0 then
       begin
-        if C.Request.MethodType = THttpMethod.Get then
+        if (Len = 2) and (C.Request.MethodType = THttpMethod.Get) then
         begin
           mx.Admin.Api.Projects.HandleGetDocDetail(C, FPool, DocId, FLogger);
           Exit;
         end;
-        if C.Request.MethodType = THttpMethod.Delete then
+        if (Len = 2) and (C.Request.MethodType = THttpMethod.Delete) then
         begin
           mx.Admin.Api.Projects.HandleDeleteDoc(C, FPool, DocId, FLogger);
           Exit;
         end;
-        if C.Request.MethodType = THttpMethod.Put then
+        if (Len = 2) and (C.Request.MethodType = THttpMethod.Put) then
         begin
           mx.Admin.Api.Projects.HandleUpdateDocAdmin(C, FPool, DocId, FLogger);
+          Exit;
+        end;
+        // GET /docs/:id/thread — FR#3472 A
+        if (Len = 3) and SameText(ASegments[2], 'thread') and
+           (C.Request.MethodType = THttpMethod.Get) then
+        begin
+          mx.Admin.Api.Projects.HandleGetDocThread(C, FPool, DocId, FLogger);
           Exit;
         end;
       end;
