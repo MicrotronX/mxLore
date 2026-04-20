@@ -25,11 +25,10 @@ cp "${SRCDIR}/claude-setup/proxy/mxMCPProxy.exe" "${OUTDIR}/"
 # Config
 cp "${SRCDIR}/mxLoreMCP.ini.example" "${OUTDIR}/"
 
-# SQL
+# SQL — setup.sql is the fresh-install base; numbered 0NN-*.sql files are
+# picked up at boot by the auto-migrate pass for upgrade deployments.
 cp "${SRCDIR}/sql/setup.sql" "${OUTDIR}/sql/"
-cp "${SRCDIR}/sql/043-embedding-vector.sql" "${OUTDIR}/sql/"
-cp "${SRCDIR}/sql/044-tool-call-log.sql" "${OUTDIR}/sql/"
-cp "${SRCDIR}/sql/045-agent-target-developer.sql" "${OUTDIR}/sql/"
+cp "${SRCDIR}"/sql/0[0-9][0-9]-*.sql "${OUTDIR}/sql/"
 
 # Admin UI
 cp "${SRCDIR}/admin/www/index.html"        "${OUTDIR}/admin/www/"
