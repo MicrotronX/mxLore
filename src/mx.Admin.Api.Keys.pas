@@ -284,9 +284,14 @@ begin
     else if SameText(Permissions, 'readwrite') then RoleDays := 90;
 
     Ctx := APool.AcquireContext;
+    // FR#3504-#1 Renewal-Reset: extending expires_at pushes the key back out
+    // of the 14d cadence window — last_warned_stage must be cleared so the
+    // next cycle gets full 14d/7d/3d/24h/1h warnings instead of being
+    // silently suppressed by a stale '1h' stamp from the prior cycle.
     Qry := Ctx.CreateQuery(
       'UPDATE client_keys SET permissions = :perms, ' +
-      '  expires_at = DATE_ADD(NOW(), INTERVAL :days DAY) ' +
+      '  expires_at = DATE_ADD(NOW(), INTERVAL :days DAY), ' +
+      '  last_warned_stage = NULL ' +
       'WHERE id = :id');
     try
       Qry.ParamByName('perms').AsWideString :=Permissions;
@@ -540,7 +545,18 @@ begin
     begin
       if InTx then
       begin
-        try Ctx.Rollback; except end;
+        // FR#3517-#4: surface Rollback-failures (usually connection-drop) so
+        // ops can distinguish "normal rollback" from "Rollback itself failed".
+        // InnoDB implicit-rollback on connection-loss keeps data safe, but
+        // the trace matters for incident reconstruction.
+        try
+          Ctx.Rollback;
+        except
+          on ER: Exception do
+            ALogger.Log(mlWarning, Format(
+              'Key rotation rollback FAILED: old_id=%d (%s) — InnoDB implicit-rollback assumed',
+              [AKeyId, ER.Message]));
+        end;
       end;
       ALogger.Log(mlWarning, Format(
         'Key rotation failed: old_id=%d actor_dev=%d (%s)',
@@ -553,6 +569,64 @@ begin
   ALogger.Log(mlInfo, Format(
     'Key rotated: old_id=%d new_id=%d owner_dev=%d actor_dev=%d',
     [AKeyId, NewKeyId, OwnerDevId, AActorDevId]));
+
+  // FR#3517-#2 Admin-rotate-foreign-key owner-notify: when an admin rotates
+  // somebody else's key, the owner is unaware until their MCP auth starts
+  // failing. Emit an urgent agent_message so the owner can contact the admin
+  // for the new plaintext (which is shown only once, to the admin). NO plain-
+  // text key in the payload — the owner must collect it via secure channel.
+  // Post-commit best-effort: failure here must NOT abort the 201 response,
+  // the rotation already succeeded.
+  if AActorDevId <> OwnerDevId then
+  try
+    // HAVING guards the aggregate: empty set → MIN(project_id)=NULL → row
+    // filtered out → zero rows inserted (instead of FK-violation on NULL).
+    Qry := Ctx.CreateQuery(
+      'INSERT INTO agent_messages ' +
+      '(sender_session_id, sender_project_id, sender_developer_id, ' +
+      ' target_project_id, target_developer_id, message_type, payload, ' +
+      ' priority, expires_at) ' +
+      'SELECT 0, MIN(project_id), :actor, MIN(project_id), :owner, ' +
+      '       ''key_rotated_by_admin'', :pl, ''urgent'', ' +
+      '       DATE_ADD(NOW(), INTERVAL 14 DAY) ' +
+      'FROM developer_project_access WHERE developer_id = :owner ' +
+      'HAVING MIN(project_id) IS NOT NULL');
+    try
+      Qry.ParamByName('actor').AsInteger := AActorDevId;
+      Qry.ParamByName('owner').AsInteger := OwnerDevId;
+      // Escape backslash FIRST, then double-quote, then control chars.
+      // Simple inline escaper — full JSON safety via TJSONString not needed
+      // because OldName is admin-entered VARCHAR(100) without newlines in
+      // practice but we don't want a single backslash to break the payload.
+      var SafeName: string := OldName;
+      SafeName := StringReplace(SafeName, '\', '\\', [rfReplaceAll]);
+      SafeName := StringReplace(SafeName, '"', '\"', [rfReplaceAll]);
+      SafeName := StringReplace(SafeName, #13, '', [rfReplaceAll]);
+      SafeName := StringReplace(SafeName, #10, '', [rfReplaceAll]);
+      SafeName := StringReplace(SafeName, #9, ' ', [rfReplaceAll]);
+      Qry.ParamByName('pl').AsWideString := Format(
+        '{"type":"key_rotated_by_admin","old_key_id":%d,"new_key_id":%d,' +
+        '"key_name":"%s","actor_dev_id":%d,"note":"Contact the admin for ' +
+        'the new key plaintext via your agreed secure channel."}',
+        [AKeyId, NewKeyId, SafeName, AActorDevId]);
+      Qry.ExecSQL;
+      // Audit trail: if zero rows inserted the owner has no project access
+      // → we deliberately skipped (no valid target project). Log so ops knows.
+      if Qry.RowsAffected = 0 then
+        ALogger.Log(mlWarning, Format(
+          'Key rotation owner-notify SKIPPED: owner_dev=%d has no project ' +
+          'memberships (rotation itself succeeded: old_id=%d new_id=%d)',
+          [OwnerDevId, AKeyId, NewKeyId]));
+    finally
+      Qry.Free;
+    end;
+  except
+    on E: Exception do
+      ALogger.Log(mlWarning, Format(
+        'Key rotation owner-notify failed (rotation itself succeeded): ' +
+        'old_id=%d new_id=%d owner=%d (%s)',
+        [AKeyId, NewKeyId, OwnerDevId, E.Message]));
+  end;
 
   Json := TJSONObject.Create;
   try

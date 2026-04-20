@@ -148,21 +148,37 @@ end;
 
 // FR#2936/Plan#3266 M3.4b — set X-Key-Expires-In header when the authenticated
 // key has a finite expiry. Value = integer seconds remaining (analogous to
-// HTTP Retry-After). Skipped when ExpiresAt=0 (unlimited key) OR when the key
-// is already in grace-period (seconds <= 0, header would mislead clients).
+// HTTP Retry-After). Skipped when ExpiresAt=0 (unlimited key).
+//
+// FR#3517-#1 — during the 24h grace-period, emit X-Key-Grace-Expires-In with
+// seconds until end-of-grace instead (the primary header would be negative
+// and misleading). Clients that honour either header know to rotate urgently.
 procedure SetKeyExpiryHeader(const C: THttpServerContext;
   const AAuth: TMxAuthResult);
 var
-  Secs: Int64;
+  Secs, GraceSecs: Int64;
 begin
   if AAuth.ExpiresAt <= 0 then
     Exit;
   // Trunc (not Round) so clients get a conservative "at most N seconds left"
   // reading — never one second past actual expiry due to banker's rounding.
   Secs := Trunc((AAuth.ExpiresAt - Now) * 86400);
-  if Secs <= 0 then
+  if Secs > 0 then
+  begin
+    C.Response.Headers.SetValue('X-Key-Expires-In', IntToStr(Secs));
     Exit;
-  C.Response.Headers.SetValue('X-Key-Expires-In', IntToStr(Secs));
+  end;
+  // Grace-period branch: ExpiresAt < Now, key is valid read-only for 24h
+  // past expiry (see mx.Auth.ValidateKey M3.4 grace-downgrade). Seconds until
+  // end-of-grace = (ExpiresAt + 24h - Now).
+  if AAuth.AuthReason = AR_KEY_EXPIRED_GRACE then
+  begin
+    GraceSecs := Trunc((AAuth.ExpiresAt + 1.0 - Now) * 86400);
+    // >= 0: auth layer admitted the request as grace, emit header even at
+    // the exact 0-second boundary so the client knows "0s left" vs absent.
+    if GraceSecs >= 0 then
+      C.Response.Headers.SetValue('X-Key-Grace-Expires-In', IntToStr(GraceSecs));
+  end;
 end;
 
 procedure TMxMcpApiModule.ProcessRequest(const C: THttpServerContext);

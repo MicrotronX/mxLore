@@ -174,7 +174,16 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 103;
+  MXAI_BUILD   = 104;
+  // Build 104 (Session 268b release-cut): FR#2936 M3 Follow-up Pack —
+  //   FR#3504-#1 HandleUpdateKey clears last_warned_stage on expires_at renewal
+  //   (prevents silent warning-suppression after role-change) +
+  //   FR#3517-#2 Admin-rotate-foreign-key owner-notify via urgent agent_message
+  //   (best-effort post-commit, rotation stays 201 even if notify fails) +
+  //   FR#3517-#1 X-Key-Grace-Expires-In header during 24h grace-period
+  //   (replaces X-Key-Expires-In which would be negative) +
+  //   FR#3517-#4 Rotation Rollback-failure now logs mlWarning (ops visibility) +
+  //   FR#3504-#3 Spec#3194 §I3 erratum appended (client_keys not developers).
   // Build 103 (Session 268 release-cut): FR#2936 Plan#3266 M3 KOMPLETT 12/12 —
   //   M3.4a Cadence-Writer boot-integrated + M3.4b X-Key-Expires-In HTTP-Header
   //   (3 auth-paths) + M3.5 atomic Rotation-API POST /api/keys/:id/rotate
