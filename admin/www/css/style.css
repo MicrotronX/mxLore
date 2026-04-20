@@ -1538,6 +1538,24 @@ select.form-input {
 }
 .intel-banner__dismiss:hover { opacity: 1; }
 
+/* FR#3600 — Doc-Detail sticky header + toolbar + tabs.
+   Navbar is z-index:100 (style.css:113), so sticky must sit below navbar
+   visually (top offset) AND stack above content but below navbar. */
+.doc-detail-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  background: var(--bg, #fff);
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  padding-bottom: 0;
+  margin-bottom: var(--gap-md);
+}
+.doc-detail-sticky .pd-tabs { margin-top: var(--gap-sm); }
+.doc-detail-sticky .doc-detail__content-toolbar {
+  padding-top: var(--gap-sm);
+  padding-bottom: var(--gap-sm);
+}
+
 /* FR#3472 A+C / SPEC#3583 — Review-thread hierarchy */
 .thread-list {
   display: flex;

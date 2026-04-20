@@ -3032,9 +3032,10 @@ var App = (function () {
   }
 
   // FR#3353 Phase C — Doc-detail page (view-only)
+  // FR#3600 — Tab-layout extension: url = #doc/:id or #doc/:id/:tab
   var _prevHashBeforeDoc = null;
   var _docProjectId = null;   // fallback when user refreshes directly on #doc/N
-  async function openDoc(docId) {
+  async function openDoc(docId, initialTab) {
     if (!docId) return;
     var curHash = location.hash.replace('#', '') || '';
     // Only capture "before-doc" hash when coming from a non-doc page —
@@ -3042,16 +3043,33 @@ var App = (function () {
     if (curHash.indexOf('doc/') !== 0) {
       _prevHashBeforeDoc = curHash;
     }
-    location.hash = 'doc/' + docId;
+    // Resolve tab: explicit arg > hash suffix > 'content' default
+    var tab = initialTab;
+    if (!tab) {
+      var m = curHash.match(/^doc\/\d+\/([a-z]+)/);
+      tab = (m && m[1]) || 'content';
+    }
+    if (['content', 'relations', 'reviews'].indexOf(tab) < 0) tab = 'content';
+    location.hash = 'doc/' + docId + (tab !== 'content' ? '/' + tab : '');
     showPage('doc-detail');
+    switchDocTab(tab, true);
     $('#doc-detail-title').textContent = 'Loading…';
     $('#doc-detail-type').textContent  = 'doc';
     $('#doc-detail-id').textContent    = '#' + docId;
     $('#doc-detail-content').textContent = '';
     $('#doc-detail-summary').textContent = '';
     $('#doc-detail-tags').innerHTML = '';
-    $('#doc-detail-relations-card').setAttribute('hidden', '');
-    $('#doc-detail-thread-card').setAttribute('hidden', '');
+    // Clear stale panel-bodies so doc→doc navigation doesn't flash previous
+    // doc's relations/thread while the new fetches are in flight.
+    var relBody = $('#doc-detail-relations-body');
+    if (relBody) relBody.innerHTML =
+      '<tr><td colspan="4"><div class="empty-state"><span class="spinner"></span></div></td></tr>';
+    var threadBody = $('#doc-detail-thread-body');
+    if (threadBody) threadBody.innerHTML =
+      '<div class="empty-state"><span class="spinner"></span></div>';
+    // Reset tab-badges
+    var relCnt = $('#doc-detail-rel-count'); if (relCnt) relCnt.setAttribute('hidden', '');
+    var revCnt = $('#doc-detail-rev-count'); if (revCnt) revCnt.setAttribute('hidden', '');
     try {
       var d = await Api.getDoc(docId);
       _docProjectId = d.project_id || null;
@@ -3065,19 +3083,45 @@ var App = (function () {
     }
   }
 
-  // FR#3472 A / SPEC#3583 — render review-thread card on doc-detail page.
+  // FR#3600 — Doc-Detail tab switching (mirrors switchProjectTab).
+  function switchDocTab(tabName, skipHashUpdate) {
+    var valid = ['content', 'relations', 'reviews'];
+    if (valid.indexOf(tabName) < 0) tabName = 'content';
+    $$('#page-doc-detail .pd-tab').forEach(function (btn) {
+      var on = btn.dataset.tab === tabName;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+      btn.setAttribute('tabindex', on ? '0' : '-1');
+    });
+    $$('#page-doc-detail .pd-tab-panel').forEach(function (panel) {
+      var on = panel.dataset.panel === tabName;
+      panel.classList.toggle('is-active', on);
+      if (on) panel.removeAttribute('hidden');
+      else panel.setAttribute('hidden', '');
+    });
+    if (!skipHashUpdate && _currentDoc) {
+      location.hash = 'doc/' + _currentDoc.id +
+        (tabName !== 'content' ? '/' + tabName : '');
+    }
+    Icons.render();
+  }
+
+  // FR#3472 A / SPEC#3583 — render review-thread inside Reviews-Tab (FR#3600).
   async function loadDocThread(docId) {
-    var card = $('#doc-detail-thread-card');
     var body = $('#doc-detail-thread-body');
     var count = $('#doc-detail-thread-count');
+    var revTabCnt = $('#doc-detail-rev-count');
     var warn = $('#doc-detail-thread-warn');
-    if (!card || !body) return;
+    if (!body) return;
     try {
       var resp = await Api.getDocThread(docId);
       var thread = (resp && resp.thread) || [];
-      // Hide card entirely when only root-row (no review-children).
+      // Empty-state when only root-row (no review-children) — tab stays visible.
       if (thread.length <= 1) {
-        card.setAttribute('hidden', '');
+        if (count) count.setAttribute('hidden', '');
+        if (revTabCnt) revTabCnt.setAttribute('hidden', '');
+        if (warn) warn.setAttribute('hidden', '');
+        body.innerHTML = '<div class="empty-state">No review-thread for this document.</div>';
         return;
       }
       body.innerHTML = thread.map(function (n) {
@@ -3100,7 +3144,15 @@ var App = (function () {
           '</div>';
       }).join('');
       // reply_count excludes root itself
-      if (count) count.textContent = (thread.length - 1);
+      var replyCount = thread.length - 1;
+      if (count) {
+        count.textContent = replyCount;
+        count.removeAttribute('hidden');
+      }
+      if (revTabCnt) {
+        revTabCnt.textContent = replyCount;
+        revTabCnt.removeAttribute('hidden');
+      }
       // Cap warnings — guard count/warn spans AND resp fields (mxBugChecker W1)
       if (warn) {
         var warnMsgs = [];
@@ -3113,11 +3165,13 @@ var App = (function () {
           warn.setAttribute('hidden', '');
         }
       }
-      card.removeAttribute('hidden');
       Icons.render();
     } catch (e) {
-      // 404 or other → silently leave card hidden; doc-detail itself already errored-alert on hard failures.
-      card.setAttribute('hidden', '');
+      // Silent on error — show empty-state rather than hide entire tab.
+      if (count) count.setAttribute('hidden', '');
+      if (revTabCnt) revTabCnt.setAttribute('hidden', '');
+      if (warn) warn.setAttribute('hidden', '');
+      body.innerHTML = '<div class="empty-state">Failed to load review-thread.</div>';
     }
   }
 
@@ -3172,11 +3226,11 @@ var App = (function () {
     $('#doc-detail-summary').textContent = d.summary_l1 || '';
     // Content — plain pre/text for now (markdown rendering = later)
     $('#doc-detail-content').textContent = d.content || '(no content)';
-    // Relations (with delete button column)
-    var relCard = $('#doc-detail-relations-card');
+    // Relations (FR#3600: always visible inside Relations-Tab, empty-state when 0)
     var relBody = $('#doc-detail-relations-body');
+    var relCnt  = $('#doc-detail-rel-count');
     if (d.relations && d.relations.length) {
-      relCard.removeAttribute('hidden');
+      if (relCnt) { relCnt.textContent = d.relations.length; relCnt.removeAttribute('hidden'); }
       relBody.innerHTML = d.relations.map(function (r) {
         var dirCls = r.direction === 'outbound' ? 'badge--write' : 'badge--read';
         return '<tr onclick="App.openDoc(' + r.target_id + ')" style="cursor:pointer">' +
@@ -3193,7 +3247,9 @@ var App = (function () {
           '</td></tr>';
       }).join('');
     } else {
-      relCard.setAttribute('hidden', '');
+      if (relCnt) relCnt.setAttribute('hidden', '');
+      relBody.innerHTML =
+        '<tr><td colspan="4"><div class="empty-state">No relations.</div></td></tr>';
     }
     // Show Restore button + hide Delete button when viewing a deleted doc
     var isDeleted = d.status === 'deleted';
@@ -3606,8 +3662,10 @@ var App = (function () {
         }
       }
       if (restoreHash.indexOf('doc/') === 0) {
-        var docId = parseInt(restoreHash.split('/')[1]);
-        if (docId) { openDoc(docId); return; }
+        var docParts = restoreHash.split('/');
+        var docId = parseInt(docParts[1]);
+        var docTab = docParts[2] || 'content';
+        if (docId) { openDoc(docId, docTab); return; }
       }
       if (restoreHash !== 'global' && restoreHash !== 'intelligence' && restoreHash !== 'developers' && restoreHash !== 'projects' && restoreHash !== 'settings' && restoreHash !== 'connect') restoreHash = 'global';
       navigateTo(restoreHash);
@@ -3640,6 +3698,7 @@ var App = (function () {
     onDocsFilterInput: onDocsFilterInput,
     onDocsIdInput: onDocsIdInput,
     openDoc: openDoc,
+    switchDocTab: switchDocTab,
     loadDocThread: loadDocThread,
     loadProjectReviews: loadProjectReviews,
     backFromDoc: backFromDoc,

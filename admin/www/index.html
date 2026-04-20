@@ -699,57 +699,54 @@
     </div>
   </div>
 
-  <!-- ===== Doc Detail Page (FR#3353 Phase C, view-only) ===== -->
+  <!-- ===== Doc Detail Page (FR#3353 Phase C + FR#3600 Tab-Layout) ===== -->
   <div id="page-doc-detail" class="page">
-    <div class="doc-detail-header">
-      <button id="btn-back-doc" class="page-back-btn"
-              onclick="App.backFromDoc()" title="Back (Esc)">
-        <i data-lucide="arrow-left"></i>
-        <span>Back</span>
-      </button>
-      <div class="doc-detail-header__main">
-        <div class="doc-detail-header__topline">
-          <span id="doc-detail-type" class="doc-type-badge">doc</span>
-          <span id="doc-detail-id" class="doc-detail-header__id mono">#</span>
-          <span id="doc-detail-status" class="badge"></span>
-          <span id="doc-detail-tags" class="doc-detail-header__tags"></span>
-        </div>
-        <h2 id="doc-detail-title" class="doc-detail-header__title">Loading&hellip;</h2>
-        <div class="doc-detail-header__meta">
-          <span class="doc-detail-header__meta-item" title="Author">
-            <i data-lucide="user" class="icon-xs"></i>
-            <span id="doc-detail-author"></span>
-          </span>
-          <span class="doc-detail-header__meta-item" title="Created">
-            <i data-lucide="plus-circle" class="icon-xs"></i>
-            created <span id="doc-detail-created"></span>
-          </span>
-          <span class="doc-detail-header__meta-item" title="Last update">
-            <i data-lucide="refresh-cw" class="icon-xs"></i>
-            updated <span id="doc-detail-updated"></span>
-          </span>
-          <span class="doc-detail-header__meta-item" title="Project">
-            <i data-lucide="folder" class="icon-xs"></i>
-            <a id="doc-detail-project" href="#" class="link"></a>
-          </span>
-          <span class="doc-detail-header__meta-item" title="Token estimate">
-            <i data-lucide="cpu" class="icon-xs"></i>
-            <span id="doc-detail-tokens"></span>
-          </span>
-          <span class="doc-detail-header__meta-item doc-detail-header__conf"
-                title="Confidence score" id="doc-detail-conf-wrap" hidden>
-            <i data-lucide="gauge" class="icon-xs"></i>
-            <span id="doc-detail-conf"></span>
-          </span>
+    <!-- Sticky header + action-toolbar (FR#3600) -->
+    <div class="doc-detail-sticky">
+      <div class="doc-detail-header">
+        <button id="btn-back-doc" class="page-back-btn"
+                onclick="App.backFromDoc()" title="Back (Esc)">
+          <i data-lucide="arrow-left"></i>
+          <span>Back</span>
+        </button>
+        <div class="doc-detail-header__main">
+          <div class="doc-detail-header__topline">
+            <span id="doc-detail-type" class="doc-type-badge">doc</span>
+            <span id="doc-detail-id" class="doc-detail-header__id mono">#</span>
+            <span id="doc-detail-status" class="badge"></span>
+            <span id="doc-detail-tags" class="doc-detail-header__tags"></span>
+          </div>
+          <h2 id="doc-detail-title" class="doc-detail-header__title">Loading&hellip;</h2>
+          <div class="doc-detail-header__meta">
+            <span class="doc-detail-header__meta-item" title="Author">
+              <i data-lucide="user" class="icon-xs"></i>
+              <span id="doc-detail-author"></span>
+            </span>
+            <span class="doc-detail-header__meta-item" title="Created">
+              <i data-lucide="plus-circle" class="icon-xs"></i>
+              created <span id="doc-detail-created"></span>
+            </span>
+            <span class="doc-detail-header__meta-item" title="Last update">
+              <i data-lucide="refresh-cw" class="icon-xs"></i>
+              updated <span id="doc-detail-updated"></span>
+            </span>
+            <span class="doc-detail-header__meta-item" title="Project">
+              <i data-lucide="folder" class="icon-xs"></i>
+              <a id="doc-detail-project" href="#" class="link"></a>
+            </span>
+            <span class="doc-detail-header__meta-item" title="Token estimate">
+              <i data-lucide="cpu" class="icon-xs"></i>
+              <span id="doc-detail-tokens"></span>
+            </span>
+            <span class="doc-detail-header__meta-item doc-detail-header__conf"
+                  title="Confidence score" id="doc-detail-conf-wrap" hidden>
+              <i data-lucide="gauge" class="icon-xs"></i>
+              <span id="doc-detail-conf"></span>
+            </span>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div id="doc-detail-alert" class="alert"></div>
-
-    <div id="doc-detail-summary" class="doc-detail__summary"></div>
-
-    <div class="doc-detail__content">
       <div class="doc-detail__content-toolbar">
         <button type="button" id="doc-detail-delete-btn" class="doc-action-btn doc-action-btn--danger"
                 onclick="App.confirmDeleteDoc()" title="Delete document">
@@ -778,44 +775,85 @@
           <span>Save</span>
         </button>
       </div>
-      <pre id="doc-detail-content" class="doc-detail__body"></pre>
-      <textarea id="doc-detail-edit-area" class="doc-detail__edit" hidden spellcheck="false"></textarea>
+
+      <!-- Change-reason lives in sticky header so it's visible in edit-mode
+           regardless of which tab the user is viewing (FR#3600). -->
       <div id="doc-detail-edit-reason" class="doc-detail__edit-reason" hidden>
         <label for="doc-detail-reason-input">Change reason (optional):</label>
         <input type="text" id="doc-detail-reason-input" placeholder="e.g. 'fix typo', 'add M4 task'" maxlength="200">
       </div>
+
+      <!-- Tab navigation (reused .pd-tabs from Project-Detail for consistency) -->
+      <div class="pd-tabs" role="tablist" aria-label="Document sections">
+        <button class="pd-tab is-active" role="tab" data-tab="content"
+                aria-selected="true" tabindex="0"
+                onclick="App.switchDocTab('content')">
+          <i data-lucide="file-text" class="icon-xs"></i>
+          <span>Content</span>
+        </button>
+        <button class="pd-tab" role="tab" data-tab="relations"
+                aria-selected="false" tabindex="-1"
+                onclick="App.switchDocTab('relations')">
+          <i data-lucide="git-branch" class="icon-xs"></i>
+          <span>Relations</span>
+          <span id="doc-detail-rel-count" class="badge badge--small" hidden></span>
+        </button>
+        <button class="pd-tab" role="tab" data-tab="reviews"
+                aria-selected="false" tabindex="-1"
+                onclick="App.switchDocTab('reviews')">
+          <i data-lucide="git-branch" class="icon-xs"></i>
+          <span>Reviews</span>
+          <span id="doc-detail-rev-count" class="badge badge--small" hidden></span>
+        </button>
+      </div>
     </div>
 
-    <div class="detail-card" id="doc-detail-relations-card" hidden>
-      <div class="detail-card__header">
-        <span class="detail-card__title">
-          <i data-lucide="git-branch" class="icon-sm"></i> Relations
-        </span>
-      </div>
-      <div class="data-table-wrap">
-        <table class="data-table">
-          <thead><tr>
-            <th style="width:90px">Direction</th>
-            <th style="width:130px">Type</th>
-            <th>Target</th>
-            <th style="width:60px"></th>
-          </tr></thead>
-          <tbody id="doc-detail-relations-body"></tbody>
-        </table>
+    <div id="doc-detail-alert" class="alert"></div>
+
+    <!-- Tab: Content -->
+    <div class="pd-tab-panel is-active" data-panel="content" role="tabpanel">
+      <div id="doc-detail-summary" class="doc-detail__summary"></div>
+      <div class="doc-detail__content">
+        <pre id="doc-detail-content" class="doc-detail__body"></pre>
+        <textarea id="doc-detail-edit-area" class="doc-detail__edit" hidden spellcheck="false"></textarea>
       </div>
     </div>
 
-    <!-- FR#3472 A / SPEC#3583 — Review-thread hierarchy -->
-    <div class="detail-card" id="doc-detail-thread-card" hidden>
-      <div class="detail-card__header">
-        <span class="detail-card__title">
-          <i data-lucide="git-branch" class="icon-sm"></i>
-          Review Thread
-          <span id="doc-detail-thread-count" class="badge badge--small"></span>
-        </span>
-        <span id="doc-detail-thread-warn" class="detail-card__hint" hidden></span>
+    <!-- Tab: Relations -->
+    <div class="pd-tab-panel" data-panel="relations" role="tabpanel" hidden>
+      <div class="detail-card" id="doc-detail-relations-card">
+        <div class="detail-card__header">
+          <span class="detail-card__title">
+            <i data-lucide="git-branch" class="icon-sm"></i> Relations
+          </span>
+        </div>
+        <div class="data-table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th style="width:90px">Direction</th>
+              <th style="width:130px">Type</th>
+              <th>Target</th>
+              <th style="width:60px"></th>
+            </tr></thead>
+            <tbody id="doc-detail-relations-body"></tbody>
+          </table>
+        </div>
       </div>
-      <div id="doc-detail-thread-body" class="thread-list"></div>
+    </div>
+
+    <!-- Tab: Reviews (FR#3472 A) -->
+    <div class="pd-tab-panel" data-panel="reviews" role="tabpanel" hidden>
+      <div class="detail-card" id="doc-detail-thread-card">
+        <div class="detail-card__header">
+          <span class="detail-card__title">
+            <i data-lucide="git-branch" class="icon-sm"></i>
+            Review Thread
+            <span id="doc-detail-thread-count" class="badge badge--small" hidden></span>
+          </span>
+          <span id="doc-detail-thread-warn" class="detail-card__hint" hidden></span>
+        </div>
+        <div id="doc-detail-thread-body" class="thread-list"></div>
+      </div>
     </div>
   </div>
 
