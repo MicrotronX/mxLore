@@ -1584,14 +1584,14 @@ var App = (function () {
   //   GLOBAL PAGE
   // ============================================================
   var docTypeLabels = {
-    plan: 'Plaene',
-    spec: 'Spezifikationen',
-    decision: 'Entscheidungen (ADR)',
+    plan: 'Plans',
+    spec: 'Specs',
+    decision: 'Decisions (ADR)',
     workflow_log: 'Workflows',
-    session_note: 'Session-Notes',
-    note: 'Notizen',
+    session_note: 'Session Notes',
+    note: 'Notes',
     finding: 'Findings',
-    reference: 'Referenzen',
+    reference: 'References',
     snippet: 'Snippets'
   };
 
@@ -1714,7 +1714,7 @@ var App = (function () {
 
       // Top docs
       if (topDocs.length > 0) {
-        html += '<div class="card-section-title">Top-Dokumente</div>';
+        html += '<div class="card-section-title">Top Documents</div>';
         html += '<div class="card-list">';
         topDocs.slice(0, 5).forEach(function (doc) {
           html += '<div class="card-list__item">' +
@@ -2766,8 +2766,8 @@ var App = (function () {
         if (rels.length === 0) {
           relBody.innerHTML = '<tr><td colspan="4"><div class="empty-state">No relations</div></td></tr>';
         } else {
-          var relLabels = { depends_on: 'abhaengig von', related_to: 'verwandt', extends: 'erweitert' };
-          var dirLabels = { outgoing: 'ausgehend', incoming: 'eingehend' };
+          var relLabels = { depends_on: 'depends on', related_to: 'related to', extends: 'extends' };
+          var dirLabels = { outgoing: 'outbound', incoming: 'inbound' };
           relBody.innerHTML = rels.map(function (r) {
             var relLabel = relLabels[r.relation_type] || r.relation_type;
             var dirLabel = dirLabels[r.direction] || r.direction;
