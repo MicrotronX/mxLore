@@ -22,8 +22,11 @@ type
     FShutdownEvent: TEvent;
     function GetInboxFilePath: string;
     function GetTmpFilePath: string;
+    function GetKnownIdsFilePath: string;
     procedure WriteInboxFile(const AJson: string; const AIds: string);
     procedure CheckAndAck;
+    procedure LoadKnownIds;
+    procedure SaveKnownIds;
   protected
     procedure Execute; override;
   public
@@ -96,6 +99,13 @@ begin
     on E: Exception do
       Log('[poll] ForceDirectories FAILED: ' + E.ClassName + ': ' + E.Message);
   end;
+
+  // Restore known-IDs from disk — survives Proxy restarts, prevents the
+  // accumulation-gap where un-acked messages get rewritten to JSON on every
+  // Proxy startup (Bug observed 2026-04-20: mx-erp.json grew to 12 IDs
+  // across multiple restarts before the Hook could ack them cleanly).
+  LoadKnownIds;
+
   LogDebug('[poll] Thread.Create done');
 end;
 
@@ -116,6 +126,57 @@ function TMxAgentPollThread.GetTmpFilePath: string;
 begin
   Result := IncludeTrailingPathDelimiter(FInboxDir) +
     'agent_inbox_' + FProject + '.tmp';
+end;
+
+function TMxAgentPollThread.GetKnownIdsFilePath: string;
+begin
+  Result := IncludeTrailingPathDelimiter(FInboxDir) +
+    'known_ids_' + FProject + '.txt';
+end;
+
+procedure TMxAgentPollThread.LoadKnownIds;
+var
+  Lines: TArray<string>;
+  Line: string;
+  Id: Integer;
+begin
+  if not FileExists(GetKnownIdsFilePath) then Exit;
+  try
+    // Match the writer: TFile.WriteAllText(..., TEncoding.UTF8) emits a BOM.
+    // Reading without an encoding hint falls back to TEncoding.Default
+    // (Windows ANSI) which surfaces the BOM as a garbage first line and
+    // silently drops it via TryStrToInt. Explicit UTF-8 read strips the BOM
+    // cleanly and matches the writer end-to-end.
+    Lines := TFile.ReadAllLines(GetKnownIdsFilePath, TEncoding.UTF8);
+    for Line in Lines do
+      if TryStrToInt(Trim(Line), Id) and (Id > 0) then
+        FKnownIds.Add(Id);
+    LogDebug('[poll] Loaded ' + IntToStr(FKnownIds.Count) +
+      ' known IDs from disk');
+  except
+    on E: Exception do
+      Log('[poll] LoadKnownIds failed (starting fresh): ' + E.Message);
+  end;
+end;
+
+procedure TMxAgentPollThread.SaveKnownIds;
+var
+  SB: TStringBuilder;
+  I: Integer;
+begin
+  SB := TStringBuilder.Create;
+  try
+    for I := 0 to FKnownIds.Count - 1 do
+      SB.AppendLine(IntToStr(FKnownIds[I]));
+    try
+      TFile.WriteAllText(GetKnownIdsFilePath, SB.ToString, TEncoding.UTF8);
+    except
+      on E: Exception do
+        Log('[poll] SaveKnownIds failed: ' + E.Message);
+    end;
+  finally
+    SB.Free;
+  end;
 end;
 
 procedure TMxAgentPollThread.WriteInboxFile(const AJson: string;
@@ -175,6 +236,15 @@ begin
   // Clear regardless of ACK success (prevent infinite retry)
   FWrittenIds := '';
   FKnownIds.Clear;
+  // Persist the cleared state so a Proxy restart does not reload a stale
+  // on-disk known_ids_<project>.txt that would swallow newly pending messages.
+  try
+    if FileExists(GetKnownIdsFilePath) then
+      TFile.Delete(GetKnownIdsFilePath);
+  except
+    on E: Exception do
+      Log('[poll] known_ids delete failed: ' + E.Message);
+  end;
 end;
 
 procedure TMxAgentPollThread.RequestShutdown;
@@ -256,6 +326,9 @@ begin
                       finally
                         FileJson.Free;
                       end;
+                      // Persist FKnownIds so a Proxy restart does not re-
+                      // consider these IDs "new" and re-write the same rows.
+                      SaveKnownIds;
                     end;
                   finally
                     NewArr.Free;

@@ -11,7 +11,7 @@ uses
   mx.Proxy.Core in 'mx.Proxy.Core.pas';
 
 const
-  PROXY_VERSION = '1.0.5';
+  PROXY_VERSION = '1.0.6';
 
 function GetExeDir: string;
 var

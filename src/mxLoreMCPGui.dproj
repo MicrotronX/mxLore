@@ -96,7 +96,7 @@
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;$(DCC_Namespace)</DCC_Namespace>
         <BT_BuildType>Debug</BT_BuildType>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
-        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.104;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.105;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
         <VerInfo_Locale>1033</VerInfo_Locale>
         <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
         <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
@@ -110,7 +110,7 @@
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
         <BT_BuildType>Debug</BT_BuildType>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
-        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.104;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.105;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
         <VerInfo_Locale>1033</VerInfo_Locale>
         <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
         <Icon_MainIcon>mxLoreMCPGui.ico</Icon_MainIcon>
@@ -129,13 +129,13 @@
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.104;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.105;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.104;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.105;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
         <DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
@@ -151,7 +151,7 @@
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.104;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.105;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
         <Icon_MainIcon>mxLoreMCPGui.ico</Icon_MainIcon>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2_Win64)'!=''">

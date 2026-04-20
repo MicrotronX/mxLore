@@ -174,7 +174,16 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 104;
+  MXAI_BUILD   = 105;
+  // Build 105 (Session 268c): same-dev cross-project messaging fix —
+  //   mx.Tool.Agent.HandleAgentInbox self-echo filter is now project-
+  //   scoped (filters only within same project) instead of global. Previous
+  //   global filter broke messaging between agents using the same developer_id
+  //   across different Claude-Code sessions (e.g. mx-erp ↔ mx-erp-docs).
+  //   Paired with mxMCPProxy 1.0.6 — FKnownIds persisted to disk so Proxy
+  //   restarts do not re-write already-delivered IDs to the JSON file
+  //   (fixes accumulation gap observed as 12-message-buildup in agent_inbox_
+  //   mx-erp.json before a clean ack cycle completed).
   // Build 104 (Session 268b release-cut): FR#2936 M3 Follow-up Pack —
   //   FR#3504-#1 HandleUpdateKey clears last_warned_stage on expires_at renewal
   //   (prevents silent warning-suppression after role-change) +

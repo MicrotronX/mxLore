@@ -444,8 +444,14 @@ begin
   end;
 
   // Fetch pending messages.
-  // Spec #1964: filter by target_developer_id (NULL=broadcast OR my_did=direct)
-  // AND exclude own broadcasts (sender_developer_id <> my_did) to avoid self-echo.
+  // Spec #1964: filter by target_developer_id (NULL=broadcast OR my_did=direct).
+  // Self-echo guard (build 105): PROJECT-SCOPED — only suppress when
+  // sender=my_did AND sender_project=my_project (true intra-project self-talk).
+  // The earlier global `sender_developer_id <> my_did` broke same-dev
+  // cross-project messaging for users bridging multiple Claude sessions with
+  // one key (e.g. mx-erp <-> mx-erp-docs). `:my_pid2` is bound explicitly
+  // instead of referencing `am.target_project_id` so a future admin-inbox
+  // query without the target_project_id WHERE pin still applies the guard.
   Qry := AContext.CreateQuery(
     'SELECT am.id, am.message_type, am.payload, am.ref_doc_id, ' +
     '  am.ref_message_id, am.priority, am.created_at, ' +
@@ -457,12 +463,14 @@ begin
     'LEFT JOIN developers td ON am.target_developer_id = td.id ' +
     'WHERE am.target_project_id = :pid AND am.status = ''pending'' ' +
     '  AND (am.target_developer_id IS NULL OR am.target_developer_id = :my_did) ' +
-    '  AND am.sender_developer_id <> :my_did2 ' +
+    '  AND NOT (am.sender_developer_id = :my_did2 ' +
+    '           AND am.sender_project_id = :my_pid2) ' +
     'ORDER BY am.created_at ASC LIMIT :lim');
   try
     Qry.ParamByName('pid').AsInteger := ProjectId;
     Qry.ParamByName('my_did').AsInteger := MyDevId;
     Qry.ParamByName('my_did2').AsInteger := MyDevId;
+    Qry.ParamByName('my_pid2').AsInteger := ProjectId;
     Qry.ParamByName('lim').AsInteger := Limit;
     Qry.Open;
 
