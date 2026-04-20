@@ -174,7 +174,13 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 105;
+  MXAI_BUILD   = 106;
+  // Build 106 (Session 270): Admin-UI Bundle — FR#3294 Intelligence Banner
+  //   + FR#3472 A+B+C Thread-Viewer + FR#3600 Doc-Detail Tab-Layout
+  //   + FR#3296 Settings-Tabs + FR#3610 Settings Control-Plane (INI-Editor
+  //   mit 3-Tier classification: editable / read-only infra / secret).
+  //   New endpoints: /api/intelligence/status, /api/docs/:id/thread,
+  //   /api/projects/:id/reviews, /api/ini GET+PUT.
   // Build 105 (Session 268c): same-dev cross-project messaging fix —
   //   mx.Tool.Agent.HandleAgentInbox self-echo filter is now project-
   //   scoped (filters only within same project) instead of global. Previous
