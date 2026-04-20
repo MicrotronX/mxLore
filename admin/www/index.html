@@ -1289,7 +1289,7 @@
 
   </div>
 
-  <!-- ===== Settings Page (v2.4.0) ===== -->
+  <!-- ===== Settings Page (v2.4.0 / FR#3296 tabbed) ===== -->
   <div id="page-settings" class="page">
     <div class="page-header" style="margin-bottom: var(--gap-lg)">
       <h2 class="page-header__title">
@@ -1300,87 +1300,133 @@
 
     <div id="settings-alert" class="alert" style="margin-bottom:var(--gap-md)"></div>
 
-    <!-- Self-Update card (FR#2242) -->
-    <div class="card" style="padding: var(--gap-lg); max-width: 720px; margin-bottom: var(--gap-md)">
-      <h3 style="margin-bottom: var(--gap-md)">
-        <i data-lucide="download-cloud" class="icon-header"></i> Self-Update
-      </h3>
-      <p class="text-muted" style="margin-bottom: var(--gap-md); font-size: 0.9rem">
-        Check GitHub for a newer mxLore release. When an update is available,
-        a banner appears at the top of every admin page.
-      </p>
-      <div style="display: flex; gap: var(--gap-sm); align-items: center">
-        <button type="button" class="btn btn--primary"
-                onclick="if(window.mxSelfUpdate) window.mxSelfUpdate.recheck();">
-          <i data-lucide="refresh-cw" class="icon-xs"></i> Check for Update
-        </button>
-        <button type="button" class="btn"
-                onclick="if(window.mxSelfUpdate) window.mxSelfUpdate.hide();">
-          <i data-lucide="x" class="icon-xs"></i> Dismiss banner
-        </button>
-      </div>
-      <small class="form-hint" style="display:block; margin-top: var(--gap-sm)">
-        Triggers a fresh <code>POST /api/self-update/recheck</code> (60 s cooldown per session).
-      </small>
+    <!-- Tab navigation (reused .pd-tabs from Project-Detail) -->
+    <div class="pd-tabs" role="tablist" aria-label="Settings sections">
+      <button class="pd-tab is-active" role="tab" data-tab="self-update"
+              aria-selected="true" tabindex="0"
+              onclick="App.switchSettingsTab('self-update')">
+        <i data-lucide="download-cloud" class="icon-xs"></i>
+        <span>Self-Update</span>
+      </button>
+      <button class="pd-tab" role="tab" data-tab="connect"
+              aria-selected="false" tabindex="-1"
+              onclick="App.switchSettingsTab('connect')">
+        <i data-lucide="network" class="icon-xs"></i>
+        <span>Connect URLs</span>
+      </button>
+      <button class="pd-tab" role="tab" data-tab="syslog"
+              aria-selected="false" tabindex="-1"
+              onclick="App.switchSettingsTab('syslog')">
+        <i data-lucide="terminal" class="icon-xs"></i>
+        <span>Syslog</span>
+      </button>
     </div>
 
-    <form id="settings-form" class="card" style="padding: var(--gap-lg); max-width: 720px">
-      <h3 style="margin-bottom: var(--gap-md)">Connect URLs</h3>
-      <p class="text-muted" style="margin-bottom: var(--gap-md); font-size: 0.9rem">
-        Configure how team members reach your mxLore server. Internal URL is for LAN access (direct binary).
-        External URLs are for reverse-proxy deployments (e.g. IIS with HTTPS).
-      </p>
-
-      <div class="form-group">
-        <label for="setting-internal-host">Internal Host or IP</label>
-        <div style="display: flex; gap: var(--gap-sm)">
-          <input type="text" id="setting-internal-host" class="form-input"
-                 placeholder="e.g. 192.168.1.10 (leave empty for auto-detect)" style="flex: 1">
-          <button type="button" class="btn" onclick="App.testConnection('internal')" title="Test Internal Connection">
-            <i data-lucide="zap" class="icon-xs"></i> Test
+    <!-- Tab: Self-Update (FR#2242) -->
+    <div class="pd-tab-panel is-active" data-panel="self-update" role="tabpanel">
+      <div class="card" style="padding: var(--gap-lg); max-width: 720px">
+        <h3 style="margin-bottom: var(--gap-md)">
+          <i data-lucide="download-cloud" class="icon-header"></i> Self-Update
+        </h3>
+        <p class="text-muted" style="margin-bottom: var(--gap-md); font-size: 0.9rem">
+          Check GitHub for a newer mxLore release. When an update is available,
+          a banner appears at the top of every admin page.
+        </p>
+        <div style="display: flex; gap: var(--gap-sm); align-items: center">
+          <button type="button" class="btn btn--primary"
+                  onclick="if(window.mxSelfUpdate) window.mxSelfUpdate.recheck();">
+            <i data-lucide="refresh-cw" class="icon-xs"></i> Check for Update
+          </button>
+          <button type="button" class="btn"
+                  onclick="if(window.mxSelfUpdate) window.mxSelfUpdate.hide();">
+            <i data-lucide="x" class="icon-xs"></i> Dismiss banner
           </button>
         </div>
-        <small class="form-hint" id="setting-internal-host-hint"></small>
+        <small class="form-hint" style="display:block; margin-top: var(--gap-sm)">
+          Triggers a fresh <code>POST /api/self-update/recheck</code> (60 s cooldown per session).
+        </small>
       </div>
+    </div>
 
-      <div class="form-group">
-        <label for="setting-external-mcp-url">External MCP URL</label>
-        <div style="display: flex; gap: var(--gap-sm)">
-          <input type="text" id="setting-external-mcp-url" class="form-input"
-                 placeholder="e.g. https://erp.example.com/mxLore/mcp" style="flex: 1">
-          <button type="button" class="btn" onclick="App.testConnection('external-mcp')" title="Test External MCP">
-            <i data-lucide="zap" class="icon-xs"></i> Test
+    <!-- Tab: Connect URLs (existing form) -->
+    <div class="pd-tab-panel" data-panel="connect" role="tabpanel" hidden>
+      <form id="settings-form" class="card" style="padding: var(--gap-lg); max-width: 720px">
+        <h3 style="margin-bottom: var(--gap-md)">Connect URLs</h3>
+        <p class="text-muted" style="margin-bottom: var(--gap-md); font-size: 0.9rem">
+          Configure how team members reach your mxLore server. Internal URL is for LAN access (direct binary).
+          External URLs are for reverse-proxy deployments (e.g. IIS with HTTPS).
+        </p>
+
+        <div class="form-group">
+          <label for="setting-internal-host">Internal Host or IP</label>
+          <div style="display: flex; gap: var(--gap-sm)">
+            <input type="text" id="setting-internal-host" class="form-input"
+                   placeholder="e.g. 192.168.1.10 (leave empty for auto-detect)" style="flex: 1">
+            <button type="button" class="btn" onclick="App.testConnection('internal')" title="Test Internal Connection">
+              <i data-lucide="zap" class="icon-xs"></i> Test
+            </button>
+          </div>
+          <small class="form-hint" id="setting-internal-host-hint"></small>
+        </div>
+
+        <div class="form-group">
+          <label for="setting-external-mcp-url">External MCP URL</label>
+          <div style="display: flex; gap: var(--gap-sm)">
+            <input type="text" id="setting-external-mcp-url" class="form-input"
+                   placeholder="e.g. https://erp.example.com/mxLore/mcp" style="flex: 1">
+            <button type="button" class="btn" onclick="App.testConnection('external-mcp')" title="Test External MCP">
+              <i data-lucide="zap" class="icon-xs"></i> Test
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="setting-external-admin-url">External Admin URL</label>
+          <div style="display: flex; gap: var(--gap-sm)">
+            <input type="text" id="setting-external-admin-url" class="form-input"
+                   placeholder="e.g. https://erp.example.com/mxLore-admin" style="flex: 1">
+            <button type="button" class="btn" onclick="App.testConnection('external-admin')" title="Test External Admin">
+              <i data-lucide="zap" class="icon-xs"></i> Test
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="setting-trusted-proxies">Trusted Proxies</label>
+          <textarea id="setting-trusted-proxies" class="form-input" rows="2"
+                    placeholder="127.0.0.1, 192.168.1.5"></textarea>
+          <small class="form-hint">Comma-separated IP addresses. Required for X-Forwarded-For handling behind IIS/nginx.</small>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: var(--gap-sm); margin-top: var(--gap-lg)">
+          <button type="button" class="btn" onclick="App.loadSettingsPage()">
+            <i data-lucide="rotate-ccw" class="icon-xs"></i> Reload
+          </button>
+          <button type="submit" class="btn btn--primary">
+            <i data-lucide="save" class="icon-xs"></i> Save
           </button>
         </div>
-      </div>
+      </form>
+    </div>
 
-      <div class="form-group">
-        <label for="setting-external-admin-url">External Admin URL</label>
-        <div style="display: flex; gap: var(--gap-sm)">
-          <input type="text" id="setting-external-admin-url" class="form-input"
-                 placeholder="e.g. https://erp.example.com/mxLore-admin" style="flex: 1">
-          <button type="button" class="btn" onclick="App.testConnection('external-admin')" title="Test External Admin">
-            <i data-lucide="zap" class="icon-xs"></i> Test
-          </button>
-        </div>
+    <!-- Tab: Syslog (FR#3296 Phase B — placeholder until backend endpoint ships) -->
+    <div class="pd-tab-panel" data-panel="syslog" role="tabpanel" hidden>
+      <div class="card" style="padding: var(--gap-lg); max-width: 720px">
+        <h3 style="margin-bottom: var(--gap-md)">
+          <i data-lucide="terminal" class="icon-header"></i> Syslog Viewer
+        </h3>
+        <p class="text-muted" style="font-size: 0.9rem">
+          Coming soon — server log viewer with level filter (info / warn / error)
+          and tail mode. Requires a dedicated backend endpoint
+          (<code>GET /api/logs?lines=N&amp;levels=...</code>) reading from
+          <code>logs/mxLoreMCP.log</code>. Planned as Phase B of FR#3296.
+        </p>
+        <small class="form-hint" style="display:block; margin-top: var(--gap-sm)">
+          Until this ships, use the structured call-log via <code>mx_briefing</code>
+          or look at <code>logs/</code> on the server host directly.
+        </small>
       </div>
-
-      <div class="form-group">
-        <label for="setting-trusted-proxies">Trusted Proxies</label>
-        <textarea id="setting-trusted-proxies" class="form-input" rows="2"
-                  placeholder="127.0.0.1, 192.168.1.5"></textarea>
-        <small class="form-hint">Comma-separated IP addresses. Required for X-Forwarded-For handling behind IIS/nginx.</small>
-      </div>
-
-      <div style="display: flex; justify-content: flex-end; gap: var(--gap-sm); margin-top: var(--gap-lg)">
-        <button type="button" class="btn" onclick="App.loadSettingsPage()">
-          <i data-lucide="rotate-ccw" class="icon-xs"></i> Reload
-        </button>
-        <button type="submit" class="btn btn--primary">
-          <i data-lucide="save" class="icon-xs"></i> Save
-        </button>
-      </div>
-    </form>
+    </div>
   </div>
 
   <!-- ===== Connect Team Page (v2.4.0) ===== -->

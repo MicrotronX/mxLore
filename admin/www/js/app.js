@@ -656,8 +656,30 @@ var App = (function () {
   }
 
   // ============================================================
-  //   SETTINGS PAGE (v2.4.0)
+  //   SETTINGS PAGE (v2.4.0 + FR#3296 tabbed)
   // ============================================================
+  // FR#3296 — Settings-Page tab switching (mirrors switchDocTab).
+  function switchSettingsTab(tabName, skipHashUpdate) {
+    var valid = ['self-update', 'connect', 'syslog'];
+    if (valid.indexOf(tabName) < 0) tabName = 'self-update';
+    $$('#page-settings .pd-tab').forEach(function (btn) {
+      var on = btn.dataset.tab === tabName;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+      btn.setAttribute('tabindex', on ? '0' : '-1');
+    });
+    $$('#page-settings .pd-tab-panel').forEach(function (panel) {
+      var on = panel.dataset.panel === tabName;
+      panel.classList.toggle('is-active', on);
+      if (on) panel.removeAttribute('hidden');
+      else panel.setAttribute('hidden', '');
+    });
+    if (!skipHashUpdate) {
+      location.hash = 'settings' + (tabName !== 'self-update' ? '/' + tabName : '');
+    }
+    Icons.render();
+  }
+
   async function loadSettingsPage() {
     showPage('settings');
     var alertEl = $('#settings-alert');
@@ -3667,6 +3689,13 @@ var App = (function () {
         var docTab = docParts[2] || 'content';
         if (docId) { openDoc(docId, docTab); return; }
       }
+      // FR#3296 — Settings hash #settings/:tab restore
+      if (restoreHash.indexOf('settings') === 0) {
+        var setParts = restoreHash.split('/');
+        var setTab = setParts[1] || 'self-update';
+        loadSettingsPage().then(function () { switchSettingsTab(setTab, true); });
+        return;
+      }
       if (restoreHash !== 'global' && restoreHash !== 'intelligence' && restoreHash !== 'developers' && restoreHash !== 'projects' && restoreHash !== 'settings' && restoreHash !== 'connect') restoreHash = 'global';
       navigateTo(restoreHash);
     } catch (e) {
@@ -3714,6 +3743,7 @@ var App = (function () {
     changeKeyRole: changeKeyRole,
     loadGlobalPage: loadGlobalPage,
     loadSkillsPage: loadSkillsPage,
+    switchSettingsTab: switchSettingsTab,
     switchSkillTab: switchSkillTab,
     skillFeedback: skillFeedback,
     runCleanup: runCleanup,
