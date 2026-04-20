@@ -51,7 +51,7 @@ begin
   Qry := ACtx.CreateQuery(
     'SELECT setting_value FROM app_settings WHERE setting_key = :k');
   try
-    Qry.ParamByName('k').AsString := AKey;
+    Qry.ParamByName('k').AsWideString :=AKey;
     Qry.Open;
     if not Qry.IsEmpty then
       Result := Qry.FieldByName('setting_value').AsString;
@@ -73,8 +73,8 @@ begin
     '  updated_by = VALUES(updated_by), ' +
     '  updated_at = CURRENT_TIMESTAMP');
   try
-    Qry.ParamByName('k').AsString := AKey;
-    Qry.ParamByName('v').AsString := AValue;
+    Qry.ParamByName('k').AsWideString :=AKey;
+    Qry.ParamByName('v').AsWideString :=AValue;
     if AUpdatedBy > 0 then
       Qry.ParamByName('uid').AsInteger := AUpdatedBy
     else
@@ -146,8 +146,8 @@ begin
     try
       for Pair in AUpdates do
       begin
-        Qry.ParamByName('k').AsString := Pair.Key;
-        Qry.ParamByName('v').AsString := Pair.Value;
+        Qry.ParamByName('k').AsWideString :=Pair.Key;
+        Qry.ParamByName('v').AsWideString :=Pair.Value;
         if AUpdatedBy > 0 then
           Qry.ParamByName('uid').AsInteger := AUpdatedBy
         else

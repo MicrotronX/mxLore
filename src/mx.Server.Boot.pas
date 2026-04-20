@@ -227,7 +227,7 @@ begin
         'WHERE table_schema = :db AND table_name = ''documents'' ' +
         'AND column_name = ''embedding''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -263,7 +263,7 @@ begin
         'SELECT 1 FROM information_schema.tables ' +
         'WHERE table_schema = :db AND table_name = ''tool_call_log''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -297,7 +297,7 @@ begin
         'SELECT 1 FROM information_schema.tables ' +
         'WHERE table_schema = :db AND table_name = ''app_settings''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -331,7 +331,7 @@ begin
         'SELECT 1 FROM information_schema.tables ' +
         'WHERE table_schema = :db AND table_name = ''invite_links''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -379,7 +379,7 @@ begin
         'WHERE table_schema = :db AND table_name = ''invite_links'' ' +
         '  AND column_name = ''raw_api_key_obfuscated''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -403,7 +403,7 @@ begin
         'WHERE table_schema = :db AND table_name = ''invite_links'' ' +
         '  AND column_name = ''token''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if (not MigQry.IsEmpty) and
            (MigQry.FieldByName('character_maximum_length').AsInteger < 128) then
@@ -423,7 +423,7 @@ begin
         'WHERE table_schema = :db AND table_name = ''developers'' ' +
         '  AND column_name = ''role''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -448,7 +448,7 @@ begin
         'WHERE table_schema = :db AND table_name = ''agent_messages'' ' +
         '  AND column_name = ''target_developer_id''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -471,7 +471,7 @@ begin
         'WHERE table_schema = :db AND table_name = ''agent_messages'' ' +
         '  AND constraint_name = ''fk_am_target_dev''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -494,7 +494,7 @@ begin
         'WHERE table_schema = :db AND table_name = ''agent_messages'' ' +
         '  AND index_name = ''idx_am_inbox''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if (not MigQry.IsEmpty) and
            (MigQry.FieldByName('col_count').AsInteger <> 4) then
@@ -523,7 +523,7 @@ begin
         'WHERE table_schema = :db AND table_name = ''developers'' ' +
         '  AND column_name = ''ui_login_enabled''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -623,7 +623,7 @@ begin
         'WHERE table_schema = :db AND table_name = ''documents'' ' +
         '  AND column_name = ''root_parent_doc_id''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -650,7 +650,7 @@ begin
         'WHERE table_schema = :db AND table_name = ''documents'' ' +
         '  AND column_name = ''created_by_developer_id''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -674,7 +674,7 @@ begin
         'WHERE table_schema = :db AND table_name = ''documents'' ' +
         '  AND constraint_name = ''fk_doc_created_by_dev''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -704,7 +704,7 @@ begin
         'WHERE table_schema = :db AND table_name = ''developers'' ' +
         '  AND column_name = ''accept_agent_messages''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -727,7 +727,7 @@ begin
         'WHERE table_schema = :db AND table_name = ''client_keys'' ' +
         '  AND column_name = ''revoked_at''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -754,7 +754,7 @@ begin
         'WHERE table_schema = :db AND table_name = ''client_keys'' ' +
         '  AND constraint_name = ''fk_client_keys_revoked_by''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -780,7 +780,7 @@ begin
         'WHERE table_schema = :db AND table_name = ''client_keys'' ' +
         '  AND column_name = ''active_prefix''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -833,7 +833,7 @@ begin
         'WHERE table_schema = :db AND table_name = ''tool_call_log'' ' +
         '  AND column_name = ''auth_reason''');
       try
-        MigQry.ParamByName('db').AsString := FConfig.DBDatabase;
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
         MigQry.Open;
         if MigQry.IsEmpty then
         begin
@@ -863,9 +863,9 @@ begin
         'INSERT IGNORE INTO projects (slug, name, path, is_active, created_at) ' +
         'VALUES (:slug, :name, :path, TRUE, NOW())');
       try
-        EnsureQry.ParamByName('slug').AsString := FConfig.SelfSlug;
-        EnsureQry.ParamByName('name').AsString := FConfig.SelfSlug + ' — MCP Server';
-        EnsureQry.ParamByName('path').AsString := ExtractFilePath(ParamStr(0));
+        EnsureQry.ParamByName('slug').AsWideString :=FConfig.SelfSlug;
+        EnsureQry.ParamByName('name').AsWideString :=FConfig.SelfSlug + ' — MCP Server';
+        EnsureQry.ParamByName('path').AsWideString :=ExtractFilePath(ParamStr(0));
         EnsureQry.ExecSQL;
         if EnsureQry.RowsAffected > 0 then
           FLogger.Log(mlInfo, 'Auto-created project: ' + FConfig.SelfSlug);
@@ -1007,7 +1007,7 @@ begin
       try
         Qry.Connection := Conn;
         Qry.SQL.Text := 'SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = :db';
-        Qry.ParamByName('db').AsString := SafeName;
+        Qry.ParamByName('db').AsWideString :=SafeName;
         Qry.Open;
         if Qry.IsEmpty then
         begin

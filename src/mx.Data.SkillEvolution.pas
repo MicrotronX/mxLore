@@ -175,20 +175,20 @@ begin
     'VALUES (:uid, :skill, :rule, :proj, :sev, ' +
     ' :title, :ctx_hash, :fpath, :lnum, :details)');
   try
-    Qry.ParamByName('uid').AsString := AFinding.FindingUid;
-    Qry.ParamByName('skill').AsString := AFinding.SkillName;
-    Qry.ParamByName('rule').AsString := AFinding.RuleId;
+    Qry.ParamByName('uid').AsWideString :=AFinding.FindingUid;
+    Qry.ParamByName('skill').AsWideString :=AFinding.SkillName;
+    Qry.ParamByName('rule').AsWideString :=AFinding.RuleId;
     Qry.ParamByName('proj').AsInteger := AFinding.ProjectId;
-    Qry.ParamByName('sev').AsString := SeverityToStr(AFinding.Severity);
-    Qry.ParamByName('title').AsString := AFinding.Title;
+    Qry.ParamByName('sev').AsWideString :=SeverityToStr(AFinding.Severity);
+    Qry.ParamByName('title').AsWideString :=AFinding.Title;
     if AFinding.ContextHash <> '' then
-      Qry.ParamByName('ctx_hash').AsString := AFinding.ContextHash
+      Qry.ParamByName('ctx_hash').AsWideString :=AFinding.ContextHash
     else begin
       Qry.ParamByName('ctx_hash').DataType := ftString;
       Qry.ParamByName('ctx_hash').Clear;
     end;
     if AFinding.FilePath <> '' then
-      Qry.ParamByName('fpath').AsString := AFinding.FilePath
+      Qry.ParamByName('fpath').AsWideString :=AFinding.FilePath
     else begin
       Qry.ParamByName('fpath').DataType := ftString;
       Qry.ParamByName('fpath').Clear;
@@ -200,7 +200,7 @@ begin
       Qry.ParamByName('lnum').Clear;
     end;
     if AFinding.Details <> '' then
-      Qry.ParamByName('details').AsString := AFinding.Details
+      Qry.ParamByName('details').AsWideString :=AFinding.Details
     else begin
       Qry.ParamByName('details').DataType := ftString;
       Qry.ParamByName('details').Clear;
@@ -231,7 +231,7 @@ begin
     'user_reaction, reacted_at, created_at ' +
     'FROM skill_findings WHERE finding_uid = :uid');
   try
-    Qry.ParamByName('uid').AsString := AUid;
+    Qry.ParamByName('uid').AsWideString :=AUid;
     Qry.Open;
     if not Qry.Eof then
     begin
@@ -265,8 +265,8 @@ begin
     'UPDATE skill_findings SET user_reaction = :react, reacted_at = NOW() ' +
     'WHERE finding_uid = :uid');
   try
-    Qry.ParamByName('react').AsString := ReactionToStr(AReaction);
-    Qry.ParamByName('uid').AsString := AUid;
+    Qry.ParamByName('react').AsWideString :=ReactionToStr(AReaction);
+    Qry.ParamByName('uid').AsWideString :=AUid;
     Qry.ExecSQL;
     Result := Qry.RowsAffected > 0;
   finally
@@ -284,7 +284,7 @@ begin
     'UPDATE skill_findings SET user_reaction = :react, reacted_at = NOW() ' +
     'WHERE project_id = :proj AND user_reaction = ''pending''');
   try
-    Qry.ParamByName('react').AsString := ReactionToStr(AReaction);
+    Qry.ParamByName('react').AsWideString :=ReactionToStr(AReaction);
     Qry.ParamByName('proj').AsInteger := AProjectId;
     Qry.ExecSQL;
     Result := Qry.RowsAffected;
@@ -301,7 +301,7 @@ begin
   Qry := ACtx.CreateQuery(
     'SELECT 1 FROM skill_findings WHERE finding_uid = :uid LIMIT 1');
   try
-    Qry.ParamByName('uid').AsString := AUid;
+    Qry.ParamByName('uid').AsWideString :=AUid;
     Qry.Open;
     Result := not Qry.Eof;
   finally
@@ -345,11 +345,11 @@ begin
   try
     Qry.ParamByName('proj').AsInteger := AProjectId;
     if ASkillName <> '' then
-      Qry.ParamByName('skill').AsString := ASkillName;
+      Qry.ParamByName('skill').AsWideString :=ASkillName;
     if ARuleId <> '' then
-      Qry.ParamByName('rule').AsString := ARuleId;
+      Qry.ParamByName('rule').AsWideString :=ARuleId;
     if AFilterReaction then
-      Qry.ParamByName('react').AsString := ReactionToStr(AReaction);
+      Qry.ParamByName('react').AsWideString :=ReactionToStr(AReaction);
     Qry.ParamByName('lim').AsInteger := ALimit;
     Qry.Open;
     while not Qry.Eof do
@@ -422,7 +422,7 @@ begin
     'GROUP BY rule_id ' +
     'ORDER BY total DESC');
   try
-    Qry.ParamByName('skill').AsString := ASkillName;
+    Qry.ParamByName('skill').AsWideString :=ASkillName;
     Qry.ParamByName('proj').AsInteger := AProjectId;
     Qry.ParamByName('since').AsDateTime := ASince;
     Qry.Open;
@@ -517,9 +517,9 @@ begin
     'SELECT param_value FROM skill_params ' +
     'WHERE skill_name = :skill AND project_id = :proj AND param_key = :key');
   try
-    Qry.ParamByName('skill').AsString := ASkillName;
+    Qry.ParamByName('skill').AsWideString :=ASkillName;
     Qry.ParamByName('proj').AsInteger := AProjectId;
-    Qry.ParamByName('key').AsString := AParamKey;
+    Qry.ParamByName('key').AsWideString :=AParamKey;
     Qry.Open;
     if not Qry.Eof then
       Result := Qry.FieldByName('param_value').AsString
@@ -556,17 +556,17 @@ begin
       'WHERE skill_name = :skill AND project_id = :proj ' +
       '  AND param_key = :key AND version = :expected_ver');
     try
-      Qry.ParamByName('val').AsString := AParamValue;
-      Qry.ParamByName('reason').AsString := AChangeReason;
+      Qry.ParamByName('val').AsWideString :=AParamValue;
+      Qry.ParamByName('reason').AsWideString :=AChangeReason;
       if MetricsStr <> '' then
-        Qry.ParamByName('metrics').AsString := MetricsStr
+        Qry.ParamByName('metrics').AsWideString :=MetricsStr
       else begin
         Qry.ParamByName('metrics').DataType := ftString;
         Qry.ParamByName('metrics').Clear;
       end;
-      Qry.ParamByName('skill').AsString := ASkillName;
+      Qry.ParamByName('skill').AsWideString :=ASkillName;
       Qry.ParamByName('proj').AsInteger := AProjectId;
-      Qry.ParamByName('key').AsString := AParamKey;
+      Qry.ParamByName('key').AsWideString :=AParamKey;
       Qry.ParamByName('expected_ver').AsInteger := AExpectedVersion;
       Qry.ExecSQL;
       Result := Qry.RowsAffected > 0;
@@ -589,13 +589,13 @@ begin
       '  change_reason = VALUES(change_reason), ' +
       '  change_metrics = VALUES(change_metrics)');
     try
-      Qry.ParamByName('skill').AsString := ASkillName;
+      Qry.ParamByName('skill').AsWideString :=ASkillName;
       Qry.ParamByName('proj').AsInteger := AProjectId;
-      Qry.ParamByName('key').AsString := AParamKey;
-      Qry.ParamByName('val').AsString := AParamValue;
-      Qry.ParamByName('reason').AsString := AChangeReason;
+      Qry.ParamByName('key').AsWideString :=AParamKey;
+      Qry.ParamByName('val').AsWideString :=AParamValue;
+      Qry.ParamByName('reason').AsWideString :=AChangeReason;
       if MetricsStr <> '' then
-        Qry.ParamByName('metrics').AsString := MetricsStr
+        Qry.ParamByName('metrics').AsWideString :=MetricsStr
       else begin
         Qry.ParamByName('metrics').DataType := ftString;
         Qry.ParamByName('metrics').Clear;
@@ -625,9 +625,9 @@ begin
     'WHERE skill_name = :skill AND project_id = :proj ' +
     '  AND param_key = :key AND previous_value IS NOT NULL');
   try
-    Qry.ParamByName('skill').AsString := ASkillName;
+    Qry.ParamByName('skill').AsWideString :=ASkillName;
     Qry.ParamByName('proj').AsInteger := AProjectId;
-    Qry.ParamByName('key').AsString := AParamKey;
+    Qry.ParamByName('key').AsWideString :=AParamKey;
     Qry.ExecSQL;
     Result := Qry.RowsAffected > 0;
   finally
@@ -653,7 +653,7 @@ begin
     'WHERE skill_name = :skill AND project_id = :proj ' +
     'ORDER BY param_key');
   try
-    Qry.ParamByName('skill').AsString := ASkillName;
+    Qry.ParamByName('skill').AsWideString :=ASkillName;
     Qry.ParamByName('proj').AsInteger := AProjectId;
     Qry.Open;
     while not Qry.Eof do

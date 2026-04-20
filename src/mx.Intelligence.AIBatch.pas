@@ -169,7 +169,7 @@ begin
     'WHERE job_type = :jtype AND doc_id = :doc ' +
     '  AND created_at >= CURDATE() LIMIT 1');
   try
-    Qry.ParamByName('jtype').AsString := JobTypeToStr(AJobType);
+    Qry.ParamByName('jtype').AsWideString :=JobTypeToStr(AJobType);
     Qry.ParamByName('doc').AsInteger := ADocId;
     Qry.Open;
     if not Qry.Eof then Exit; // Already logged today
@@ -184,25 +184,25 @@ begin
     'VALUES (:jtype, :doc, :proj, :field, :old_val, :new_val, ' +
     ' ''claude-exe'', 0, 0, :status, :err, 0)');
   try
-    Qry.ParamByName('jtype').AsString := JobTypeToStr(AJobType);
+    Qry.ParamByName('jtype').AsWideString :=JobTypeToStr(AJobType);
     Qry.ParamByName('doc').AsInteger := ADocId;
     Qry.ParamByName('proj').AsInteger := AProjectId;
-    Qry.ParamByName('field').AsString := AFieldName;
+    Qry.ParamByName('field').AsWideString :=AFieldName;
     if AOldValue <> '' then
-      Qry.ParamByName('old_val').AsString := AOldValue
+      Qry.ParamByName('old_val').AsWideString :=AOldValue
     else begin
       Qry.ParamByName('old_val').DataType := ftString;
       Qry.ParamByName('old_val').Clear;
     end;
     if ANewValue <> '' then
-      Qry.ParamByName('new_val').AsString := ANewValue
+      Qry.ParamByName('new_val').AsWideString :=ANewValue
     else begin
       Qry.ParamByName('new_val').DataType := ftString;
       Qry.ParamByName('new_val').Clear;
     end;
-    Qry.ParamByName('status').AsString := AStatus;
+    Qry.ParamByName('status').AsWideString :=AStatus;
     if AErrorMsg <> '' then
-      Qry.ParamByName('err').AsString := AErrorMsg
+      Qry.ParamByName('err').AsWideString :=AErrorMsg
     else begin
       Qry.ParamByName('err').DataType := ftString;
       Qry.ParamByName('err').Clear;
@@ -228,7 +228,7 @@ begin
       'WHERE job_type = :jtype AND doc_id IS NULL ' +
       '  AND created_at >= CURDATE() LIMIT 1');
     try
-      Qry.ParamByName('jtype').AsString := JobTypeToStr(AJobType);
+      Qry.ParamByName('jtype').AsWideString :=JobTypeToStr(AJobType);
       Qry.Open;
       if not Qry.Eof then Exit;
     finally
@@ -241,9 +241,9 @@ begin
       'VALUES (:jtype, NULL, NULL, :field, NULL, :detail, ' +
       ' ''batch-runner'', 0, 0, ''success'', 0)');
     try
-      Qry.ParamByName('jtype').AsString := JobTypeToStr(AJobType);
-      Qry.ParamByName('field').AsString := IntToStr(ACount) + ' items';
-      Qry.ParamByName('detail').AsString := ADetail;
+      Qry.ParamByName('jtype').AsWideString :=JobTypeToStr(AJobType);
+      Qry.ParamByName('field').AsWideString :=IntToStr(ACount) + ' items';
+      Qry.ParamByName('detail').AsWideString :=ADetail;
       Qry.ExecSQL;
     finally
       Qry.Free;
@@ -392,9 +392,9 @@ begin
           'VALUES (:proj_id, ''note'', :slug, :title, :content, ''active'', NOW(), NOW(), 1.0)');
         try
           UpdQry.ParamByName('proj_id').AsInteger := ProjectId;
-          UpdQry.ParamByName('slug').AsString := Format('stale-%d', [DocId]);
-          UpdQry.ParamByName('title').AsString := '[Stale] ' + Title;
-          UpdQry.ParamByName('content').AsString :=
+          UpdQry.ParamByName('slug').AsWideString :=Format('stale-%d', [DocId]);
+          UpdQry.ParamByName('title').AsWideString :='[Stale] ' + Title;
+          UpdQry.ParamByName('content').AsWideString :=
             Format('Plan doc_id=%d "%s" was marked as stale_candidate ' +
               '(>90 days without update). Review and either update or archive.',
               [DocId, Title]);
@@ -836,7 +836,7 @@ begin
             'WHERE doc_type = ''note'' AND slug = :slug ' +
             '  AND status <> ''deleted'' LIMIT 1');
           try
-            ChkQry.ParamByName('slug').AsString := DedupeSlug;
+            ChkQry.ParamByName('slug').AsWideString :=DedupeSlug;
             ChkQry.Open;
             if not ChkQry.Eof then
               Continue;
@@ -858,9 +858,9 @@ begin
             'VALUES (:proj_id, ''note'', :slug, :title, :content, ''active'', NOW(), NOW(), 1.0)');
           try
             InsQry.ParamByName('proj_id').AsInteger := ProjectIds[I];
-            InsQry.ParamByName('slug').AsString := DedupeSlug;
-            InsQry.ParamByName('title').AsString := NoteTitle;
-            InsQry.ParamByName('content').AsString := NoteContent;
+            InsQry.ParamByName('slug').AsWideString :=DedupeSlug;
+            InsQry.ParamByName('title').AsWideString :=NoteTitle;
+            InsQry.ParamByName('content').AsWideString :=NoteContent;
             InsQry.ExecSQL;
           finally
             InsQry.Free;
@@ -877,7 +877,7 @@ begin
                 'INSERT IGNORE INTO doc_tags (doc_id, tag) VALUES (:doc_id, :tag)');
               try
                 TagQry.ParamByName('doc_id').AsInteger := NewDocId;
-                TagQry.ParamByName('tag').AsString := 'merge-candidate';
+                TagQry.ParamByName('tag').AsWideString :='merge-candidate';
                 TagQry.ExecSQL;
               finally
                 TagQry.Free;
@@ -954,7 +954,7 @@ begin
           '  AND slug = :slug LIMIT 1');
         try
           ChkQry.ParamByName('proj_id').AsInteger := ProjectId;
-          ChkQry.ParamByName('slug').AsString := NoteSlug;
+          ChkQry.ParamByName('slug').AsWideString :=NoteSlug;
           ChkQry.Open;
           if not ChkQry.Eof then
           begin
@@ -981,10 +981,10 @@ begin
           'VALUES (:proj_id, ''note'', :slug, :title, :content, ''active'', NOW(), NOW(), 1.0)');
         try
           InsQry.ParamByName('proj_id').AsInteger := ProjectId;
-          InsQry.ParamByName('slug').AsString :=
+          InsQry.ParamByName('slug').AsWideString :=
             Format('contradiction-%d-%d', [DocId, TargetDocId]);
-          InsQry.ParamByName('title').AsString := NoteTitle;
-          InsQry.ParamByName('content').AsString := NoteContent;
+          InsQry.ParamByName('title').AsWideString :=NoteTitle;
+          InsQry.ParamByName('content').AsWideString :=NoteContent;
           InsQry.ExecSQL;
         finally
           InsQry.Free;
@@ -1001,7 +1001,7 @@ begin
               'INSERT IGNORE INTO doc_tags (doc_id, tag) VALUES (:doc_id, :tag)');
             try
               TagQry.ParamByName('doc_id').AsInteger := NewDocId;
-              TagQry.ParamByName('tag').AsString := 'status-inconsistency';
+              TagQry.ParamByName('tag').AsWideString :='status-inconsistency';
               TagQry.ExecSQL;
             finally
               TagQry.Free;
@@ -1096,7 +1096,7 @@ begin
     Qry := Ctx.CreateQuery(
       'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
     try
-      Qry.ParamByName('slug').AsString := FConfig.SelfSlug;
+      Qry.ParamByName('slug').AsWideString :=FConfig.SelfSlug;
       Qry.Open;
       if Qry.IsEmpty then
       begin
@@ -1241,8 +1241,8 @@ begin
         'VALUES (:proj_id, ''note'', :slug, :title, :content, ''active'', NOW(), NOW(), ''ai-batch'')');
       try
         InsQry.ParamByName('proj_id').AsInteger := ProjectId;
-        InsQry.ParamByName('slug').AsString := Slug;
-        InsQry.ParamByName('title').AsString := '[Recall Metrics] ' + DateStr;
+        InsQry.ParamByName('slug').AsWideString :=Slug;
+        InsQry.ParamByName('title').AsWideString :='[Recall Metrics] ' + DateStr;
         BindLargeText(InsQry.ParamByName('content'), Report.ToString);
         InsQry.ExecSQL;
       finally
@@ -1265,7 +1265,7 @@ begin
           'INSERT IGNORE INTO doc_tags (doc_id, tag) VALUES (:doc_id, :tag)');
         try
           InsQry.ParamByName('doc_id').AsInteger := DocId;
-          InsQry.ParamByName('tag').AsString := 'recall-metrics';
+          InsQry.ParamByName('tag').AsWideString :='recall-metrics';
           InsQry.ExecSQL;
         finally
           InsQry.Free;
@@ -1307,7 +1307,7 @@ procedure TMxAIBatchRunner.RunSkillPrecisionJob;
       'GROUP BY rule_id ' +
       'HAVING confirmed * 100.0 / total < :threshold AND total >= 5');
     try
-      Qry.ParamByName('skill').AsString := ASkillName;
+      Qry.ParamByName('skill').AsWideString :=ASkillName;
       Qry.ParamByName('threshold').AsFloat := AMinConfirmPct;
       Qry.Open;
       while not Qry.Eof do
@@ -1330,7 +1330,7 @@ procedure TMxAIBatchRunner.RunSkillPrecisionJob;
           'WHERE doc_type = ''note'' AND title = :title ' +
           '  AND status NOT IN (''deleted'', ''archived'') LIMIT 1');
         try
-          ChkQry.ParamByName('title').AsString := NoteTitle;
+          ChkQry.ParamByName('title').AsWideString :=NoteTitle;
           ChkQry.Open;
           if not ChkQry.Eof then
           begin
@@ -1357,10 +1357,10 @@ procedure TMxAIBatchRunner.RunSkillPrecisionJob;
           'VALUES (:proj_id, ''note'', :slug, :title, :content, ''active'', NOW(), NOW(), 1.0)');
         try
           InsQry.ParamByName('proj_id').AsInteger := AProjectId;
-          InsQry.ParamByName('slug').AsString :=
+          InsQry.ParamByName('slug').AsWideString :=
             Format('skill-precision-%s-%s', [ASkillName, RuleId]);
-          InsQry.ParamByName('title').AsString := NoteTitle;
-          InsQry.ParamByName('content').AsString := NoteContent;
+          InsQry.ParamByName('title').AsWideString :=NoteTitle;
+          InsQry.ParamByName('content').AsWideString :=NoteContent;
           InsQry.ExecSQL;
         finally
           InsQry.Free;
@@ -1377,7 +1377,7 @@ procedure TMxAIBatchRunner.RunSkillPrecisionJob;
               'INSERT IGNORE INTO doc_tags (doc_id, tag) VALUES (:doc_id, :tag)');
             try
               TagQry.ParamByName('doc_id').AsInteger := NewDocId;
-              TagQry.ParamByName('tag').AsString := 'auto-disable-candidate';
+              TagQry.ParamByName('tag').AsWideString :='auto-disable-candidate';
               TagQry.ExecSQL;
             finally
               TagQry.Free;
@@ -1466,7 +1466,7 @@ procedure TMxAIBatchRunner.RunHealthAutoNotesJob;
       '  AND title = :title AND status != ''deleted'' LIMIT 1');
     try
       ChkQry.ParamByName('pid').AsInteger := AProjectId;
-      ChkQry.ParamByName('title').AsString := ATitle;
+      ChkQry.ParamByName('title').AsWideString :=ATitle;
       ChkQry.Open;
       if not ChkQry.IsEmpty then Exit; // already exists
     finally
@@ -1483,10 +1483,10 @@ procedure TMxAIBatchRunner.RunHealthAutoNotesJob;
       '  ''ai-batch'', :summary)');
     try
       InsQry.ParamByName('pid').AsInteger := AProjectId;
-      InsQry.ParamByName('slug').AsString := Slug;
-      InsQry.ParamByName('title').AsString := ATitle;
+      InsQry.ParamByName('slug').AsWideString :=Slug;
+      InsQry.ParamByName('title').AsWideString :=ATitle;
       BindLargeText(InsQry.ParamByName('content'), ADetails);
-      InsQry.ParamByName('summary').AsString := Copy(ADetails, 1, 200);
+      InsQry.ParamByName('summary').AsWideString :=Copy(ADetails, 1, 200);
       InsQry.ExecSQL;
     finally
       InsQry.Free;
@@ -1505,11 +1505,11 @@ procedure TMxAIBatchRunner.RunHealthAutoNotesJob;
       'INSERT IGNORE INTO doc_tags (doc_id, tag) VALUES (:id, :tag)');
     try
       TagQry.ParamByName('id').AsInteger := DocId;
-      TagQry.ParamByName('tag').AsString := 'health-finding';
+      TagQry.ParamByName('tag').AsWideString :='health-finding';
       TagQry.ExecSQL;
-      TagQry.ParamByName('tag').AsString := ASeverityTag;
+      TagQry.ParamByName('tag').AsWideString :=ASeverityTag;
       TagQry.ExecSQL;
-      TagQry.ParamByName('tag').AsString := 'mxhealth-auto';
+      TagQry.ParamByName('tag').AsWideString :='mxhealth-auto';
       TagQry.ExecSQL;
     finally
       TagQry.Free;

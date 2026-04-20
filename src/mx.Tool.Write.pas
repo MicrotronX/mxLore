@@ -66,7 +66,13 @@ begin
   if RequiredSize < cLargeTextMinSize then
     RequiredSize := cLargeTextMinSize;
   AParam.Size := RequiredSize;
-  AParam.AsString := AValue;
+  // Bug#3345 fix (Session 267): .AsString on ftWideMemo unexpectedly routed
+  // through AnsiString(ACP=cp1252 on German Windows), dropping U+2192/U+2713
+  // /U+26A0 etc. to '?'. .AsWideString binds via Param.Value as WideString
+  // end-to-end — verified lossless for all BMP codepoints. The HEX probe on
+  // doc#3492 showed literal 0x3F bytes stored; after the fix the same body
+  // stores 0xE2 0x86 0x92 for '→'.
+  AParam.AsWideString := AValue;
 end;
 
 // ---------------------------------------------------------------------------
@@ -414,6 +420,22 @@ begin
   if AParams.GetValue('tags') is TJSONArray then
     TagsArr := AParams.GetValue('tags') as TJSONArray;
 
+  // Bug#3345 diagnostic (Session 267): log per-param lengths at tool-entry.
+  // Compare against mx.MCP.Server.pas raw-body log to see if loss is at
+  // transport-layer (Body string smaller than expected) vs at JSON-parse-
+  // layer (Body complete but AParams.GetValue returns '').
+  AContext.Logger.Log(mlInfo, Format(
+    '[Bug3345.HandleCreateDoc] doc_type=%s title_len=%d content_len=%d body_len=%d ' +
+    'summary1_len=%d summary2_len=%d has_content_key=%s has_body_key=%s',
+    [DocType,
+     Length(Title),
+     Length(AParams.GetValue<string>('content', '')),
+     Length(AParams.GetValue<string>('body', '')),
+     Length(Summary1),
+     Length(Summary2),
+     BoolToStr(AParams.GetValue('content') <> nil, True),
+     BoolToStr(AParams.GetValue('body') <> nil, True)]));
+
   // Auto-Summary: generate L1/L2 from content if not provided (Spec D.19)
   if (Content <> '') and (Summary1 = '') then
     Summary1 := ExtractFirstSentence(Content);
@@ -456,7 +478,7 @@ begin
   Qry := AContext.CreateQuery(
     'SELECT id FROM projects WHERE slug = :slug');
   try
-    Qry.ParamByName('slug').AsString := ProjectSlug;
+    Qry.ParamByName('slug').AsWideString :=ProjectSlug;
     Qry.Open;
     if Qry.IsEmpty then
       raise EMxNotFound.Create('Project not found: ' + ProjectSlug);
@@ -524,15 +546,15 @@ begin
           '  :summary_l1, :summary_l2, :status, :created_by, :dev_id, :lesson_data)');
         try
           Qry.ParamByName('proj_id').AsInteger := ProjectId;
-          Qry.ParamByName('doc_type').AsString := DocType;
-          Qry.ParamByName('slug').AsString := ClampSlug(Slug);
-          Qry.ParamByName('title').AsString := ClampTitle(Title);
+          Qry.ParamByName('doc_type').AsWideString :=DocType;
+          Qry.ParamByName('slug').AsWideString :=ClampSlug(Slug);
+          Qry.ParamByName('title').AsWideString := ClampTitle(Title);
           BindLargeText(Qry.ParamByName('content'), Content);
           // Bug#2738: clamp to VARCHAR(500) — direct input path can exceed
-          Qry.ParamByName('summary_l1').AsString := ClampSummary(Summary1);
-          Qry.ParamByName('summary_l2').AsString := Summary2;
-          Qry.ParamByName('status').AsString := Status;
-          Qry.ParamByName('created_by').AsString := CreatedBy;
+          Qry.ParamByName('summary_l1').AsWideString := ClampSummary(Summary1);
+          Qry.ParamByName('summary_l2').AsWideString := Summary2;
+          Qry.ParamByName('status').AsWideString :=Status;
+          Qry.ParamByName('created_by').AsWideString := CreatedBy;
           // FR#2936/Plan#3266 M2.5 prereq — author-FK for Edit-Window match.
           // Falls back to NULL when called outside an authenticated context
           // (server-internal callers, AI-batch via Tool API, etc.).
@@ -542,7 +564,7 @@ begin
           else
             Qry.ParamByName('dev_id').Clear;
           if LessonData <> '' then
-            Qry.ParamByName('lesson_data').AsString := LessonData
+            Qry.ParamByName('lesson_data').AsWideString :=LessonData
           else
           begin
             Qry.ParamByName('lesson_data').DataType := ftString;
@@ -586,8 +608,8 @@ begin
     try
       Qry.ParamByName('doc_id').AsInteger := DocId;
       BindLargeText(Qry.ParamByName('content'), Content);
-      Qry.ParamByName('summary_l2').AsString := Summary2;
-      Qry.ParamByName('changed_by').AsString := CreatedBy;
+      Qry.ParamByName('summary_l2').AsWideString := Summary2;
+      Qry.ParamByName('changed_by').AsWideString := CreatedBy;
       Qry.ExecSQL;
     finally
       Qry.Free;
@@ -605,7 +627,7 @@ begin
           if TagVal.Value <> '' then
           begin
             Qry.ParamByName('doc_id').AsInteger := DocId;
-            Qry.ParamByName('tag').AsString := LowerCase(Trim(TagVal.Value));
+            Qry.ParamByName('tag').AsWideString :=LowerCase(Trim(TagVal.Value));
             Qry.ExecSQL;
           end;
         end;
@@ -868,10 +890,29 @@ begin
       // FR#2936/Plan#3266 M2.5 — review-notes have an Edit-Window (60min/24h).
       // mx_update_doc would bypass that gate, so reject and route to mx_update_note.
       // Admins can still edit by going through mx_update_note (same row-lock + audit).
+      //
+      // Session 267 refinement — metadata-only updates (AI-Batch use case):
+      // summary_l1/summary_l2/verified do not touch user-visible content and
+      // must not be gated by the Edit-Window. AI-Batch generates auto-summaries
+      // on a daily schedule for every doc_type including note — rejecting these
+      // left notes#3306/3312/3325/3397 without summaries since 2026-04-18.
+      // Bypass strictly when NO user-visible field is touched (Title/Content/
+      // AppendContent/Status/DocType/NewProject/ChangeReason all empty).
       if SameText(CurrentDocType, 'note') then
-        raise EMxValidation.Create(
-          'mx_update_doc cannot edit review-notes (doc_type=note). ' +
-          'Use mx_update_note instead — it enforces the 60min author / 24h admin Edit-Window.');
+      begin
+        // Metadata-only bypass: user-visible content fields all empty,
+        // at least one metadata field set. change_reason is revision
+        // metadata (stored in doc_revisions), not user-visible — AI-Batch
+        // passes it for audit trail, so it MUST NOT block the bypass.
+        var MetadataOnly := (Title = '') and (Content = '') and (AppendContent = '')
+          and (Status = '') and (DocType = '') and (NewProject = '')
+          and ((Summary1 <> '') or (Summary2 <> '') or Verified);
+        if not MetadataOnly then
+          raise EMxValidation.Create(
+            'mx_update_doc cannot edit review-notes (doc_type=note). ' +
+            'Use mx_update_note instead — it enforces the 60min author / 24h admin Edit-Window. ' +
+            'Metadata-only updates (summary_l1/summary_l2/verified) are allowed via mx_update_doc.');
+      end;
 
       // ACL: check write access to the document's project
       if not AContext.AccessControl.CheckProject(ProjectId, alReadWrite) then
@@ -886,7 +927,7 @@ begin
       Qry := AContext.CreateQuery(
         'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
       try
-        Qry.ParamByName('slug').AsString := NewProject;
+        Qry.ParamByName('slug').AsWideString :=NewProject;
         Qry.Open;
         if Qry.IsEmpty then
           raise EMxNotFound.Create('Target project not found: ' + NewProject);
@@ -977,18 +1018,18 @@ begin
     try
       Qry.ParamByName('id').AsInteger := DocId;
       if Title <> '' then
-        Qry.ParamByName('title').AsString := ClampTitle(Title);
+        Qry.ParamByName('title').AsWideString := ClampTitle(Title);
       if Content <> '' then
         BindLargeText(Qry.ParamByName('content'), Content);
       if Status <> '' then
-        Qry.ParamByName('status').AsString := Status;
+        Qry.ParamByName('status').AsWideString :=Status;
       if DocType <> '' then
-        Qry.ParamByName('doc_type').AsString := DocType;
+        Qry.ParamByName('doc_type').AsWideString :=DocType;
       if Summary1 <> '' then
         // Bug#2738: clamp to VARCHAR(500) — direct input path can exceed
-        Qry.ParamByName('summary_l1').AsString := ClampSummary(Summary1);
+        Qry.ParamByName('summary_l1').AsWideString := ClampSummary(Summary1);
       if Summary2 <> '' then
-        Qry.ParamByName('summary_l2').AsString := Summary2;
+        Qry.ParamByName('summary_l2').AsWideString := Summary2;
       if NewProject <> '' then
         Qry.ParamByName('project_id').AsInteger := NewProjectId;
       Qry.ExecSQL;
@@ -1020,9 +1061,9 @@ begin
         Qry.ParamByName('doc_id').AsInteger := DocId;
         Qry.ParamByName('rev').AsInteger := NextRevision;
         BindLargeText(Qry.ParamByName('content'), Content);
-        Qry.ParamByName('summary_l2').AsString := Summary2;
-        Qry.ParamByName('changed_by').AsString := ChangedBy;
-        Qry.ParamByName('reason').AsString := ClampChangeReason(ChangeReason);
+        Qry.ParamByName('summary_l2').AsWideString := Summary2;
+        Qry.ParamByName('changed_by').AsWideString := ChangedBy;
+        Qry.ParamByName('reason').AsWideString :=ClampChangeReason(ChangeReason);
         Qry.ExecSQL;
       finally
         Qry.Free;
@@ -1147,7 +1188,7 @@ begin
   Qry := AContext.CreateQuery(
     'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
   try
-    Qry.ParamByName('slug').AsString := ProjectSlug;
+    Qry.ParamByName('slug').AsWideString :=ProjectSlug;
     Qry.Open;
     if Qry.IsEmpty then
       raise EMxNotFound.Create('Project not found: ' + ProjectSlug);
@@ -1179,8 +1220,8 @@ begin
         try
           // Bug#2738: clamp to VARCHAR(500) — ExtractFirstSentence already
           // clamps but belt-and-suspenders for the direct-input path shape
-          UpdQry.ParamByName('l1').AsString := ClampSummary(NewL1);
-          UpdQry.ParamByName('l2').AsString := NewL2;
+          UpdQry.ParamByName('l1').AsWideString :=ClampSummary(NewL1);
+          UpdQry.ParamByName('l2').AsWideString :=NewL2;
           UpdQry.ParamByName('id').AsInteger := DocId;
           UpdQry.ExecSQL;
           Inc(Updated);

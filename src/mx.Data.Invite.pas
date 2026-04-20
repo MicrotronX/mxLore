@@ -165,13 +165,13 @@ begin
     '(token, developer_id, client_key_id, mode, expires_at, created_by, raw_api_key_obfuscated) ' +
     'VALUES (:t, :d, :k, :m, :e, :c, :r)');
   try
-    Qry.ParamByName('t').AsString := AToken;
+    Qry.ParamByName('t').AsWideString :=AToken;
     Qry.ParamByName('d').AsInteger := ADeveloperId;
     Qry.ParamByName('k').AsInteger := AClientKeyId;
-    Qry.ParamByName('m').AsString := AMode;
+    Qry.ParamByName('m').AsWideString :=AMode;
     Qry.ParamByName('e').AsDateTime := AExpiresAt;
     Qry.ParamByName('c').AsInteger := ACreatedBy;
-    Qry.ParamByName('r').AsString := ARawApiKeyObfuscated;
+    Qry.ParamByName('r').AsWideString :=ARawApiKeyObfuscated;
     Qry.ExecSQL;
   finally
     Qry.Free;
@@ -197,7 +197,7 @@ begin
   Qry := ACtx.CreateQuery(CInviteSelectCols +
     'FROM invite_links WHERE token = :t');
   try
-    Qry.ParamByName('t').AsString := AToken;
+    Qry.ParamByName('t').AsWideString :=AToken;
     Qry.Open;
     if not Qry.IsEmpty then
     begin
@@ -320,7 +320,7 @@ begin
     '  consumer_ip = :ip ' +
     'WHERE id = :i AND first_viewed_at IS NULL');
   try
-    Qry.ParamByName('ip').AsString := AConsumerIp;
+    Qry.ParamByName('ip').AsWideString :=AConsumerIp;
     Qry.ParamByName('i').AsInteger := AId;
     Qry.ExecSQL;
     Result := Qry.RowsAffected > 0;

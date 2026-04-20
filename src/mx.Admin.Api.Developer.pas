@@ -123,16 +123,16 @@ begin
     Qry := Ctx.CreateQuery(
       'INSERT INTO developers (name, email, role) VALUES (:name, :email, :role)');
     try
-      Qry.ParamByName('name').AsString := Name;
+      Qry.ParamByName('name').AsWideString :=Name;
       if Email <> '' then
-        Qry.ParamByName('email').AsString := Email
+        Qry.ParamByName('email').AsWideString :=Email
       else
       begin
         Qry.ParamByName('email').DataType := ftString;
         Qry.ParamByName('email').Clear;
       end;
       if Role <> '' then
-        Qry.ParamByName('role').AsString := Role
+        Qry.ParamByName('role').AsWideString :=Role
       else
       begin
         Qry.ParamByName('role').DataType := ftString;
@@ -259,11 +259,11 @@ begin
       Qry := Ctx.CreateQuery(SQL);
       try
         if HasName then
-          Qry.ParamByName('name').AsString := Name;
+          Qry.ParamByName('name').AsWideString :=Name;
         if HasEmail then
         begin
           if Email <> '' then
-            Qry.ParamByName('email').AsString := Email
+            Qry.ParamByName('email').AsWideString :=Email
           else
           begin
             Qry.ParamByName('email').DataType := ftString;
@@ -273,7 +273,7 @@ begin
         if HasRole then
         begin
           if Role <> '' then
-            Qry.ParamByName('role').AsString := Role
+            Qry.ParamByName('role').AsWideString :=Role
           else
           begin
             Qry.ParamByName('role').DataType := ftString;

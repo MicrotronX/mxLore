@@ -38,7 +38,7 @@ begin
   Qry := AContext.CreateQuery(
     'SELECT id FROM projects WHERE slug = :slug AND deleted_at IS NULL');
   try
-    Qry.ParamByName('slug').AsString := ASlug;
+    Qry.ParamByName('slug').AsWideString :=ASlug;
     Qry.Open;
     if Qry.IsEmpty then
       raise EMxError.Create('NOT_FOUND', 'Project not found: ' + ASlug);
@@ -486,7 +486,7 @@ begin
   Qry := AContext.CreateQuery(
     'DELETE FROM skill_findings WHERE skill_name = :skill');
   try
-    Qry.ParamByName('skill').AsString := SkillName;
+    Qry.ParamByName('skill').AsWideString :=SkillName;
     Qry.ExecSQL;
     DelFindings := Qry.RowsAffected;
   finally
@@ -497,7 +497,7 @@ begin
   Qry := AContext.CreateQuery(
     'DELETE FROM skill_params WHERE skill_name = :skill');
   try
-    Qry.ParamByName('skill').AsString := SkillName;
+    Qry.ParamByName('skill').AsWideString :=SkillName;
     Qry.ExecSQL;
     DelParams := Qry.RowsAffected;
   finally

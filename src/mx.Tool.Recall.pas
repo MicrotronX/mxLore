@@ -264,7 +264,7 @@ begin
   Qry := AContext.CreateQuery(
     'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
   try
-    Qry.ParamByName('slug').AsString := ProjectSlug;
+    Qry.ParamByName('slug').AsWideString :=ProjectSlug;
     Qry.Open;
     if Qry.IsEmpty then
       raise EMxNotFound.Create('Project not found: ' + ProjectSlug);
@@ -366,9 +366,9 @@ begin
       'ORDER BY sf.created_at DESC LIMIT 10');
     try
       Qry.ParamByName('pid').AsInteger := ProjectId;
-      Qry.ParamByName('q').AsString := '%' + Query + '%';
-      Qry.ParamByName('q2').AsString := '%' + Query + '%';
-      Qry.ParamByName('q3').AsString := '%' + Query + '%';
+      Qry.ParamByName('q').AsWideString :='%' + Query + '%';
+      Qry.ParamByName('q2').AsWideString :='%' + Query + '%';
+      Qry.ParamByName('q3').AsWideString :='%' + Query + '%';
       Qry.Open;
 
       while not Qry.Eof do
@@ -648,8 +648,8 @@ begin
         'ORDER BY created_at DESC LIMIT 1');
       try
         Qry.ParamByName('pid').AsInteger := ProjectId;
-        Qry.ParamByName('q').AsString := Copy(Query, 1, 500);
-        Qry.ParamByName('intent').AsString := Intent;
+        Qry.ParamByName('q').AsWideString :=Copy(Query, 1, 500);
+        Qry.ParamByName('intent').AsWideString :=Intent;
         Qry.Open;
         if not Qry.IsEmpty then
         begin
@@ -684,23 +684,23 @@ begin
           Qry.ParamByName('sid').Clear;
         end;
         Qry.ParamByName('pid').AsInteger := ProjectId;
-        Qry.ParamByName('q').AsString := Copy(Query, 1, 500);
-        Qry.ParamByName('intent').AsString := Intent;
-        Qry.ParamByName('tf').AsString := Copy(TargetFile, 1, 500);
+        Qry.ParamByName('q').AsWideString :=Copy(Query, 1, 500);
+        Qry.ParamByName('intent').AsWideString :=Intent;
+        Qry.ParamByName('tf').AsWideString :=Copy(TargetFile, 1, 500);
         Qry.ParamByName('tc').AsInteger := ItemCount;
         Qry.ParamByName('ts').AsFloat := TopScore;
-        Qry.ParamByName('bc').AsString := BudgetClass;
+        Qry.ParamByName('bc').AsWideString :=BudgetClass;
         Qry.ParamByName('lms').AsInteger := LatencyMs;
-        Qry.ParamByName('gl').AsString := Gate.Level;
+        Qry.ParamByName('gl').AsWideString :=Gate.Level;
         if Gate.Reason <> '' then
-          Qry.ParamByName('gr').AsString := Copy(Gate.Reason, 1, 500)
+          Qry.ParamByName('gr').AsWideString :=Copy(Gate.Reason, 1, 500)
         else
         begin
           Qry.ParamByName('gr').DataType := ftString;
           Qry.ParamByName('gr').Clear;
         end;
         if Gate.LessonIds <> '' then
-          Qry.ParamByName('tli').AsString := Copy(Gate.LessonIds, 1, 500)
+          Qry.ParamByName('tli').AsWideString :=Copy(Gate.LessonIds, 1, 500)
         else
         begin
           Qry.ParamByName('tli').DataType := ftString;
@@ -759,9 +759,9 @@ begin
     'UPDATE recall_log SET outcome = :outcome, override_reason = :reason ' +
     'WHERE id = :rid');
   try
-    Qry.ParamByName('outcome').AsString := Outcome;
+    Qry.ParamByName('outcome').AsWideString :=Outcome;
     if Reason <> '' then
-      Qry.ParamByName('reason').AsString := Copy(Reason, 1, 500)
+      Qry.ParamByName('reason').AsWideString :=Copy(Reason, 1, 500)
     else
     begin
       Qry.ParamByName('reason').DataType := ftString;
@@ -787,7 +787,7 @@ begin
         '  (SELECT triggered_lesson_ids FROM recall_log WHERE id = :rid)) > 0 ' +
         'AND doc_type = ''lesson''');
       try
-        Qry.ParamByName('now').AsString :=
+        Qry.ParamByName('now').AsWideString :=
           FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', Now);
         Qry.ParamByName('rid').AsLargeInt := RecallId;
         Qry.ExecSQL;

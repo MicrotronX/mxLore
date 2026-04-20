@@ -52,7 +52,7 @@ begin
     Qry := AContext.CreateQuery(
       'SELECT id FROM projects WHERE slug = :slug');
     try
-      Qry.ParamByName('slug').AsString := ProjectSlug;
+      Qry.ParamByName('slug').AsWideString :=ProjectSlug;
       Qry.Open;
       if Qry.IsEmpty then
         raise EMxNotFound.Create('Project not found: ' + ProjectSlug);
@@ -70,7 +70,7 @@ begin
       'VALUES (:proj_id, :inst_id, :dev_id, :key_id, :setup_ver, NOW())');
     try
       Qry.ParamByName('proj_id').AsInteger := ProjectId;
-      Qry.ParamByName('inst_id').AsString := InstanceId;
+      Qry.ParamByName('inst_id').AsWideString :=InstanceId;
       Qry.ParamByName('dev_id').AsInteger := MxGetThreadAuth.DeveloperId;
       Qry.ParamByName('key_id').DataType := ftInteger;
       if MxGetThreadAuth.KeyId > 0 then
@@ -78,7 +78,7 @@ begin
       else
         Qry.ParamByName('key_id').Clear;
       if SetupVersion <> '' then
-        Qry.ParamByName('setup_ver').AsString := SetupVersion
+        Qry.ParamByName('setup_ver').AsWideString :=SetupVersion
       else
       begin
         Qry.ParamByName('setup_ver').DataType := ftString;
@@ -143,7 +143,7 @@ begin
           'AND d.updated_at > :since ORDER BY d.updated_at DESC LIMIT 20';
         Qry := AContext.CreateQuery(SQL);
         Qry.ParamByName('proj_id').AsInteger := ProjectId;
-        Qry.ParamByName('since').AsString := Since;
+        Qry.ParamByName('since').AsWideString :=Since;
       end
       else
       begin
@@ -180,7 +180,7 @@ begin
           'AND updated_at <= :since');
         try
           Qry.ParamByName('proj_id').AsInteger := ProjectId;
-          Qry.ParamByName('since').AsString := Since;
+          Qry.ParamByName('since').AsWideString :=Since;
           Qry.Open;
           Data.AddPair('unchanged_count',
             TJSONNumber.Create(Qry.FieldByName('cnt').AsInteger));
@@ -267,7 +267,7 @@ begin
       try
         Qry.ParamByName('proj_id').AsInteger := ProjectId;
         if Since <> '' then
-          Qry.ParamByName('since').AsString := Since;
+          Qry.ParamByName('since').AsWideString :=Since;
         Qry.Open;
         Notes := TJSONArray.Create;
         while not Qry.Eof do
@@ -352,7 +352,7 @@ begin
               JoinQry.ParamByName('did').AsInteger := MxGetThreadAuth.DeveloperId;
               JoinQry.ParamByName('tpid').AsInteger :=
                 Qry.FieldByName('peer_project_id').AsInteger;
-              JoinQry.ParamByName('payload').AsString :=
+              JoinQry.ParamByName('payload').AsWideString :=
                 '{"project":"' + ProjectSlug + '","session_id":' +
                 IntToStr(SessionId) + '}';
               JoinQry.ExecSQL;
@@ -493,7 +493,7 @@ begin
       'UPDATE sessions SET ended_at = NOW(), summary = :summary ' +
       'WHERE id = :sid AND ended_at IS NULL');
     try
-      Qry.ParamByName('summary').AsString := Summary;
+      Qry.ParamByName('summary').AsWideString :=Summary;
       Qry.ParamByName('sid').AsInteger := SessionId;
       Qry.ExecSQL;
     finally
@@ -528,7 +528,7 @@ begin
         Qry.ParamByName('sid').AsInteger := SessionId;
         Qry.ParamByName('spid').AsInteger := ProjectId;
         Qry.ParamByName('did').AsInteger := MxGetThreadAuth.DeveloperId;
-        Qry.ParamByName('payload').AsString :=
+        Qry.ParamByName('payload').AsWideString :=
           '{"project":"' + ProjectSlug + '","session_id":' +
           IntToStr(SessionId) + '}';
         Qry.ParamByName('pid').AsInteger := ProjectId;
@@ -604,7 +604,7 @@ begin
   Qry := AContext.CreateQuery(
     'SELECT id FROM projects WHERE slug = :slug');
   try
-    Qry.ParamByName('slug').AsString := ProjectSlug;
+    Qry.ParamByName('slug').AsWideString :=ProjectSlug;
     Qry.Open;
     if Qry.IsEmpty then
       raise EMxNotFound.Create('Project not found: ' + ProjectSlug);

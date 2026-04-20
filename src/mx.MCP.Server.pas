@@ -3,13 +3,13 @@ unit mx.MCP.Server;
 interface
 
 uses
-  System.SysUtils, System.Classes, System.JSON,
+  System.SysUtils, System.Classes, System.JSON, System.Math,
   Sparkle.HttpSys.Server,
   Sparkle.HttpServer.Module,
   Sparkle.HttpServer.Context,
   Sparkle.Middleware.Cors,
   Data.DB, FireDAC.Comp.Client,
-  mx.Types, mx.Config, mx.Log, mx.Data.Pool, mx.Auth,
+  mx.Types, mx.Config, mx.Log, mx.Data.Pool, mx.Auth, mx.Errors,
   mx.MCP.Schema, mx.MCP.Protocol, mx.Logic.AccessControl;
 
 type
@@ -85,6 +85,67 @@ begin
   end;
 end;
 
+// FR#2936/Plan#3266 M3.9+M3.10 — RFC7807 auth-failure responder with
+// OAuth2-conformant WWW-Authenticate header on 401. Centralises the
+// pattern so HandleMcpRequest (POST /mcp) and HandleAgentInboxGet
+// (GET /mcp?agent_inbox=...) emit identical shapes. Keeps the 401 vs
+// 403 semantics per RFC 6750: 401 = no/malformed credentials, 403 =
+// credentials present but invalid/expired/revoked.
+//
+// Session 267 mxDesignChecker WARN#1 split: AReason is the Spec §I9
+// domain-code (AR_* from mx.Types, drives `type` URI + `mxlore.reason`).
+// The OAuth2 RFC6750 §3.1 challenge-code is DERIVED from AReason via
+// MapReasonToOAuth2Challenge — clients get a spec-compliant body AND
+// a spec-compliant Bearer challenge without the caller conflating them.
+function MapReasonToOAuth2Challenge(const AReason: string): string;
+begin
+  // RFC 6750 §3.1 registers exactly three codes. Map domain-reasons into
+  // this narrow set; unknown reasons omit the challenge-code entirely
+  // (realm-only challenge — fail-closed).
+  if (AReason = AR_KEY_INVALID)
+     or (AReason = AR_KEY_EXPIRED)
+     or (AReason = AR_KEY_REVOKED)
+     or (AReason = AR_KEY_EXPIRED_GRACE) then
+    Result := 'invalid_token'
+  else if (AReason = AR_ROLE_INSUFFICIENT)
+          or (AReason = AR_PROJECT_NOT_ASSIGNED)
+          or (AReason = AR_WRITE_SCOPE_VIOLATION)
+          or (AReason = AR_TOOL_NOT_WHITELISTED) then
+    Result := 'insufficient_scope'
+  else
+    Result := '';  // realm-only challenge (no `error=` field)
+end;
+
+procedure SendAuthProblem(const C: THttpServerContext; AStatus: Integer;
+  const AReason, ATitle, ADetail, ASuggestedAction: string);
+var
+  Body: TJSONObject;
+  Bytes: TBytes;
+  Challenge, ChallengeCode: string;
+begin
+  Body := MxRfc7807Response(AReason, ATitle, ADetail, AStatus,
+    ASuggestedAction, '' {decision_basis reserved per AC-27});
+  try
+    Bytes := TEncoding.UTF8.GetBytes(Body.ToJSON);
+  finally
+    Body.Free;
+  end;
+  C.Response.StatusCode := AStatus;
+  C.Response.Headers.SetValue('Content-Type', 'application/problem+json');
+  if AStatus = 401 then
+  begin
+    // OAuth2 Bearer challenge (RFC 6750 §3.1). ChallengeCode is derived
+    // from AReason — never from a caller-supplied string — so unknown
+    // reasons produce a realm-only challenge (fail-closed).
+    ChallengeCode := MapReasonToOAuth2Challenge(AReason);
+    Challenge := 'Bearer realm="mxLore"';
+    if ChallengeCode <> '' then
+      Challenge := Challenge + ', error="' + ChallengeCode + '"';
+    C.Response.Headers.SetValue('WWW-Authenticate', Challenge);
+  end;
+  C.Response.Close(Bytes);
+end;
+
 procedure TMxMcpApiModule.ProcessRequest(const C: THttpServerContext);
 var
   AuthHeader, Body, ResponseJson: string;
@@ -147,10 +208,10 @@ begin
       AuthHeader := ExtractQueryApiKey(C.Request.Uri.Query);
     if AuthHeader = '' then
     begin
-      C.Response.StatusCode := 401;
-      ResponseBytes := TEncoding.UTF8.GetBytes('{"error":"Missing Authorization header"}');
-      C.Response.Headers.SetValue('Content-Type', 'application/json');
-      C.Response.Close(ResponseBytes);
+      SendAuthProblem(C, 401, AR_KEY_INVALID,
+        'Missing credentials',
+        'Bearer token or api_key parameter required.',
+        'request_access');
       FLogger.Log(mlWarning, 'MCP auth failed: no Authorization header');
       Exit;
     end;
@@ -158,19 +219,46 @@ begin
     AuthResult := FAuth.ValidateKey(AuthHeader);
     if not AuthResult.Valid then
     begin
-      C.Response.StatusCode := 403;
-      ResponseBytes := TEncoding.UTF8.GetBytes('{"error":"Invalid or expired API key"}');
-      C.Response.Headers.SetValue('Content-Type', 'application/json');
-      C.Response.Close(ResponseBytes);
+      // M3.11b forward-proof: pass AuthResult.AuthReason so future-
+      // distinguished codes (key_revoked / key_expired) surface without
+      // a second edit-pass. Today ValidateKey collapses all fails to
+      // AR_KEY_INVALID — behaviour identical, just future-ready.
+      SendAuthProblem(C, 403, AuthResult.AuthReason,
+        'Invalid or expired API key',
+        'The provided key is unknown, revoked, or expired beyond the 24h grace window.',
+        'rotate');
       FLogger.Log(mlWarning, 'MCP auth failed: invalid key');
       Exit;
     end;
+
+    // FR#2936/Plan#3266 M3.6b — capture request-context for forensic trio.
+    // Consumed by mx_key_revoke (self-revoke) to populate revoke_ip +
+    // revoke_user_agent. Same column sizes as admin path (VARCHAR 45/255).
+    C.Request.Headers.GetIfExists('X-Forwarded-For', AuthResult.RemoteIp);
+    if AuthResult.RemoteIp = '' then
+      AuthResult.RemoteIp := C.Request.RemoteIp;
+    if Length(AuthResult.RemoteIp) > 45 then
+      AuthResult.RemoteIp := Copy(AuthResult.RemoteIp, 1, 45);
+    C.Request.Headers.GetIfExists('User-Agent', AuthResult.UserAgent);
+    if Length(AuthResult.UserAgent) > 255 then
+      AuthResult.UserAgent := Copy(AuthResult.UserAgent, 1, 255);
 
     // Store auth for tool handlers (threadvar)
     MxSetThreadAuth(AuthResult);
 
     // Read request body
     Body := TEncoding.UTF8.GetString(C.Request.Content);
+
+    // Bug#3345 diagnostic (Session 267) — log raw request-body metrics to
+    // distinguish transport-loss vs parse-loss. BytesLen = on-wire, BodyLen =
+    // UTF-8 decoded chars. First 200 chars + last 200 chars help spot
+    // truncation-points in large bodies. REMOVE after root-cause found.
+    FLogger.Log(mlInfo, Format(
+      '[Bug3345] body: bytes=%d chars=%d head=%s | tail=%s',
+      [Length(C.Request.Content),
+       Length(Body),
+       Copy(Body, 1, 200).Replace(#10, '\n').Replace(#13, '\r'),
+       Copy(Body, Max(1, Length(Body) - 199), 200).Replace(#10, '\n').Replace(#13, '\r')]));
 
     if Body = '' then
     begin
@@ -237,16 +325,20 @@ begin
     AuthHeader := ExtractQueryApiKey(C.Request.Uri.Query);
   if AuthHeader = '' then
   begin
-    C.Response.StatusCode := 401;
-    C.Response.Close;
+    SendAuthProblem(C, 401, AR_KEY_INVALID,
+      'Missing credentials',
+      'Bearer token or api_key parameter required.',
+      'request_access');
     Exit;
   end;
 
   AuthResult := FAuth.ValidateKey(AuthHeader);
   if not AuthResult.Valid then
   begin
-    C.Response.StatusCode := 403;
-    C.Response.Close;
+    SendAuthProblem(C, 403, AuthResult.AuthReason,
+      'Invalid or expired API key',
+      'The provided key is unknown, revoked, or expired beyond the 24h grace window.',
+      'rotate');
     Exit;
   end;
 
@@ -257,7 +349,7 @@ begin
     Qry := Ctx.CreateQuery(
       'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
     try
-      Qry.ParamByName('slug').AsString := AProject;
+      Qry.ParamByName('slug').AsWideString :=AProject;
       Qry.Open;
       if Qry.IsEmpty then
       begin
@@ -273,8 +365,10 @@ begin
     // ACL: check read access
     if not Ctx.AccessControl.CheckProject(ProjectId, alReadOnly) then
     begin
-      C.Response.StatusCode := 403;
-      C.Response.Close;
+      SendAuthProblem(C, 403, AR_PROJECT_NOT_ASSIGNED,
+        'Insufficient project access',
+        'Read access to the target project is required to list the agent inbox.',
+        'request_access');
       Exit;
     end;
 
@@ -348,16 +442,20 @@ begin
     AuthHeader := ExtractQueryApiKey(C.Request.Uri.Query);
   if AuthHeader = '' then
   begin
-    C.Response.StatusCode := 401;
-    C.Response.Close;
+    SendAuthProblem(C, 401, AR_KEY_INVALID,
+      'Missing credentials',
+      'Bearer token or api_key parameter required.',
+      'request_access');
     Exit;
   end;
 
   AuthResult := FAuth.ValidateKey(AuthHeader);
   if not AuthResult.Valid then
   begin
-    C.Response.StatusCode := 403;
-    C.Response.Close;
+    SendAuthProblem(C, 403, AuthResult.AuthReason,
+      'Invalid or expired API key',
+      'The provided key is unknown, revoked, or expired beyond the 24h grace window.',
+      'rotate');
     Exit;
   end;
 

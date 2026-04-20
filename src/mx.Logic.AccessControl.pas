@@ -122,7 +122,7 @@ type
   end;
 
 const
-  MASTER_MAP: array[0..43] of TMasterMapEntry = (
+  MASTER_MAP: array[0..44] of TMasterMapEntry = (
     // --- Read tools (20) ---
     (Tool: 'mx_ping';                     MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: True),
     (Tool: 'mx_search';                   MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: True),
@@ -170,7 +170,9 @@ const
     (Tool: 'mx_migrate_project';          MinLevel: alReadWrite; AdminOnly: True;  ScopeGlobalAllowed: False),
     // --- Comment-level tools (2, FR#2936 M2.4 + M2.5) ---
     (Tool: 'mx_create_note';              MinLevel: alComment;   AdminOnly: False; ScopeGlobalAllowed: False),
-    (Tool: 'mx_update_note';              MinLevel: alComment;   AdminOnly: False; ScopeGlobalAllowed: False)
+    (Tool: 'mx_update_note';              MinLevel: alComment;   AdminOnly: False; ScopeGlobalAllowed: False),
+    // --- Key self-service (1, FR#2936 M3.6b) — caller revokes own key; no project scope ---
+    (Tool: 'mx_key_revoke';               MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: True)
   );
 
 function TryLookupToolMinLevel(const ATool: string;

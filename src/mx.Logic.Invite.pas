@@ -145,10 +145,10 @@ begin
       'VALUES (:d, :n, :h, :p, :perms, TRUE, NOW())');
     try
       Qry.ParamByName('d').AsInteger := ADeveloperId;
-      Qry.ParamByName('n').AsString := AKeyName;
-      Qry.ParamByName('h').AsString := KeyHash;
-      Qry.ParamByName('p').AsString := Copy(ARawApiKey, 1, 12);
-      Qry.ParamByName('perms').AsString := AKeyPermissions;
+      Qry.ParamByName('n').AsWideString :=AKeyName;
+      Qry.ParamByName('h').AsWideString :=KeyHash;
+      Qry.ParamByName('p').AsWideString :=Copy(ARawApiKey, 1, 12);
+      Qry.ParamByName('perms').AsWideString :=AKeyPermissions;
       Qry.ExecSQL;
     finally
       Qry.Free;

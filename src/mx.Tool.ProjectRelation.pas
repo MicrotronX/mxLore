@@ -26,7 +26,7 @@ begin
   Qry := AContext.CreateQuery(
     'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
   try
-    Qry.ParamByName('slug').AsString := ASlug;
+    Qry.ParamByName('slug').AsWideString :=ASlug;
     Qry.Open;
     if Qry.IsEmpty then
       raise EMxNotFound.Create(ARole + ' project not found: ' + ASlug);
@@ -80,7 +80,7 @@ begin
     try
       Qry.ParamByName('source').AsInteger := SourceId;
       Qry.ParamByName('target').AsInteger := TargetId;
-      Qry.ParamByName('rel_type').AsString := RelationType;
+      Qry.ParamByName('rel_type').AsWideString :=RelationType;
       Qry.ExecSQL;
     finally
       Qry.Free;
@@ -144,7 +144,7 @@ begin
   try
     Qry.ParamByName('source').AsInteger := SourceId;
     Qry.ParamByName('target').AsInteger := TargetId;
-    Qry.ParamByName('rel_type').AsString := RelationType;
+    Qry.ParamByName('rel_type').AsWideString :=RelationType;
     Qry.ExecSQL;
     Affected := Qry.RowsAffected;
   finally

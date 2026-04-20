@@ -135,7 +135,7 @@ begin
     'SELECT p.id, p.slug, p.name, p.path, p.briefing ' +
     'FROM projects p WHERE p.slug = :slug AND p.is_active = TRUE');
   try
-    Qry.ParamByName('slug').AsString := ProjectSlug;
+    Qry.ParamByName('slug').AsWideString :=ProjectSlug;
     Qry.Open;
     if Qry.IsEmpty then
       raise EMxNotFound.Create('Project not found: ' + ProjectSlug);
@@ -219,9 +219,9 @@ begin
     Qry.ParamByName('proj_id').AsInteger := ProjectId;
     Qry.ParamByName('budget').AsInteger := TokenBudget;
     if FilterDocType <> '' then
-      Qry.ParamByName('filter_doc_type').AsString := FilterDocType;
+      Qry.ParamByName('filter_doc_type').AsWideString :=FilterDocType;
     if FilterStatus <> '' then
-      Qry.ParamByName('filter_status').AsString := FilterStatus;
+      Qry.ParamByName('filter_status').AsWideString :=FilterStatus;
     Qry.Open;
 
     Docs := TJSONArray.Create;
@@ -259,7 +259,7 @@ begin
   try
     Qry.ParamByName('proj_id').AsInteger := ProjectId;
     if HasSince then
-      Qry.ParamByName('since').AsString := Since;
+      Qry.ParamByName('since').AsWideString :=Since;
     Qry.Open;
     Stats := TJSONObject.Create;
     try
@@ -289,7 +289,7 @@ begin
   try
     Qry.ParamByName('proj_id').AsInteger := ProjectId;
     if HasSince then
-      Qry.ParamByName('since').AsString := Since;
+      Qry.ParamByName('since').AsWideString :=Since;
     Qry.Open;
     Recent := TJSONArray.Create;
     try
@@ -542,7 +542,7 @@ begin
     SubQry := AContext.CreateQuery(
       'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
     try
-      SubQry.ParamByName('slug').AsString := ProjectSlug;
+      SubQry.ParamByName('slug').AsWideString :=ProjectSlug;
       SubQry.Open;
       if SubQry.IsEmpty then
         raise EMxNotFound.Create('Project not found: ' + ProjectSlug);
@@ -630,15 +630,15 @@ begin
     Qry := AContext.CreateQuery(SQL);
     try
       if Query <> '' then
-        Qry.ParamByName('query').AsString := Query;
+        Qry.ParamByName('query').AsWideString :=Query;
       if (Scope = 'project') and (ProjectSlug <> '') then
-        Qry.ParamByName('project').AsString := ProjectSlug;
+        Qry.ParamByName('project').AsWideString :=ProjectSlug;
       if DocType <> '' then
-        Qry.ParamByName('doc_type').AsString := DocType;
+        Qry.ParamByName('doc_type').AsWideString :=DocType;
       if Tag <> '' then
-        Qry.ParamByName('tag').AsString := LowerCase(Trim(Tag));
+        Qry.ParamByName('tag').AsWideString :=LowerCase(Trim(Tag));
       if StatusFilter <> '' then
-        Qry.ParamByName('status').AsString := StatusFilter;
+        Qry.ParamByName('status').AsWideString :=StatusFilter;
       // Bug#3033: since binding — TDateTime bind, matches mx_session_delta pattern (Session.pas:697-702)
       if SinceStr <> '' then
         Qry.ParamByName('since').AsDateTime := SinceDT;
@@ -657,7 +657,7 @@ begin
               SubQry := AContext.CreateQuery(
                 'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
               try
-                SubQry.ParamByName('slug').AsString := RowProjSlug;
+                SubQry.ParamByName('slug').AsWideString :=RowProjSlug;
                 SubQry.Open;
                 if not SubQry.IsEmpty then
                   ProjId := SubQry.FieldByName('id').AsInteger

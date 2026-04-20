@@ -54,7 +54,8 @@ procedure HandleDeleteProjectRelation(const C: THttpServerContext;
 implementation
 
 uses
-  System.SysUtils, System.StrUtils, System.JSON, System.Net.URLClient,
+  System.SysUtils, System.StrUtils, System.JSON, System.Math,
+  System.Net.URLClient,
   Data.DB, FireDAC.Comp.Client,
   mx.Admin.Server, mx.Logic.Projects;
 
@@ -486,7 +487,7 @@ begin
         try
           Qry.ParamByName('dev_id').AsInteger := ADevId;
           Qry.ParamByName('proj_id').AsInteger := ProjId;
-          Qry.ParamByName('level').AsString := Level;
+          Qry.ParamByName('level').AsWideString :=Level;
           Qry.ExecSQL;
         finally
           Qry.Free;
@@ -573,7 +574,7 @@ begin
       try
         Qry.ParamByName('dev_id').AsInteger := DevId;
         Qry.ParamByName('proj_id').AsInteger := AProjId;
-        Qry.ParamByName('level').AsString := LowerCase(Level);
+        Qry.ParamByName('level').AsWideString :=LowerCase(Level);
         Qry.ExecSQL;
       finally
         Qry.Free;
@@ -835,11 +836,11 @@ begin
     try
       Qry.ParamByName('pid').AsInteger := AProjId;
       if FilterType <> '' then
-        Qry.ParamByName('ftype').AsString := LowerCase(FilterType);
+        Qry.ParamByName('ftype').AsWideString :=LowerCase(FilterType);
       if FilterStatus <> '' then
-        Qry.ParamByName('fstatus').AsString := LowerCase(FilterStatus);
+        Qry.ParamByName('fstatus').AsWideString :=LowerCase(FilterStatus);
       if FilterQ <> '' then
-        Qry.ParamByName('fq').AsString := '%' + FilterQ + '%';
+        Qry.ParamByName('fq').AsWideString :='%' + FilterQ + '%';
       Qry.ParamByName('lim').AsInteger := Lim;
       Qry.ParamByName('off').AsInteger := Off;
       Qry.Open;
@@ -1180,7 +1181,7 @@ begin
         Qry.ParamByName('id').AsInteger  := ADocId;
         Qry.ParamByName('id2').AsInteger := ADocId;
         Qry.ParamByName('id3').AsInteger := ADocId;
-        Qry.ParamByName('reason').AsString := Copy(ChangeReason, 1, 500);
+        Qry.ParamByName('reason').AsWideString :=Copy(ChangeReason, 1, 500);
         Qry.ExecSQL;
       finally
         Qry.Free;
@@ -1191,10 +1192,17 @@ begin
         'UPDATE documents SET ' + SetClauses +
         ', updated_at = NOW() WHERE id = :id');
       try
-        if HasTitle   then Qry.ParamByName('t').AsString  := NewTitle;
-        if HasSummary then Qry.ParamByName('s').AsString  := NewSummary;
-        if HasContent then Qry.ParamByName('c').AsString  := NewContent;
-        if HasStatus  then Qry.ParamByName('st').AsString := NewStatus;
+        if HasTitle   then Qry.ParamByName('t').AsWideString := NewTitle;
+        if HasSummary then Qry.ParamByName('s').AsWideString := NewSummary;
+        if HasContent then
+        begin
+          // Bug#3345 + Lesson#2727: ftWideMemo + explicit Size avoids cp1252
+          // triple-hop AND 32767-cap. Admin edits can exceed 32 KB on long specs.
+          Qry.ParamByName('c').DataType := ftWideMemo;
+          Qry.ParamByName('c').Size := Max(Length(NewContent) + 1024, 1048576);
+          Qry.ParamByName('c').AsWideString := NewContent;
+        end;
+        if HasStatus  then Qry.ParamByName('st').AsWideString :=NewStatus;
         Qry.ParamByName('id').AsInteger := ADocId;
         Qry.ExecSQL;
       finally

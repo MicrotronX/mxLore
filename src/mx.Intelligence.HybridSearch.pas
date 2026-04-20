@@ -153,7 +153,7 @@ begin
     Qry.SQL.Text := Qry.SQL.Text +
       ' ORDER BY distance ASC LIMIT ' + IntToStr(ALimit * 2);
     if AProjectFilter <> '' then
-      Qry.ParamByName('pf').AsString := AProjectFilter;
+      Qry.ParamByName('pf').AsWideString :=AProjectFilter;
 
     try
       Qry.Open;

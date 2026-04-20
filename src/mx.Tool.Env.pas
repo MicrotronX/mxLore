@@ -47,7 +47,7 @@ begin
   Qry := AContext.CreateQuery(
     'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
   try
-    Qry.ParamByName('slug').AsString := ASlug;
+    Qry.ParamByName('slug').AsWideString :=ASlug;
     Qry.Open;
     if Qry.IsEmpty then
       raise EMxError.Create('project_not_found', 'Project not found: ' + ASlug);
@@ -131,9 +131,9 @@ begin
   try
     Qry.ParamByName('key_id').AsInteger := KeyId;
     Qry.ParamByName('proj_id').AsInteger := ProjectId;
-    Qry.ParamByName('env_key').AsString := EnvKey;
-    Qry.ParamByName('val').AsString := EnvValue;
-    Qry.ParamByName('upd_val').AsString := EnvValue;
+    Qry.ParamByName('env_key').AsWideString :=EnvKey;
+    Qry.ParamByName('val').AsWideString :=EnvValue;
+    Qry.ParamByName('upd_val').AsWideString :=EnvValue;
     Qry.ExecSQL;
   finally
     Qry.Free;
@@ -206,7 +206,7 @@ begin
       Qry.ParamByName('key_id2').AsInteger := KeyId;
       Qry.ParamByName('key_id3').AsInteger := KeyId;
       Qry.ParamByName('dev_id').AsInteger := DeveloperId;
-      Qry.ParamByName('env_key').AsString := EnvKey;
+      Qry.ParamByName('env_key').AsWideString :=EnvKey;
       Qry.ParamByName('proj_id').AsInteger := ProjectId;
       Qry.ParamByName('proj_id2').AsInteger := ProjectId;
       Qry.ParamByName('proj_id3').AsInteger := ProjectId;
@@ -307,7 +307,7 @@ begin
   try
     Qry.ParamByName('key_id').AsInteger := KeyId;
     Qry.ParamByName('proj_id').AsInteger := ProjectId;
-    Qry.ParamByName('env_key').AsString := EnvKey;
+    Qry.ParamByName('env_key').AsWideString :=EnvKey;
     Qry.ExecSQL;
     Deleted := Qry.RowsAffected > 0;
   finally

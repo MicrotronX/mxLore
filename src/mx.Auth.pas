@@ -47,8 +47,8 @@ begin
   Qry := ACtx.CreateQuery(
     'UPDATE client_keys SET key_hash = :hash, key_prefix = :prefix WHERE id = :id');
   try
-    Qry.ParamByName('hash').AsString := NewHash;
-    Qry.ParamByName('prefix').AsString := Prefix;
+    Qry.ParamByName('hash').AsWideString :=NewHash;
+    Qry.ParamByName('prefix').AsWideString :=Prefix;
     Qry.ParamByName('id').AsInteger := AKeyId;
     Qry.ExecSQL;
   finally
@@ -70,6 +70,13 @@ begin
   Result.DeveloperId := 0;
   Result.DeveloperName := '';
   Result.IsAdmin := False;
+  // M3.11 writer default: AR_KEY_INVALID covers empty-bearer + prefix-miss +
+  // verify-fail + beyond-grace expiry (all return Valid=False). Pre-auth
+  // distinction of key_expired vs key_revoked is DEFERRED to M3.11b (requires
+  // a second diagnostic query without widening the hot path).
+  Result.AuthReason := AR_KEY_INVALID;
+  Result.RemoteIp := '';
+  Result.UserAgent := '';
 
   RawKey := ABearerToken;
   if RawKey.StartsWith('Bearer ', True) then
@@ -99,7 +106,7 @@ begin
     '  AND ck.revoked_at IS NULL ' +
     '  AND (ck.expires_at IS NULL OR ck.expires_at > DATE_SUB(NOW(), INTERVAL 24 HOUR))');
   try
-    Qry.ParamByName('prefix').AsString := Prefix;
+    Qry.ParamByName('prefix').AsWideString :=Prefix;
     Qry.Open;
 
     while not Qry.Eof do
@@ -123,7 +130,10 @@ begin
         begin
           Result.Permissions := mpRead;
           Result.IsAdmin := False;
-        end;
+          Result.AuthReason := AR_KEY_EXPIRED_GRACE;
+        end
+        else
+          Result.AuthReason := AR_OK;
         Break;
       end;
       Qry.Next;
@@ -147,7 +157,7 @@ begin
       '  AND ck.revoked_at IS NULL ' +
       '  AND (ck.expires_at IS NULL OR ck.expires_at > DATE_SUB(NOW(), INTERVAL 24 HOUR))');
     try
-      Qry.ParamByName('hash').AsString := ComputeSHA256(RawKey);
+      Qry.ParamByName('hash').AsWideString :=ComputeSHA256(RawKey);
       Qry.Open;
 
       if not Qry.IsEmpty then
@@ -168,7 +178,10 @@ begin
         begin
           Result.Permissions := mpRead;
           Result.IsAdmin := False;
-        end;
+          Result.AuthReason := AR_KEY_EXPIRED_GRACE;
+        end
+        else
+          Result.AuthReason := AR_OK;
       end;
     finally
       Qry.Free;

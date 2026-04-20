@@ -570,7 +570,7 @@ begin
           'WHERE p.slug = :slug ' +
           'ORDER BY ap.score DESC LIMIT 3');
         try
-          TopQry.ParamByName('slug').AsString := ProjSlug;
+          TopQry.ParamByName('slug').AsWideString :=ProjSlug;
           TopQry.Open;
           while not TopQry.Eof do
           begin

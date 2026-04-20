@@ -245,10 +245,14 @@ begin
 
     ResponseBytes := TEncoding.UTF8.GetByteCount(ResultText);
 
-    // Detect error in response
-    IsError := ToolResult.GetValue('error') <> nil;
+    // Detect error in response. Previously checked for a top-level 'error'
+    // key, but MxErrorResponse writes `{status:'error', code:X, message:Y}`
+    // and never produces an 'error' key — so IsError was always False and
+    // is_error/error_code columns in tool_call_log were always (0, NULL).
+    // Fix inline with M3.11 because AR_ROLE_INSUFFICIENT needs real IsError.
+    IsError := SameText(ToolResult.GetValue<string>('status', 'ok'), 'error');
     if IsError then
-      ErrorCode := Copy(ToolResult.GetValue<string>('error', ''), 1, 30)
+      ErrorCode := Copy(ToolResult.GetValue<string>('code', ''), 1, 30)
     else
       ErrorCode := '';
 
@@ -256,13 +260,29 @@ begin
     try
       var Auth := MxGetThreadAuth;
       var SessionId := Arguments.GetValue<Integer>('session_id', 0);
+      // FR#2936/Plan#3266 M3.11 — auth_reason derivation (sql/049 step 5).
+      // ValidateKey populated Auth.AuthReason on success (AR_OK /
+      // AR_KEY_EXPIRED_GRACE). Handler-level denials surface via
+      // SafeExecute catching EMxAccessDenied and mapping to error_code
+      // 'ACCESS_DENIED' — upgrade those to AR_ROLE_INSUFFICIENT. Unset falls
+      // back to AR_OK for belt-and-suspenders (successful calls only reach
+      // this path after mx.MCP.Server accepted the key).
+      var AuthReason := Auth.AuthReason;
+      if AuthReason = '' then
+        AuthReason := AR_KEY_INVALID;  // Defensive: if ValidateKey never ran
+      // Grace-period wins over role-insufficient: a grace key is read-only and
+      // will naturally hit ACCESS_DENIED on writes — preserve the root-cause
+      // signal (key-state) over the symptom (role-denial) for forensic clarity.
+      if IsError and (ErrorCode = 'ACCESS_DENIED')
+         and (AuthReason <> AR_KEY_EXPIRED_GRACE) then
+        AuthReason := AR_ROLE_INSUFFICIENT;
       var LogCtx := FPool.AcquireContext;
       var LogQry := LogCtx.CreateQuery(
         'INSERT INTO tool_call_log (tool_name, session_id, developer_id, ' +
-        '  response_bytes, latency_ms, is_error, error_code) ' +
-        'VALUES (:tool, :sid, :dev, :bytes, :ms, :err, :ecode)');
+        '  response_bytes, latency_ms, is_error, error_code, auth_reason) ' +
+        'VALUES (:tool, :sid, :dev, :bytes, :ms, :err, :ecode, :areason)');
       try
-        LogQry.ParamByName('tool').AsString := ToolName;
+        LogQry.ParamByName('tool').AsWideString :=ToolName;
         if SessionId > 0 then
           LogQry.ParamByName('sid').AsInteger := SessionId
         else
@@ -275,12 +295,13 @@ begin
         LogQry.ParamByName('ms').AsInteger := LatencyMs;
         LogQry.ParamByName('err').AsInteger := Ord(IsError);
         if IsError then
-          LogQry.ParamByName('ecode').AsString := ErrorCode
+          LogQry.ParamByName('ecode').AsWideString :=ErrorCode
         else
         begin
           LogQry.ParamByName('ecode').DataType := ftString;
           LogQry.ParamByName('ecode').Clear;
         end;
+        LogQry.ParamByName('areason').AsWideString :=AuthReason;
         LogQry.ExecSQL;
       finally
         LogQry.Free;

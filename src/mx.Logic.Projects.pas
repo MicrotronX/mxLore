@@ -65,7 +65,7 @@ begin
 
     Qry := Ctx.CreateQuery(SQL);
     try
-      Qry.ParamByName('name').AsString := AName.Trim;
+      Qry.ParamByName('name').AsWideString :=AName.Trim;
       Qry.ParamByName('id').AsInteger := AId;
       if ACreatorId >= 0 then
         Qry.ParamByName('creator').AsInteger := ACreatorId;

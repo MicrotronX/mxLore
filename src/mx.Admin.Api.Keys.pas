@@ -144,15 +144,15 @@ begin
       'VALUES (:dev_id, :name, :hash, :prefix, :perms, :expires)');
     try
       Qry.ParamByName('dev_id').AsInteger := ADevId;
-      Qry.ParamByName('name').AsString := Name;
-      Qry.ParamByName('hash').AsString := KeyHash;
-      Qry.ParamByName('prefix').AsString := Copy(RawKey, 1, 12);
-      Qry.ParamByName('perms').AsString := Permissions;
+      Qry.ParamByName('name').AsWideString :=Name;
+      Qry.ParamByName('hash').AsWideString :=KeyHash;
+      Qry.ParamByName('prefix').AsWideString :=Copy(RawKey, 1, 12);
+      Qry.ParamByName('perms').AsWideString :=Permissions;
       // M3.3 role-dependent default expiry. INI overrides not yet plumbed —
       // hard-coded defaults per Plan#3266: admin=180d, readwrite=90d, read=30d.
       // Caller may override via explicit expires_at in body. Empty -> default.
       if ExpiresAt <> '' then
-        Qry.ParamByName('expires').AsString := ExpiresAt
+        Qry.ParamByName('expires').AsWideString :=ExpiresAt
       else
       begin
         var DefaultDays: Integer := 30;
@@ -283,7 +283,7 @@ begin
       '  expires_at = DATE_ADD(NOW(), INTERVAL :days DAY) ' +
       'WHERE id = :id');
     try
-      Qry.ParamByName('perms').AsString := Permissions;
+      Qry.ParamByName('perms').AsWideString :=Permissions;
       Qry.ParamByName('days').AsInteger := RoleDays;
       Qry.ParamByName('id').AsInteger := AKeyId;
       Qry.ExecSQL;
@@ -479,27 +479,27 @@ begin
   try
     Qry.ParamByName('actor').AsInteger := AActorDevId;
     if Reason <> '' then
-      Qry.ParamByName('reason').AsString := Reason
+      Qry.ParamByName('reason').AsWideString :=Reason
     else
     begin
       Qry.ParamByName('reason').DataType := ftString;
       Qry.ParamByName('reason').Clear;
     end;
     if ClientIP <> '' then
-      Qry.ParamByName('ip').AsString := ClientIP
+      Qry.ParamByName('ip').AsWideString :=ClientIP
     else
     begin
       Qry.ParamByName('ip').DataType := ftString;
       Qry.ParamByName('ip').Clear;
     end;
     if UserAgent <> '' then
-      Qry.ParamByName('ua').AsString := UserAgent
+      Qry.ParamByName('ua').AsWideString :=UserAgent
     else
     begin
       Qry.ParamByName('ua').DataType := ftString;
       Qry.ParamByName('ua').Clear;
     end;
-    Qry.ParamByName('atype').AsString := ActorType;
+    Qry.ParamByName('atype').AsWideString :=ActorType;
     Qry.ParamByName('id').AsInteger := AKeyId;
     Qry.ExecSQL;
     // Bug#3350: TOCTOU — lost revoke race between pre-SELECT and UPDATE

@@ -112,7 +112,7 @@ begin
           Qry := AContext.CreateQuery(
             'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
           try
-            Qry.ParamByName('slug').AsString := ProjectSlug;
+            Qry.ParamByName('slug').AsWideString :=ProjectSlug;
             Qry.Open;
             if Qry.IsEmpty then
               raise EMxNotFound.CreateFmt('Item %d: project not found: %s', [I, ProjectSlug]);
@@ -152,15 +152,15 @@ begin
                 '  :summary_l1, :summary_l2, :status, :created_by, :dev_id)');
               try
                 Qry.ParamByName('proj_id').AsInteger := ProjectId;
-                Qry.ParamByName('doc_type').AsString := DocType;
-                Qry.ParamByName('slug').AsString := ClampSlug(Slug);
-                Qry.ParamByName('title').AsString := ClampTitle(Title);
+                Qry.ParamByName('doc_type').AsWideString :=DocType;
+                Qry.ParamByName('slug').AsWideString :=ClampSlug(Slug);
+                Qry.ParamByName('title').AsWideString :=ClampTitle(Title);
                 BindLargeText(Qry.ParamByName('content'), Content);
                 // Bug#2738: clamp to VARCHAR(500) — direct input path can exceed
-                Qry.ParamByName('summary_l1').AsString := ClampSummary(Summary1);
-                Qry.ParamByName('summary_l2').AsString := Summary2;
-                Qry.ParamByName('status').AsString := Status;
-                Qry.ParamByName('created_by').AsString := CreatedBy;
+                Qry.ParamByName('summary_l1').AsWideString :=ClampSummary(Summary1);
+                Qry.ParamByName('summary_l2').AsWideString :=Summary2;
+                Qry.ParamByName('status').AsWideString :=Status;
+                Qry.ParamByName('created_by').AsWideString :=CreatedBy;
                 // FR#2936/Plan#3266 M2.5 prereq — author-FK for Edit-Window match.
                 var CallerDevId := AContext.AccessControl.GetDeveloperId;
                 if CallerDevId > 0 then
@@ -205,8 +205,8 @@ begin
           try
             Qry.ParamByName('doc_id').AsInteger := DocId;
             BindLargeText(Qry.ParamByName('content'), Content);
-            Qry.ParamByName('summary_l2').AsString := Summary2;
-            Qry.ParamByName('changed_by').AsString := CreatedBy;
+            Qry.ParamByName('summary_l2').AsWideString :=Summary2;
+            Qry.ParamByName('changed_by').AsWideString :=CreatedBy;
             Qry.ExecSQL;
           finally
             Qry.Free;
@@ -229,7 +229,7 @@ begin
                 'INSERT IGNORE INTO doc_tags (doc_id, tag) VALUES (:doc_id, :tag)');
               try
                 Qry.ParamByName('doc_id').AsInteger := DocId;
-                Qry.ParamByName('tag').AsString := TagStr;
+                Qry.ParamByName('tag').AsWideString :=TagStr;
                 Qry.ExecSQL;
               finally
                 Qry.Free;
@@ -390,11 +390,11 @@ begin
               BindLargeText(Qry.ParamByName('content'), Content);
             if Summary1 <> '' then
               // Bug#2738: clamp to VARCHAR(500) — direct input path can exceed
-              Qry.ParamByName('summary_l1').AsString := ClampSummary(Summary1);
+              Qry.ParamByName('summary_l1').AsWideString :=ClampSummary(Summary1);
             if Summary2 <> '' then
-              Qry.ParamByName('summary_l2').AsString := Summary2;
+              Qry.ParamByName('summary_l2').AsWideString :=Summary2;
             if Status <> '' then
-              Qry.ParamByName('status').AsString := Status;
+              Qry.ParamByName('status').AsWideString :=Status;
             Qry.ExecSQL;
           finally
             Qry.Free;
@@ -423,9 +423,9 @@ begin
               Qry.ParamByName('doc_id').AsInteger := DocId;
               Qry.ParamByName('rev').AsInteger := NextRevision;
               BindLargeText(Qry.ParamByName('content'), Content);
-              Qry.ParamByName('summary_l2').AsString := Summary2;
-              Qry.ParamByName('changed_by').AsString := ChangedBy;
-              Qry.ParamByName('reason').AsString := ClampChangeReason(ChangeReason);
+              Qry.ParamByName('summary_l2').AsWideString :=Summary2;
+              Qry.ParamByName('changed_by').AsWideString :=ChangedBy;
+              Qry.ParamByName('reason').AsWideString :=ClampChangeReason(ChangeReason);
               Qry.ExecSQL;
             finally
               Qry.Free;

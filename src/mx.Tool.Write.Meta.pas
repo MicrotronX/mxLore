@@ -61,7 +61,7 @@ begin
       'SELECT id FROM projects WHERE slug = :slug AND is_active = FALSE ' +
       '  AND created_by_developer_id = :caller_dev_id');
     try
-      Qry.ParamByName('slug').AsString := Slug;
+      Qry.ParamByName('slug').AsWideString :=Slug;
       Qry.ParamByName('caller_dev_id').AsInteger := CallerDevId;
       Qry.Open;
       if not Qry.IsEmpty then
@@ -78,8 +78,8 @@ begin
         'UPDATE projects SET is_active = TRUE, deleted_at = NULL, ' +
         '  name = :name, path = :path WHERE id = :id');
       try
-        Qry.ParamByName('name').AsString := Name;
-        Qry.ParamByName('path').AsString := Path;
+        Qry.ParamByName('name').AsWideString :=Name;
+        Qry.ParamByName('path').AsWideString :=Path;
         Qry.ParamByName('id').AsInteger := ProjectId;
         Qry.ExecSQL;
       finally
@@ -95,7 +95,7 @@ begin
       Qry := AContext.CreateQuery(
         'SELECT 1 FROM projects WHERE slug = :slug LIMIT 1');
       try
-        Qry.ParamByName('slug').AsString := Slug;
+        Qry.ParamByName('slug').AsWideString :=Slug;
         Qry.Open;
         if not Qry.IsEmpty then
           raise EMxConflict.Create('Slug unavailable');
@@ -107,17 +107,17 @@ begin
         'INSERT INTO projects (slug, name, path, svn_url, created_by, created_by_developer_id) ' +
         'VALUES (:slug, :name, :path, :svn_url, :created_by, :created_by_dev_id)');
       try
-        Qry.ParamByName('slug').AsString := Slug;
-        Qry.ParamByName('name').AsString := Name;
-        Qry.ParamByName('path').AsString := Path;
+        Qry.ParamByName('slug').AsWideString :=Slug;
+        Qry.ParamByName('name').AsWideString :=Name;
+        Qry.ParamByName('path').AsWideString :=Path;
         if SvnUrl <> '' then
-          Qry.ParamByName('svn_url').AsString := SvnUrl
+          Qry.ParamByName('svn_url').AsWideString :=SvnUrl
         else
         begin
           Qry.ParamByName('svn_url').DataType := ftString;
           Qry.ParamByName('svn_url').Value := Null;
         end;
-        Qry.ParamByName('created_by').AsString := AContext.AccessControl.GetDeveloperName;
+        Qry.ParamByName('created_by').AsWideString :=AContext.AccessControl.GetDeveloperName;
         Qry.ParamByName('created_by_dev_id').AsInteger := CallerDevId;
         try
           Qry.ExecSQL;
@@ -150,7 +150,7 @@ begin
     try
       Qry.ParamByName('dev_id').AsInteger := CallerDevId;
       Qry.ParamByName('proj_id').AsInteger := ProjectId;
-      Qry.ParamByName('level').AsString := 'write';
+      Qry.ParamByName('level').AsWideString :='write';
       Qry.ExecSQL;
     finally
       Qry.Free;
@@ -165,8 +165,8 @@ begin
       try
         Qry.ParamByName('key_id').AsInteger := MxGetThreadAuth.KeyId;
         Qry.ParamByName('proj_id').AsInteger := ProjectId;
-        Qry.ParamByName('val').AsString := Path;
-        Qry.ParamByName('val2').AsString := Path;
+        Qry.ParamByName('val').AsWideString :=Path;
+        Qry.ParamByName('val2').AsWideString :=Path;
         Qry.ExecSQL;
       finally
         Qry.Free;
@@ -248,7 +248,7 @@ begin
         'INSERT IGNORE INTO doc_tags (doc_id, tag) VALUES (:doc_id, :tag)');
       try
         Qry.ParamByName('doc_id').AsInteger := DocId;
-        Qry.ParamByName('tag').AsString := Tag;
+        Qry.ParamByName('tag').AsWideString :=Tag;
         Qry.ExecSQL;
         Added := Added + Qry.RowsAffected;
       finally
@@ -328,7 +328,7 @@ begin
         'DELETE FROM doc_tags WHERE doc_id = :doc_id AND tag = :tag');
       try
         Qry.ParamByName('doc_id').AsInteger := DocId;
-        Qry.ParamByName('tag').AsString := Tag;
+        Qry.ParamByName('tag').AsWideString :=Tag;
         Qry.ExecSQL;
         Removed := Removed + Qry.RowsAffected;
       finally
@@ -426,7 +426,7 @@ begin
     try
       Qry.ParamByName('source').AsInteger := SourceDocId;
       Qry.ParamByName('target').AsInteger := TargetDocId;
-      Qry.ParamByName('rel_type').AsString := RelationType;
+      Qry.ParamByName('rel_type').AsWideString :=RelationType;
       Qry.ExecSQL;
     finally
       Qry.Free;
@@ -534,7 +534,7 @@ begin
   Qry := AContext.CreateQuery(
     'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
   try
-    Qry.ParamByName('slug').AsString := ProjectSlug;
+    Qry.ParamByName('slug').AsWideString :=ProjectSlug;
     Qry.Open;
     if Qry.IsEmpty then
       raise EMxNotFound.Create('Project not found: ' + ProjectSlug);

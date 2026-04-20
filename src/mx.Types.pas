@@ -85,6 +85,19 @@ type
     DeveloperId: Integer;
     DeveloperName: string;
     IsAdmin: Boolean;
+    // FR#2936/Plan#3266 M3.11 — reason code for tool_call_log.auth_reason
+    // (sql/049 step 5). Set by ValidateKey (AR_OK / AR_KEY_EXPIRED_GRACE /
+    // default AR_KEY_INVALID on not-found). Pre-auth failure codes that
+    // short-circuit before the INSERT path (AR_KEY_EXPIRED / AR_KEY_REVOKED)
+    // DEFERRED to M3.11b (separate INSERT pipeline in mx.MCP.Server).
+    AuthReason: string;
+    // FR#2936/Plan#3266 M3.6b — request-context forensic capture, populated
+    // by mx.MCP.Server after ValidateKey (X-Forwarded-For + User-Agent).
+    // Consumed by HandleKeyRevoke (self-revoke) for revoke_ip/revoke_user_agent
+    // so the Compromise-Playbook Forensik-Trio is complete on MCP path too
+    // (Session 267 mxDesignChecker WARN#1 fix).
+    RemoteIp: string;
+    UserAgent: string;
   end;
 
   // FR#2936/Plan#3266 M1.5: Authorize-wrapper input/output records.
@@ -158,6 +171,30 @@ const
   MXAI_PROTOCOL = '2025-11-25';
   MXAI_SCHEMA_VERSION = '1.0.0';
   MXAI_CONNECTION_DEF = 'MXAI_KNOWLEDGE';
+
+  // FR#2936/Plan#3266 M3.11 — reason codes for tool_call_log.auth_reason
+  // VARCHAR(32) NULL (sql/049 step 5). Realigned with Spec#3194 v3 §I9
+  // (Session 267 mxDesignChecker WARN#3). Single source of truth — handlers
+  // and auth layers MUST reuse these consts, no ad-hoc string literals.
+  // AR_OK is an M3.11-implicit success marker (not in Spec §I9 enum, kept for
+  // log completeness). All others map 1:1 to §I9 code names.
+  AR_OK                      = 'ok';
+  AR_KEY_INVALID             = 'key_invalid';
+  AR_KEY_EXPIRED             = 'key_expired';
+  AR_KEY_EXPIRED_GRACE       = 'key_expired_grace';
+  AR_KEY_REVOKED             = 'key_revoked';
+  AR_ROLE_INSUFFICIENT       = 'role_insufficient';
+  AR_PROJECT_NOT_ASSIGNED    = 'project_not_assigned';
+  AR_WRITE_SCOPE_VIOLATION   = 'write_scope_violation';
+  AR_TOOL_NOT_WHITELISTED    = 'tool_not_whitelisted';
+  AR_RATE_LIMITED            = 'rate_limited';
+  AR_UI_LOGIN_DISABLED       = 'ui_login_disabled';
+  AR_UI_LOGIN_LOCKED         = 'ui_login_locked';
+  AR_MSG_DUPLICATE           = 'msg_duplicate';
+  AR_RECIPIENT_OPT_OUT       = 'recipient_opt_out';
+  AR_DB_CHECK_DEGRADED       = 'db_check_degraded';
+  AR_ROTATION_CRASH_RECOVERED = 'rotation_crash_recovered';
+  AR_BREAK_GLASS_USED        = 'break_glass_used';
 
 var
   MXAI_SETUP_VERSION: string;  // Set from INI at boot (Spec#1302)

@@ -30,7 +30,8 @@ uses
   mx.Tool.Recall,
   mx.Tool.Graph,
   mx.Tool.Fetch,
-  mx.Tool.Notes;
+  mx.Tool.Notes,
+  mx.Tool.Keys;
 
 { SafeExecute }
 
@@ -78,8 +79,8 @@ begin
             'WHERE id = :sid AND ended_at IS NULL ' +
             '  AND (files_touched IS NULL OR NOT JSON_CONTAINS(files_touched, JSON_QUOTE(:fp2)))');
           try
-            Qry.ParamByName('fp').AsString := FilePath;
-            Qry.ParamByName('fp2').AsString := FilePath;
+            Qry.ParamByName('fp').AsWideString :=FilePath;
+            Qry.ParamByName('fp2').AsWideString :=FilePath;
             Qry.ParamByName('sid').AsInteger := SessionId;
             Qry.ExecSQL;
           finally
@@ -219,15 +220,15 @@ begin
     'VALUES (:jtype, :doc, :proj, :field, ''claude-exe'', ' +
     ' :tok_in, :tok_out, :status, :err, :dur)');
   try
-    Qry.ParamByName('jtype').AsString := JobType;
+    Qry.ParamByName('jtype').AsWideString :=JobType;
     Qry.ParamByName('doc').AsInteger := DocId;
     Qry.ParamByName('proj').AsInteger := ProjectId;
-    Qry.ParamByName('field').AsString := FieldName;
+    Qry.ParamByName('field').AsWideString :=FieldName;
     Qry.ParamByName('tok_in').AsInteger := TokensIn;
     Qry.ParamByName('tok_out').AsInteger := TokensOut;
-    Qry.ParamByName('status').AsString := Status;
+    Qry.ParamByName('status').AsWideString :=Status;
     if ErrorMsg <> '' then
-      Qry.ParamByName('err').AsString := Copy(ErrorMsg, 1, 500)
+      Qry.ParamByName('err').AsWideString :=Copy(ErrorMsg, 1, 500)
     else
     begin
       Qry.ParamByName('err').DataType := ftString;
@@ -449,6 +450,14 @@ begin
     .Param('tags', mptArray, False, 'Replace tag set (optional); when provided MUST include one of review-comment, review-question, review-approval, review-block');
 
   // mx_list_notes removed (B6.2) — use mx_search with doc_type+tag filter
+
+  // ---- KEY SELF-REVOKE (FR#2936 M3.6b) ----
+  // Self-revoke only — admins use /admin/api/keys/:id/revoke (forensic IP+UA).
+  ARegistry
+    .Add('mx_key_revoke', HandleKeyRevoke)
+    .Desc('Revoke your own API key (self-service). Omit key_id to revoke the current session key. Admin cross-dev revocation goes through the admin-UI endpoint.')
+    .Param('key_id', mptInteger, False, 'Target key ID (must be owned by caller); omit to revoke current auth key')
+    .Param('reason', mptString, False, 'Free-text revocation reason (max 255 chars)');
 
   // ---- ENV TOOLS ----
   ARegistry

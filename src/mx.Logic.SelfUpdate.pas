@@ -596,7 +596,7 @@ begin
       Exit;
     end;
 
-    Json := TJSONObject.ParseJSONValue(Response.ContentAsString);
+    Json := TJSONObject.ParseJSONValue(Response.ContentAsString(TEncoding.UTF8));
     if not (Json is TJSONObject) then
     begin
       if Assigned(Json) then Json.Free;
@@ -685,7 +685,7 @@ begin
     Http.Accept := 'application/vnd.github+json';
     Response := Http.Get(Url);
     if (Response.StatusCode < 200) or (Response.StatusCode >= 300) then Exit;
-    Json := TJSONObject.ParseJSONValue(Response.ContentAsString);
+    Json := TJSONObject.ParseJSONValue(Response.ContentAsString(TEncoding.UTF8));
     if not (Json is TJSONObject) then Exit;
     try
       Obj := TJSONObject(Json);
@@ -707,7 +707,7 @@ begin
 
       Response := Http.Get(TxtUrl);
       if (Response.StatusCode < 200) or (Response.StatusCode >= 300) then Exit;
-      Lines := Response.ContentAsString.Split([#10]);
+      Lines := Response.ContentAsString(TEncoding.UTF8).Split([#10]);
       for Line in Lines do
       begin
         Parts := Line.Split([' ', #9], TStringSplitOptions.ExcludeEmpty);

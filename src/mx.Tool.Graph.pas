@@ -26,7 +26,7 @@ begin
   Qry := AContext.CreateQuery(
     'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
   try
-    Qry.ParamByName('slug').AsString := ASlug;
+    Qry.ParamByName('slug').AsWideString :=ASlug;
     Qry.Open;
     if Qry.IsEmpty then
       raise EMxNotFound.Create('Project not found: ' + ASlug);
@@ -97,7 +97,7 @@ begin
       try
         Qry.ParamByName('src').AsInteger := SourceNodeId;
         Qry.ParamByName('tgt').AsInteger := TargetNodeId;
-        Qry.ParamByName('etype').AsString := EdgeType;
+        Qry.ParamByName('etype').AsWideString :=EdgeType;
         Qry.Open;
         EdgeExisted := not Qry.IsEmpty;
       finally
@@ -216,7 +216,7 @@ begin
       Qry := AContext.CreateQuery(
         'SELECT id FROM graph_nodes WHERE name = :name AND project_id = :pid');
       try
-        Qry.ParamByName('name').AsString := NodeName;
+        Qry.ParamByName('name').AsWideString :=NodeName;
         Qry.ParamByName('pid').AsInteger := ProjectId;
         Qry.Open;
         while not Qry.Eof do

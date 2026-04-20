@@ -100,8 +100,8 @@ begin
     'INSERT INTO graph_nodes (node_type, name, project_id, doc_id) ' +
     'VALUES (:ntype, :name, :pid, :did)');
   try
-    Qry.ParamByName('ntype').AsString := ANodeType;
-    Qry.ParamByName('name').AsString := AName;
+    Qry.ParamByName('ntype').AsWideString :=ANodeType;
+    Qry.ParamByName('name').AsWideString :=AName;
     if AProjectId > 0 then
       Qry.ParamByName('pid').AsInteger := AProjectId
     else
@@ -174,8 +174,8 @@ begin
 
   Qry := ACtx.CreateQuery(Sql);
   try
-    Qry.ParamByName('ntype').AsString := ANodeType;
-    Qry.ParamByName('name').AsString := AName;
+    Qry.ParamByName('ntype').AsWideString :=ANodeType;
+    Qry.ParamByName('name').AsWideString :=AName;
     if AProjectId > 0 then
       Qry.ParamByName('pid').AsInteger := AProjectId;
     Qry.Open;
@@ -216,7 +216,7 @@ begin
   try
     Qry.ParamByName('src').AsInteger := ASourceId;
     Qry.ParamByName('tgt').AsInteger := ATargetId;
-    Qry.ParamByName('etype').AsString := AEdgeType;
+    Qry.ParamByName('etype').AsWideString :=AEdgeType;
     Qry.Open;
     if not Qry.Eof then
     begin
@@ -234,7 +234,7 @@ begin
   try
     Qry.ParamByName('src').AsInteger := ASourceId;
     Qry.ParamByName('tgt').AsInteger := ATargetId;
-    Qry.ParamByName('etype').AsString := AEdgeType;
+    Qry.ParamByName('etype').AsWideString :=AEdgeType;
     Qry.ParamByName('w').AsFloat := AWeight;
     Qry.ExecSQL;
   finally
@@ -299,7 +299,7 @@ begin
   try
     Qry.ParamByName('nid').AsInteger := ANodeId;
     if AEdgeType <> '' then
-      Qry.ParamByName('etype').AsString := AEdgeType;
+      Qry.ParamByName('etype').AsWideString :=AEdgeType;
     Qry.Open;
     I := 0;
     while not Qry.Eof do
@@ -336,7 +336,7 @@ begin
   try
     Qry.ParamByName('nid').AsInteger := ANodeId;
     if AEdgeType <> '' then
-      Qry.ParamByName('etype').AsString := AEdgeType;
+      Qry.ParamByName('etype').AsWideString :=AEdgeType;
     Qry.Open;
     I := 0;
     while not Qry.Eof do
@@ -378,7 +378,7 @@ begin
     Qry.ParamByName('nid').AsInteger := ANodeId;
     Qry.ParamByName('nid2').AsInteger := ANodeId;
     if AEdgeType <> '' then
-      Qry.ParamByName('etype').AsString := AEdgeType;
+      Qry.ParamByName('etype').AsWideString :=AEdgeType;
     Qry.Open;
     I := 0;
     while not Qry.Eof do
@@ -449,7 +449,7 @@ begin
   try
     Qry.ParamByName('pid').AsInteger := AProjectId;
     if ANodeType <> '' then
-      Qry.ParamByName('ntype').AsString := ANodeType;
+      Qry.ParamByName('ntype').AsWideString :=ANodeType;
     Qry.Open;
     I := 0;
     while not Qry.Eof do

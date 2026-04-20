@@ -175,7 +175,7 @@ begin
   Qry := AContext.CreateQuery(
     'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
   try
-    Qry.ParamByName('slug').AsString := ProjectSlug;
+    Qry.ParamByName('slug').AsWideString :=ProjectSlug;
     Qry.Open;
     if Qry.IsEmpty then
       raise EMxError.Create('project_not_found', 'Project not found: ' + ProjectSlug);
@@ -258,8 +258,8 @@ begin
             '  :depth, :root_parent, :dev_id)');
           try
             Qry.ParamByName('proj_id').AsInteger := ProjectId;
-            Qry.ParamByName('slug').AsString := Slug;
-            Qry.ParamByName('title').AsString := Title;
+            Qry.ParamByName('slug').AsWideString :=Slug;
+            Qry.ParamByName('title').AsWideString :=Title;
             BindLargeText(Qry.ParamByName('content'), Body);
             Qry.ParamByName('depth').AsInteger := Depth;
             Qry.ParamByName('root_parent').AsInteger := RootParentDocId;
@@ -299,7 +299,7 @@ begin
             'INSERT IGNORE INTO doc_tags (doc_id, tag) VALUES (:doc_id, :tag)');
           try
             Qry.ParamByName('doc_id').AsInteger := DocId;
-            Qry.ParamByName('tag').AsString := TJSONString(TagVal).Value;
+            Qry.ParamByName('tag').AsWideString :=TJSONString(TagVal).Value;
             Qry.ExecSQL;
           finally
             Qry.Free;
@@ -565,7 +565,7 @@ begin
         try
           Qry.ParamByName('id').AsInteger := DocId;
           if HasTitle then
-            Qry.ParamByName('title').AsString := Title;
+            Qry.ParamByName('title').AsWideString :=Title;
           if HasBody then
             BindLargeText(Qry.ParamByName('content'), Body);
           Qry.ExecSQL;
@@ -594,7 +594,7 @@ begin
               'INSERT IGNORE INTO doc_tags (doc_id, tag) VALUES (:doc_id, :tag)');
             try
               Qry.ParamByName('doc_id').AsInteger := DocId;
-              Qry.ParamByName('tag').AsString := TJSONString(TagVal).Value;
+              Qry.ParamByName('tag').AsWideString :=TJSONString(TagVal).Value;
               Qry.ExecSQL;
             finally
               Qry.Free;
@@ -631,15 +631,15 @@ begin
           Qry.ParamByName('content').DataType := ftWideMemo;
           Qry.ParamByName('content').Clear;
         end;
-        Qry.ParamByName('changed_by').AsString := 'mx_update_note';
+        Qry.ParamByName('changed_by').AsWideString :='mx_update_note';
         // Audit label: admin-moderation = caller is admin AND (not the author OR past
         // own 60min window). Pure author-edit = caller is author within own window.
         if IsAdmin and ((not IsAuthor) or (AgeSeconds > 60 * 60)) then
-          Qry.ParamByName('reason').AsString :=
+          Qry.ParamByName('reason').AsWideString :=
             Format('admin-edit by dev_id=%d (age %d s, fields: %s)',
               [CallerDevId, AgeSeconds, ChangeFieldList(HasTitle, HasBody, HasTags)])
         else
-          Qry.ParamByName('reason').AsString :=
+          Qry.ParamByName('reason').AsWideString :=
             Format('author-edit (age %d s, fields: %s)',
               [AgeSeconds, ChangeFieldList(HasTitle, HasBody, HasTags)]);
         Qry.ExecSQL;
@@ -714,7 +714,7 @@ begin
     Qry := AContext.CreateQuery(
       'SELECT id FROM projects WHERE slug = :slug');
     try
-      Qry.ParamByName('slug').AsString := ProjectSlug;
+      Qry.ParamByName('slug').AsWideString :=ProjectSlug;
       Qry.Open;
       if Qry.IsEmpty then
         raise EMxError.Create('project_not_found', 'Project not found: ' + ProjectSlug);
@@ -735,9 +735,9 @@ begin
   Qry := AContext.CreateQuery(SQL);
   try
     if ProjectSlug <> '' then
-      Qry.ParamByName('slug').AsString := ProjectSlug;
+      Qry.ParamByName('slug').AsWideString :=ProjectSlug;
     if Tag <> '' then
-      Qry.ParamByName('tag').AsString := Tag;
+      Qry.ParamByName('tag').AsWideString :=Tag;
     Qry.ParamByName('lim').AsInteger := Limit;
     Qry.Open;
 

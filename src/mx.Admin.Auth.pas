@@ -109,7 +109,7 @@ begin
     '  AND ck.revoked_at IS NULL ' +
     '  AND (ck.expires_at IS NULL OR ck.expires_at > NOW())');
   try
-    Qry.ParamByName('prefix').AsString := Prefix;
+    Qry.ParamByName('prefix').AsWideString :=Prefix;
     Qry.Open;
     while not Qry.Eof do
     begin
@@ -145,7 +145,7 @@ begin
       '  AND ck.revoked_at IS NULL ' +
       '  AND (ck.expires_at IS NULL OR ck.expires_at > NOW())');
     try
-      Qry.ParamByName('hash').AsString := KeyHash;
+      Qry.ParamByName('hash').AsWideString :=KeyHash;
       Qry.Open;
       if Qry.IsEmpty then
         Exit(lrInvalidKey);
@@ -175,8 +175,8 @@ begin
       Qry := Ctx.CreateQuery(
         'UPDATE client_keys SET key_hash = :hash, key_prefix = :prefix WHERE id = :id');
       try
-        Qry.ParamByName('hash').AsString := UpgHash;
-        Qry.ParamByName('prefix').AsString := Prefix;
+        Qry.ParamByName('hash').AsWideString :=UpgHash;
+        Qry.ParamByName('prefix').AsWideString :=Prefix;
         Qry.ParamByName('id').AsInteger := FoundKeyId;
         Qry.ExecSQL;
       finally
@@ -198,10 +198,10 @@ begin
     'INSERT INTO admin_sessions (token, developer_id, csrf_token, expires_at) ' +
     'VALUES (:token, :dev_id, :csrf, :expires)');
   try
-    Qry.ParamByName('token').AsString :=
+    Qry.ParamByName('token').AsWideString :=
       THashSHA2.GetHashString(ASession.Token, THashSHA2.TSHA2Version.SHA256);
     Qry.ParamByName('dev_id').AsInteger := ASession.DeveloperId;
-    Qry.ParamByName('csrf').AsString := ASession.CsrfToken;
+    Qry.ParamByName('csrf').AsWideString :=ASession.CsrfToken;
     Qry.ParamByName('expires').AsDateTime := ASession.ExpiresAt;
     Qry.ExecSQL;
   finally
@@ -231,7 +231,7 @@ begin
     'JOIN developers d ON s.developer_id = d.id ' +
     'WHERE s.token = :token AND s.expires_at > NOW()');
   try
-    Qry.ParamByName('token').AsString :=
+    Qry.ParamByName('token').AsWideString :=
       THashSHA2.GetHashString(AToken, THashSHA2.TSHA2Version.SHA256);
     Qry.Open;
     if Qry.IsEmpty then Exit;
@@ -272,7 +272,7 @@ begin
   Ctx := FPool.AcquireContext;
   Qry := Ctx.CreateQuery('DELETE FROM admin_sessions WHERE token = :token');
   try
-    Qry.ParamByName('token').AsString :=
+    Qry.ParamByName('token').AsWideString :=
       THashSHA2.GetHashString(AToken, THashSHA2.TSHA2Version.SHA256);
     Qry.ExecSQL;
   finally

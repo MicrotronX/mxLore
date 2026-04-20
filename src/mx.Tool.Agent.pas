@@ -65,7 +65,7 @@ begin
   Qry := AContext.CreateQuery(
     'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
   try
-    Qry.ParamByName('slug').AsString := ASlug;
+    Qry.ParamByName('slug').AsWideString :=ASlug;
     Qry.Open;
     if Qry.IsEmpty then
       raise EMxNotFound.Create('Project not found: ' + ASlug);
@@ -345,8 +345,8 @@ begin
       Qry.ParamByName('tdid').AsInteger := TargetDeveloperId
     else
       Qry.ParamByName('tdid').Clear;
-    Qry.ParamByName('mtype').AsString := MsgType;
-    Qry.ParamByName('payload').AsString := Payload;
+    Qry.ParamByName('mtype').AsWideString :=MsgType;
+    Qry.ParamByName('payload').AsWideString :=Payload;
     Qry.ParamByName('rdid').DataType := ftInteger;
     if RefDocId > 0 then
       Qry.ParamByName('rdid').AsInteger := RefDocId
@@ -355,7 +355,7 @@ begin
     var Prio := AParams.GetValue<string>('priority', 'normal');
     if (Prio <> 'normal') and (Prio <> 'urgent') then
       Prio := 'normal';
-    Qry.ParamByName('prio').AsString := Prio;
+    Qry.ParamByName('prio').AsWideString :=Prio;
     var TtlDays := AParams.GetValue<Integer>('ttl_days', 1);
     if TtlDays < 1 then TtlDays := 1;
     if TtlDays > 30 then TtlDays := 30;

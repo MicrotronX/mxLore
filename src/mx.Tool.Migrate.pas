@@ -126,7 +126,9 @@ var
   Stream: TStreamReader;
 begin
   // TStreamReader auto-detects BOM; fallback to ANSI if no BOM
-  Stream := TStreamReader.Create(APath, TEncoding.Default, True);
+  // Bug#3345 fix: UTF-8 first + BOM-autodetect (True). TEncoding.Default was
+  // system ACP (cp1252 on DE-Windows) which lossy-decoded UTF-8-no-BOM files.
+  Stream := TStreamReader.Create(APath, TEncoding.UTF8, True);
   try
     Result := Stream.ReadToEnd;
   finally
@@ -173,7 +175,7 @@ begin
   Qry := AContext.CreateQuery(
     'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
   try
-    Qry.ParamByName('slug').AsString := ProjectSlug;
+    Qry.ParamByName('slug').AsWideString :=ProjectSlug;
     Qry.Open;
     if Qry.IsEmpty then
       raise EMxNotFound.Create('Project not found: ' + ProjectSlug +
@@ -234,8 +236,8 @@ begin
           '  AND doc_type = :dtype AND slug = :slug AND status <> ''deleted''');
         try
           Qry.ParamByName('pid').AsInteger := ProjectId;
-          Qry.ParamByName('dtype').AsString := DocType;
-          Qry.ParamByName('slug').AsString := ClampSlug(Slug);
+          Qry.ParamByName('dtype').AsWideString :=DocType;
+          Qry.ParamByName('slug').AsWideString :=ClampSlug(Slug);
           Qry.Open;
           if not Qry.IsEmpty then
           begin
@@ -261,14 +263,14 @@ begin
             '  :summary_l1, :summary_l2, :status, ''migration'', :dev_id)');
           try
             Qry.ParamByName('proj_id').AsInteger := ProjectId;
-            Qry.ParamByName('doc_type').AsString := DocType;
-            Qry.ParamByName('slug').AsString := ClampSlug(Slug);
-            Qry.ParamByName('title').AsString := ClampTitle(Title);
+            Qry.ParamByName('doc_type').AsWideString :=DocType;
+            Qry.ParamByName('slug').AsWideString :=ClampSlug(Slug);
+            Qry.ParamByName('title').AsWideString :=ClampTitle(Title);
             BindLargeText(Qry.ParamByName('content'), Content);
             // Bug#2738: clamp to VARCHAR(500) — migration path can exceed
-            Qry.ParamByName('summary_l1').AsString := ClampSummary(Summary1);
-            Qry.ParamByName('summary_l2').AsString := Summary2;
-            Qry.ParamByName('status').AsString := DocStatus;
+            Qry.ParamByName('summary_l1').AsWideString :=ClampSummary(Summary1);
+            Qry.ParamByName('summary_l2').AsWideString :=Summary2;
+            Qry.ParamByName('status').AsWideString :=DocStatus;
             // FR#2936/Plan#3266 M2.5 prereq — record the dev who initiated migration.
             var CallerDevId := AContext.AccessControl.GetDeveloperId;
             if CallerDevId > 0 then
@@ -297,7 +299,7 @@ begin
           try
             Qry.ParamByName('doc_id').AsInteger := DocId;
             BindLargeText(Qry.ParamByName('content'), Content);
-            Qry.ParamByName('summary_l2').AsString := Summary2;
+            Qry.ParamByName('summary_l2').AsWideString :=Summary2;
             Qry.ExecSQL;
           finally
             Qry.Free;
