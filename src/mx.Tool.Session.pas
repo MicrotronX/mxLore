@@ -189,11 +189,11 @@ begin
         end;
       end;
 
-      // active_workflows
+      // active_workflows (Bug#3659: use documents.status SSoT, drop content-LIKE)
       Qry := AContext.CreateQuery(
         'SELECT d.id, d.title, d.summary_l1 FROM documents d ' +
         'WHERE d.project_id = :proj_id AND d.doc_type = ''workflow_log'' ' +
-        'AND d.status <> ''deleted'' AND d.content LIKE ''%Status:** active%'' ' +
+        'AND d.status = ''active'' ' +
         'ORDER BY d.updated_at DESC LIMIT 5');
       try
         Qry.ParamByName('proj_id').AsInteger := ProjectId;

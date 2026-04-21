@@ -174,7 +174,9 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 106;
+  MXAI_BUILD   = 107;
+  // Build 107 (Session 273): Bug#3659 — mx_session_start active_workflows
+  //   no longer leaks archived WFs (SQL: d.status='active' SSoT).
   // Build 106 (Session 270): Admin-UI Bundle — FR#3294 Intelligence Banner
   //   + FR#3472 A+B+C Thread-Viewer + FR#3600 Doc-Detail Tab-Layout
   //   + FR#3296 Settings-Tabs + FR#3610 Settings Control-Plane (INI-Editor
