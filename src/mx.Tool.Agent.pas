@@ -6,7 +6,8 @@ uses
   System.SysUtils, System.StrUtils, System.JSON, System.DateUtils,
   System.Generics.Collections, System.SyncObjs, Data.DB,
   FireDAC.Comp.Client,
-  mx.Types, mx.Errors, mx.Data.Pool, mx.Logic.AccessControl;
+  mx.Types, mx.Errors, mx.Data.Pool, mx.Logic.AccessControl,
+  mx.Logic.AgentMessaging;
 
 function HandleAgentSend(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
@@ -411,109 +412,67 @@ function HandleAgentInbox(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
 var
   Auth: TMxAuthResult;
-  Qry: TFDQuery;
+  Opts: TAgentInboxOptions;
+  Rows: TArray<TAgentInboxRow>;
   ProjectSlug: string;
-  ProjectId, Limit, MyDevId: Integer;
   Data: TJSONObject;
   Messages: TJSONArray;
-  Row: TJSONObject;
+  JRow: TJSONObject;
+  I: Integer;
 begin
   // Spec #1964: Auth context needed for intra-project targeting filter.
   Auth := MxGetThreadAuth;
-  MyDevId := Auth.DeveloperId;
 
   ProjectSlug := AParams.GetValue<string>('project', '');
   if ProjectSlug = '' then
     raise EMxValidation.Create('Parameter "project" is required');
-  Limit := AParams.GetValue<Integer>('limit', 20);
-  if Limit < 1 then Limit := 1;
-  if Limit > 50 then Limit := 50;
+  Opts.LimitCount := AParams.GetValue<Integer>('limit', 20);
+  if Opts.LimitCount < 1 then Opts.LimitCount := 1;
+  if Opts.LimitCount > 50 then Opts.LimitCount := 50;
 
-  ProjectId := ResolveProject(AContext, ProjectSlug, alReadOnly);
+  Opts.ProjectId := ResolveProject(AContext, ProjectSlug, alReadOnly);
+  Opts.MyDeveloperId := Auth.DeveloperId;
+  Opts.FilterTargetDeveloper := True;  // Spec #1964 broadcast/direct filter
+  Opts.FilterSelfEcho := True;         // Build 105 intra-project self-talk guard
 
-  // Archive expired messages first
-  Qry := AContext.CreateQuery(
-    'UPDATE agent_messages SET status = ''archived'' ' +
-    'WHERE target_project_id = :pid AND status = ''pending'' ' +
-    'AND expires_at IS NOT NULL AND expires_at < NOW()');
+  // FR#3836: Logic layer handles archive-expired pre-step + query + filters +
+  // record materialisation. Shell only builds the MCP-tool JSON response shape.
+  Rows := FetchAgentInbox(AContext, Opts);
+
+  Messages := TJSONArray.Create;
   try
-    Qry.ParamByName('pid').AsInteger := ProjectId;
-    Qry.ExecSQL;
-  finally
-    Qry.Free;
-  end;
-
-  // Fetch pending messages.
-  // Spec #1964: filter by target_developer_id (NULL=broadcast OR my_did=direct).
-  // Self-echo guard (build 105): PROJECT-SCOPED — only suppress when
-  // sender=my_did AND sender_project=my_project (true intra-project self-talk).
-  // The earlier global `sender_developer_id <> my_did` broke same-dev
-  // cross-project messaging for users bridging multiple Claude sessions with
-  // one key (e.g. mx-erp <-> mx-erp-docs). `:my_pid2` is bound explicitly
-  // instead of referencing `am.target_project_id` so a future admin-inbox
-  // query without the target_project_id WHERE pin still applies the guard.
-  Qry := AContext.CreateQuery(
-    'SELECT am.id, am.message_type, am.payload, am.ref_doc_id, ' +
-    '  am.ref_message_id, am.priority, am.created_at, ' +
-    '  am.target_developer_id, td.name AS target_developer_name, ' +
-    '  p.slug AS sender_project, d.name AS sender_name ' +
-    'FROM agent_messages am ' +
-    'JOIN projects p ON am.sender_project_id = p.id ' +
-    'JOIN developers d ON am.sender_developer_id = d.id ' +
-    'LEFT JOIN developers td ON am.target_developer_id = td.id ' +
-    'WHERE am.target_project_id = :pid AND am.status = ''pending'' ' +
-    '  AND (am.target_developer_id IS NULL OR am.target_developer_id = :my_did) ' +
-    '  AND NOT (am.sender_developer_id = :my_did2 ' +
-    '           AND am.sender_project_id = :my_pid2) ' +
-    'ORDER BY am.created_at ASC LIMIT :lim');
-  try
-    Qry.ParamByName('pid').AsInteger := ProjectId;
-    Qry.ParamByName('my_did').AsInteger := MyDevId;
-    Qry.ParamByName('my_did2').AsInteger := MyDevId;
-    Qry.ParamByName('my_pid2').AsInteger := ProjectId;
-    Qry.ParamByName('lim').AsInteger := Limit;
-    Qry.Open;
-
-    Messages := TJSONArray.Create;
-    try
-      while not Qry.Eof do
-      begin
-        Row := TJSONObject.Create;
-        try
-          Row.AddPair('id', TJSONNumber.Create(Qry.FieldByName('id').AsInteger));
-          Row.AddPair('message_type', Qry.FieldByName('message_type').AsString);
-          Row.AddPair('payload', Qry.FieldByName('payload').AsString);
-          if not Qry.FieldByName('ref_doc_id').IsNull then
-            Row.AddPair('ref_doc_id',
-              TJSONNumber.Create(Qry.FieldByName('ref_doc_id').AsInteger));
-          if not Qry.FieldByName('ref_message_id').IsNull then
-            Row.AddPair('ref_message_id',
-              TJSONNumber.Create(Qry.FieldByName('ref_message_id').AsInteger));
-          Row.AddPair('priority', Qry.FieldByName('priority').AsString);
-          Row.AddPair('sender_project', Qry.FieldByName('sender_project').AsString);
-          Row.AddPair('sender_name', Qry.FieldByName('sender_name').AsString);
-          // Spec #1964: target_developer fields (NULL = broadcast)
-          if not Qry.FieldByName('target_developer_id').IsNull then
-          begin
-            Row.AddPair('target_developer_id',
-              TJSONNumber.Create(Qry.FieldByName('target_developer_id').AsInteger));
-            Row.AddPair('target_developer_name',
-              Qry.FieldByName('target_developer_name').AsString);
-          end;
-          Row.AddPair('created_at', Qry.FieldByName('created_at').AsString);
-          Messages.Add(Row);
-        except
-          Row.Free;
-          raise;
+    for I := Low(Rows) to High(Rows) do
+    begin
+      JRow := TJSONObject.Create;
+      try
+        JRow.AddPair('id', TJSONNumber.Create(Rows[I].Id));
+        JRow.AddPair('message_type', Rows[I].MessageType);
+        JRow.AddPair('payload', Rows[I].Payload);
+        if Rows[I].HasRefDocId then
+          JRow.AddPair('ref_doc_id', TJSONNumber.Create(Rows[I].RefDocId));
+        if Rows[I].HasRefMessageId then
+          JRow.AddPair('ref_message_id', TJSONNumber.Create(Rows[I].RefMessageId));
+        JRow.AddPair('priority', Rows[I].Priority);
+        JRow.AddPair('sender_project', Rows[I].SenderProject);
+        JRow.AddPair('sender_name', Rows[I].SenderName);
+        // Spec #1964: target_developer fields (NULL = broadcast)
+        if Rows[I].HasTargetDeveloperId then
+        begin
+          JRow.AddPair('target_developer_id',
+            TJSONNumber.Create(Rows[I].TargetDeveloperId));
+          JRow.AddPair('target_developer_name', Rows[I].TargetDeveloperName);
         end;
-        Qry.Next;
+        JRow.AddPair('created_at', Rows[I].CreatedAt);
+        Messages.Add(JRow);
+        JRow := nil; // ownership transferred to Messages
+      except
+        JRow.Free;
+        raise;
       end;
-    except
-      Messages.Free;
-      raise;
     end;
-  finally
-    Qry.Free;
+  except
+    Messages.Free;
+    raise;
   end;
 
   Data := TJSONObject.Create;
@@ -536,11 +495,12 @@ end;
 function HandleAgentAck(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
 var
-  Qry: TFDQuery;
   MsgIds: TJSONArray;
-  ProjectSlug, NewStatus, IdList: string;
-  ProjectId, I, Affected: Integer;
+  Ids: TArray<Integer>;
+  Opts: TAgentAckOptions;
+  ProjectSlug: string;
   Data: TJSONObject;
+  Affected, I: Integer;
 begin
   MsgIds := AParams.GetValue<TJSONArray>('message_ids', nil);
   if (MsgIds = nil) or (MsgIds.Count = 0) then
@@ -552,41 +512,25 @@ begin
   ProjectSlug := AParams.GetValue<string>('project', '');
   if ProjectSlug = '' then
     raise EMxValidation.Create('Parameter "project" is required');
-  ProjectId := ResolveProject(AContext, ProjectSlug, alReadOnly);
 
-  NewStatus := AParams.GetValue<string>('new_status', 'read');
-  if (NewStatus <> 'read') and (NewStatus <> 'archived') then
+  Opts.NewStatus := AParams.GetValue<string>('new_status', 'read');
+  if (Opts.NewStatus <> 'read') and (Opts.NewStatus <> 'archived') then
     raise EMxValidation.Create('new_status must be "read" or "archived"');
 
-  // Build ID list (safe: only integers)
-  IdList := '';
-  for I := 0 to MsgIds.Count - 1 do
-  begin
-    if IdList <> '' then IdList := IdList + ',';
-    IdList := IdList + IntToStr(MsgIds.Items[I].GetValue<Integer>);
-  end;
+  Opts.ProjectId := ResolveProject(AContext, ProjectSlug, alReadOnly);
 
-  // Only ack messages targeted at caller's project
-  if NewStatus = 'read' then
-    Qry := AContext.CreateQuery(
-      'UPDATE agent_messages SET status = ''read'', read_at = NOW() ' +
-      'WHERE id IN (' + IdList + ') AND target_project_id = :pid AND status = ''pending''')
-  else
-    Qry := AContext.CreateQuery(
-      'UPDATE agent_messages SET status = ''archived'' ' +
-      'WHERE id IN (' + IdList + ') AND target_project_id = :pid');
-  try
-    Qry.ParamByName('pid').AsInteger := ProjectId;
-    Qry.ExecSQL;
-    Affected := Qry.RowsAffected;
-  finally
-    Qry.Free;
-  end;
+  SetLength(Ids, MsgIds.Count);
+  for I := 0 to MsgIds.Count - 1 do
+    Ids[I] := MsgIds.Items[I].GetValue<Integer>;
+
+  // FR#3836: Logic layer builds the IN-clause + query; MCP-tool path enforces
+  // target_project_id ownership via Opts.ProjectId > 0.
+  Affected := AckAgentMessages(AContext, Ids, Opts);
 
   Data := TJSONObject.Create;
   try
     Data.AddPair('acknowledged', TJSONNumber.Create(Affected));
-    Data.AddPair('new_status', NewStatus);
+    Data.AddPair('new_status', Opts.NewStatus);
     Result := MxSuccessResponse(Data);
   except
     Data.Free;

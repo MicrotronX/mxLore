@@ -214,6 +214,7 @@
         <DCCReference Include="mx.Tool.Recall.pas"/>
         <DCCReference Include="mx.Tool.Session.pas"/>
         <DCCReference Include="mx.Logic.AccessControl.pas"/>
+        <DCCReference Include="mx.Logic.AgentMessaging.pas"/>
         <DCCReference Include="mx.Logic.Projects.pas"/>
         <DCCReference Include="mx.Admin.Auth.pas"/>
         <DCCReference Include="mx.Admin.Server.pas"/>

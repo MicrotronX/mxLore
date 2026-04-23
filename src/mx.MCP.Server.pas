@@ -10,7 +10,8 @@ uses
   Sparkle.Middleware.Cors,
   Data.DB, FireDAC.Comp.Client,
   mx.Types, mx.Config, mx.Log, mx.Data.Pool, mx.Auth, mx.Errors,
-  mx.MCP.Schema, mx.MCP.Protocol, mx.Logic.AccessControl;
+  mx.MCP.Schema, mx.MCP.Protocol, mx.Logic.AccessControl,
+  mx.Logic.AgentMessaging;
 
 type
   TMxMcpApiModule = class(THttpServerModule)
@@ -378,7 +379,9 @@ var
   AuthResult: TMxAuthResult;
   Ctx: IMxDbContext;
   Qry: TFDQuery;
-  ProjectId: Integer;
+  ProjectId, I: Integer;
+  Opts: TAgentInboxOptions;
+  Rows: TArray<TAgentInboxRow>;
   Arr: TJSONArray;
   Row, Resp: TJSONObject;
   ResponseBytes: TBytes;
@@ -450,41 +453,38 @@ begin
       Exit;
     end;
 
-    // Fetch pending messages (compact: only essential fields)
+    // FR#3836: delegate fetch to Logic-layer. REST path does not filter by
+    // target_developer (proxy poller has no dev identity) and does not apply
+    // the self-echo guard (proxy is not an agent). Archive-expired runs
+    // inside FetchAgentInbox — fixes the pre-FR#3836 asymmetry where the
+    // REST path left expired messages as 'pending' forever (CC2050 review).
+    Opts.ProjectId := ProjectId;
+    Opts.MyDeveloperId := 0;
+    Opts.LimitCount := 20;
+    Opts.FilterTargetDeveloper := False;
+    Opts.FilterSelfEcho := False;
+    Rows := FetchAgentInbox(Ctx, Opts);
+
+    // Compact REST response shape: {id, type, payload, from, priority, ref}
     Arr := TJSONArray.Create;
     try
-      Qry := Ctx.CreateQuery(
-        'SELECT am.id, am.message_type, am.payload, am.ref_doc_id, ' +
-        '  am.priority, am.created_at, p.slug AS sender_project ' +
-        'FROM agent_messages am ' +
-        'JOIN projects p ON am.sender_project_id = p.id ' +
-        'WHERE am.target_project_id = :pid AND am.status = ''pending'' ' +
-        'ORDER BY am.created_at ASC LIMIT 20');
-      try
-        Qry.ParamByName('pid').AsInteger := ProjectId;
-        Qry.Open;
-
-        while not Qry.Eof do
-        begin
-          Row := TJSONObject.Create;
-          try
-            Row.AddPair('id', TJSONNumber.Create(Qry.FieldByName('id').AsInteger));
-            Row.AddPair('type', Qry.FieldByName('message_type').AsString);
-            Row.AddPair('payload', Qry.FieldByName('payload').AsString);
-            Row.AddPair('from', Qry.FieldByName('sender_project').AsString);
-            Row.AddPair('priority', Qry.FieldByName('priority').AsString);
-            if not Qry.FieldByName('ref_doc_id').IsNull then
-              Row.AddPair('ref', TJSONNumber.Create(Qry.FieldByName('ref_doc_id').AsInteger));
-            Arr.Add(Row);
-            Row := nil; // ownership transferred to Arr
-          except
-            Row.Free;
-            raise;
-          end;
-          Qry.Next;
+      for I := Low(Rows) to High(Rows) do
+      begin
+        Row := TJSONObject.Create;
+        try
+          Row.AddPair('id', TJSONNumber.Create(Rows[I].Id));
+          Row.AddPair('type', Rows[I].MessageType);
+          Row.AddPair('payload', Rows[I].Payload);
+          Row.AddPair('from', Rows[I].SenderProject);
+          Row.AddPair('priority', Rows[I].Priority);
+          if Rows[I].HasRefDocId then
+            Row.AddPair('ref', TJSONNumber.Create(Rows[I].RefDocId));
+          Arr.Add(Row);
+          Row := nil; // ownership transferred to Arr
+        except
+          Row.Free;
+          raise;
         end;
-      finally
-        Qry.Free;
       end;
     except
       Arr.Free;
@@ -533,7 +533,9 @@ var
   AuthHeader: string;
   AuthResult: TMxAuthResult;
   Ctx: IMxDbContext;
-  Qry: TFDQuery;
+  Ids: TArray<Integer>;
+  AckOpts: TAgentAckOptions;
+  IdCount, IdVal: Integer;
   ResponseBytes: TBytes;
 begin
   AuthHeader := '';
@@ -574,33 +576,34 @@ begin
       Exit;
     end;
 
-    // Validate: only allow comma-separated integers (prevent SQL injection)
-    var SafeIds := '';
+    // Validate: only allow positive integers (prevent SQL injection via
+    // explicit parse + type-check before the Logic-layer handles the list).
     var Parts := AIds.Split([',']);
+    SetLength(Ids, Length(Parts));
+    IdCount := 0;
     for var Part in Parts do
     begin
-      var IdVal := StrToIntDef(Trim(Part), -1);
+      IdVal := StrToIntDef(Trim(Part), -1);
       if IdVal > 0 then
       begin
-        if SafeIds <> '' then SafeIds := SafeIds + ',';
-        SafeIds := SafeIds + IntToStr(IdVal);
+        Ids[IdCount] := IdVal;
+        Inc(IdCount);
       end;
     end;
-    if SafeIds = '' then
+    SetLength(Ids, IdCount);
+    if IdCount = 0 then
     begin
       C.Response.StatusCode := 400;
       C.Response.Close;
       Exit;
     end;
 
-    Qry := Ctx.CreateQuery(
-      'UPDATE agent_messages SET status = ''read'', read_at = NOW() ' +
-      'WHERE id IN (' + SafeIds + ') AND status = ''pending''');
-    try
-      Qry.ExecSQL;
-    finally
-      Qry.Free;
-    end;
+    // FR#3836: delegate to Logic-layer. REST path does NOT enforce project-
+    // ownership today (proxy polls one project per session; ProjectId=0 skips
+    // the target_project_id filter). Preserves pre-FR#3836 semantics exactly.
+    AckOpts.ProjectId := 0;
+    AckOpts.NewStatus := 'read';
+    AckAgentMessages(Ctx, Ids, AckOpts);
 
     C.Response.StatusCode := 200;
     ResponseBytes := TEncoding.UTF8.GetBytes('{"ok":true}');

@@ -34,6 +34,7 @@ uses
   mx.Tool.Recall    in 'mx.Tool.Recall.pas',
   mx.Tool.Session       in 'mx.Tool.Session.pas',
   mx.Logic.AccessControl in 'mx.Logic.AccessControl.pas',
+  mx.Logic.AgentMessaging in 'mx.Logic.AgentMessaging.pas',
   mx.Logic.Projects      in 'mx.Logic.Projects.pas',
   mx.Logic.SelfUpdate    in 'mx.Logic.SelfUpdate.pas',
   mx.Admin.Api.SelfUpdate in 'mx.Admin.Api.SelfUpdate.pas',
