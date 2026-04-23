@@ -58,9 +58,12 @@ type
   end;
 
   TAgentAckOptions = record
-    ProjectId: Integer;   // 0 = no ownership check (REST path); >0 = enforce
-                          // target_project_id = ProjectId (MCP-tool path).
-    NewStatus: string;    // 'read' or 'archived'
+    EnforceOwnership: Boolean;// true => add AND target_project_id = ProjectId
+                              // to the UPDATE; false => touch any matching id.
+                              // REST path (proxy polls its own project) sets
+                              // false; MCP-tool path sets true.
+    ProjectId: Integer;       // Only meaningful when EnforceOwnership=true.
+    NewStatus: string;        // 'read' or 'archived'
   end;
 
 /// Archive messages past their expires_at so proxy pollers and MCP-tool callers
@@ -74,7 +77,9 @@ function FetchAgentInbox(AContext: IMxDbContext;
   const AOpts: TAgentInboxOptions): TArray<TAgentInboxRow>;
 
 /// Mark messages as read or archived. Returns rows affected. When
-/// AOpts.ProjectId > 0, only rows with matching target_project_id are touched.
+/// AOpts.EnforceOwnership is true, only rows with matching target_project_id
+/// are touched (MCP-tool path); when false, any matching id is touched
+/// (REST path — proxy polls its own project without per-call ownership check).
 function AckAgentMessages(AContext: IMxDbContext; const AIds: array of Integer;
   const AOpts: TAgentAckOptions): Integer;
 
@@ -234,12 +239,12 @@ begin
       'AckAgentMessages: invalid NewStatus "%s" (want "read" or "archived")',
       [AOpts.NewStatus]);
 
-  if AOpts.ProjectId > 0 then
+  if AOpts.EnforceOwnership then
     Sql := Sql + ' AND target_project_id = :pid';
 
   Qry := AContext.CreateQuery(Sql);
   try
-    if AOpts.ProjectId > 0 then
+    if AOpts.EnforceOwnership then
       Qry.ParamByName('pid').AsInteger := AOpts.ProjectId;
     Qry.ExecSQL;
     Result := Qry.RowsAffected;

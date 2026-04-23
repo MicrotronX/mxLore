@@ -517,6 +517,9 @@ begin
   if (Opts.NewStatus <> 'read') and (Opts.NewStatus <> 'archived') then
     raise EMxValidation.Create('new_status must be "read" or "archived"');
 
+  // FR#3860: MCP-tool path enforces target_project_id ownership — callers
+  // must specify which project they are acking messages for.
+  Opts.EnforceOwnership := True;
   Opts.ProjectId := ResolveProject(AContext, ProjectSlug, alReadOnly);
 
   SetLength(Ids, MsgIds.Count);

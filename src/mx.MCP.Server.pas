@@ -598,10 +598,12 @@ begin
       Exit;
     end;
 
-    // FR#3836: delegate to Logic-layer. REST path does NOT enforce project-
-    // ownership today (proxy polls one project per session; ProjectId=0 skips
-    // the target_project_id filter). Preserves pre-FR#3836 semantics exactly.
-    AckOpts.ProjectId := 0;
+    // FR#3836/FR#3860: delegate to Logic-layer. REST path does NOT enforce
+    // project-ownership (proxy polls one project per session; target_project_id
+    // filter skipped). Preserves pre-FR#3836 semantics exactly. EnforceOwnership
+    // replaces the former ProjectId=0 sentinel convention.
+    AckOpts.EnforceOwnership := False;
+    AckOpts.ProjectId := 0; // unused when EnforceOwnership=false
     AckOpts.NewStatus := 'read';
     AckAgentMessages(Ctx, Ids, AckOpts);
 
