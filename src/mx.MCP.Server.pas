@@ -386,6 +386,14 @@ begin
 
   try
     Ctx := FPool.AcquireAuthContext(AuthResult, FLogger);
+    if Ctx = nil then
+    begin
+      FLogger.Log(mlError,
+        '[agent_inbox_get] AcquireAuthContext returned nil');
+      C.Response.StatusCode := 500;
+      C.Response.Close;
+      Exit;
+    end;
 
     // Resolve project
     Qry := Ctx.CreateQuery(
@@ -415,33 +423,44 @@ begin
     end;
 
     // Fetch pending messages (compact: only essential fields)
-    Qry := Ctx.CreateQuery(
-      'SELECT am.id, am.message_type, am.payload, am.ref_doc_id, ' +
-      '  am.priority, am.created_at, p.slug AS sender_project ' +
-      'FROM agent_messages am ' +
-      'JOIN projects p ON am.sender_project_id = p.id ' +
-      'WHERE am.target_project_id = :pid AND am.status = ''pending'' ' +
-      'ORDER BY am.created_at ASC LIMIT 20');
+    Arr := TJSONArray.Create;
     try
-      Qry.ParamByName('pid').AsInteger := ProjectId;
-      Qry.Open;
+      Qry := Ctx.CreateQuery(
+        'SELECT am.id, am.message_type, am.payload, am.ref_doc_id, ' +
+        '  am.priority, am.created_at, p.slug AS sender_project ' +
+        'FROM agent_messages am ' +
+        'JOIN projects p ON am.sender_project_id = p.id ' +
+        'WHERE am.target_project_id = :pid AND am.status = ''pending'' ' +
+        'ORDER BY am.created_at ASC LIMIT 20');
+      try
+        Qry.ParamByName('pid').AsInteger := ProjectId;
+        Qry.Open;
 
-      Arr := TJSONArray.Create;
-      while not Qry.Eof do
-      begin
-        Row := TJSONObject.Create;
-        Row.AddPair('id', TJSONNumber.Create(Qry.FieldByName('id').AsInteger));
-        Row.AddPair('type', Qry.FieldByName('message_type').AsString);
-        Row.AddPair('payload', Qry.FieldByName('payload').AsString);
-        Row.AddPair('from', Qry.FieldByName('sender_project').AsString);
-        Row.AddPair('priority', Qry.FieldByName('priority').AsString);
-        if not Qry.FieldByName('ref_doc_id').IsNull then
-          Row.AddPair('ref', TJSONNumber.Create(Qry.FieldByName('ref_doc_id').AsInteger));
-        Arr.Add(Row);
-        Qry.Next;
+        while not Qry.Eof do
+        begin
+          Row := TJSONObject.Create;
+          try
+            Row.AddPair('id', TJSONNumber.Create(Qry.FieldByName('id').AsInteger));
+            Row.AddPair('type', Qry.FieldByName('message_type').AsString);
+            Row.AddPair('payload', Qry.FieldByName('payload').AsString);
+            Row.AddPair('from', Qry.FieldByName('sender_project').AsString);
+            Row.AddPair('priority', Qry.FieldByName('priority').AsString);
+            if not Qry.FieldByName('ref_doc_id').IsNull then
+              Row.AddPair('ref', TJSONNumber.Create(Qry.FieldByName('ref_doc_id').AsInteger));
+            Arr.Add(Row);
+            Row := nil; // ownership transferred to Arr
+          except
+            Row.Free;
+            raise;
+          end;
+          Qry.Next;
+        end;
+      finally
+        Qry.Free;
       end;
-    finally
-      Qry.Free;
+    except
+      Arr.Free;
+      raise;
     end;
 
     // Note: messages stay 'pending' until proxy confirms delivery via
@@ -451,19 +470,29 @@ begin
     try
       Resp.AddPair('count', TJSONNumber.Create(Arr.Count));
       Resp.AddPair('messages', Arr);
+      Arr := nil; // ownership transferred to Resp
       C.Response.StatusCode := 200;
       C.Response.Headers.SetValue('Content-Type', 'application/json');
       ResponseBytes := TEncoding.UTF8.GetBytes(Resp.ToJSON);
       C.Response.Close(ResponseBytes);
     finally
+      Arr.Free; // no-op if nil (ownership transferred)
       Resp.Free;
     end;
   except
     on E: Exception do
     begin
-      FLogger.Log(mlError, '[agent_inbox_get] ' + E.Message);
-      C.Response.StatusCode := 500;
-      C.Response.Close;
+      FLogger.Log(mlError,
+        '[agent_inbox_get] ' + E.ClassName + ': ' + E.Message);
+      try
+        C.Response.StatusCode := 500;
+        C.Response.Close;
+      except
+        on E2: Exception do
+          FLogger.Log(mlWarning,
+            '[agent_inbox_get] response close after error failed: ' +
+            E2.ClassName + ': ' + E2.Message);
+      end;
     end;
   end;
 end;
@@ -506,6 +535,14 @@ begin
 
   try
     Ctx := FPool.AcquireAuthContext(AuthResult, FLogger);
+    if Ctx = nil then
+    begin
+      FLogger.Log(mlError,
+        '[agent_ack_get] AcquireAuthContext returned nil');
+      C.Response.StatusCode := 500;
+      C.Response.Close;
+      Exit;
+    end;
 
     // Validate: only allow comma-separated integers (prevent SQL injection)
     var SafeIds := '';
@@ -542,9 +579,17 @@ begin
   except
     on E: Exception do
     begin
-      FLogger.Log(mlError, '[agent_ack_get] ' + E.Message);
-      C.Response.StatusCode := 500;
-      C.Response.Close;
+      FLogger.Log(mlError,
+        '[agent_ack_get] ' + E.ClassName + ': ' + E.Message);
+      try
+        C.Response.StatusCode := 500;
+        C.Response.Close;
+      except
+        on E2: Exception do
+          FLogger.Log(mlWarning,
+            '[agent_ack_get] response close after error failed: ' +
+            E2.ClassName + ': ' + E2.Message);
+      end;
     end;
   end;
 end;
