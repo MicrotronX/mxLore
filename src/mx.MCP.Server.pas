@@ -146,6 +146,29 @@ begin
   C.Response.Close(Bytes);
 end;
 
+// FR#3835 — emit RFC7807 problem+json body on 5xx error paths so proxy + admin-
+// UI consumers can distinguish causes (auth_state_invalid, server_error, ...)
+// programmatically instead of seeing bare HTTP-500 with empty body. Mirrors
+// SendAuthProblem shape without the WWW-Authenticate Bearer challenge (5xx
+// responses do not advertise auth schemes per RFC 6750).
+procedure SendInternalProblem(const C: THttpServerContext;
+  const AReason, ATitle, ADetail: string);
+var
+  Body: TJSONObject;
+  Bytes: TBytes;
+begin
+  Body := MxRfc7807Response(AReason, ATitle, ADetail, 500,
+    '' {suggested_action}, '' {decision_basis});
+  try
+    Bytes := TEncoding.UTF8.GetBytes(Body.ToJSON);
+  finally
+    Body.Free;
+  end;
+  C.Response.StatusCode := 500;
+  C.Response.Headers.SetValue('Content-Type', 'application/problem+json');
+  C.Response.Close(Bytes);
+end;
+
 // FR#2936/Plan#3266 M3.4b — set X-Key-Expires-In header when the authenticated
 // key has a finite expiry. Value = integer seconds remaining (analogous to
 // HTTP Retry-After). Skipped when ExpiresAt=0 (unlimited key).
@@ -333,6 +356,10 @@ begin
   except
     on E: Exception do
     begin
+      // Scope-out from FR#3835: this 500 path emits a JSON-RPC 2.0 error
+      // envelope (application/json), NOT RFC7807 problem+json. MCP transport
+      // is JSON-RPC at the protocol layer, so clients expect the RPC error
+      // shape here. Do NOT replace with SendInternalProblem in future sweeps.
       FLogger.Log(mlError, 'MCP request error: ' + E.Message);
       C.Response.StatusCode := 500;
       ResponseJson := TMxMcpProtocol.FormatError(nil, -32700, 'Parse error');
@@ -390,8 +417,9 @@ begin
     begin
       FLogger.Log(mlError,
         '[agent_inbox_get] AcquireAuthContext returned nil');
-      C.Response.StatusCode := 500;
-      C.Response.Close;
+      SendInternalProblem(C, AR_AUTH_STATE_INVALID,
+        'Context acquisition failed',
+        'Failed to acquire an authenticated DB context. Retry; if it persists, rotate the API key and contact the project owner.');
       Exit;
     end;
 
@@ -485,8 +513,9 @@ begin
       FLogger.Log(mlError,
         '[agent_inbox_get] ' + E.ClassName + ': ' + E.Message);
       try
-        C.Response.StatusCode := 500;
-        C.Response.Close;
+        SendInternalProblem(C, AR_SERVER_ERROR,
+          'Internal server error',
+          'An unexpected error occurred while fetching the agent inbox. Retry; the server log carries the exception class and message for diagnosis.');
       except
         on E2: Exception do
           FLogger.Log(mlWarning,
@@ -539,8 +568,9 @@ begin
     begin
       FLogger.Log(mlError,
         '[agent_ack_get] AcquireAuthContext returned nil');
-      C.Response.StatusCode := 500;
-      C.Response.Close;
+      SendInternalProblem(C, AR_AUTH_STATE_INVALID,
+        'Context acquisition failed',
+        'Failed to acquire an authenticated DB context. Retry; if it persists, rotate the API key and contact the project owner.');
       Exit;
     end;
 
@@ -582,8 +612,9 @@ begin
       FLogger.Log(mlError,
         '[agent_ack_get] ' + E.ClassName + ': ' + E.Message);
       try
-        C.Response.StatusCode := 500;
-        C.Response.Close;
+        SendInternalProblem(C, AR_SERVER_ERROR,
+          'Internal server error',
+          'An unexpected error occurred while acknowledging agent messages. Retry; the server log carries the exception class and message for diagnosis.');
       except
         on E2: Exception do
           FLogger.Log(mlWarning,

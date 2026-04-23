@@ -251,6 +251,13 @@ const
   // forward-slot in case the design ever moves to two-phase.
   AR_ROTATION_CRASH_RECOVERED = 'rotation_crash_recovered';
   AR_BREAK_GLASS_USED        = 'break_glass_used';
+  // FR#3835 — additional reason codes surfaced via RFC7807 problem+json on
+  // 5xx error paths. auth_state_invalid covers nil-Ctx acquisition failure
+  // (still fits the auth_reason taxonomy — context acquisition is the last
+  // auth step); server_error is the generic fallback for unclassified
+  // exceptions caught by handler top-level try/except blocks.
+  AR_AUTH_STATE_INVALID      = 'auth_state_invalid';
+  AR_SERVER_ERROR            = 'server_error';
 
 var
   MXAI_SETUP_VERSION: string;  // Set from INI at boot (Spec#1302)
