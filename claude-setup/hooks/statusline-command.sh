@@ -92,7 +92,39 @@ if [ "$total_tok" -gt 0 ]; then
   fi
 fi
 
-# --- Section 5: open tasks ---
+# --- Section 5: active workflow (FR#3081) ---
+# Reads .claude/orchestrate-state.json in the project root (same dir as
+# CLAUDE.md located in Section 1). Shows workflow_stack[0].title truncated
+# to 50 chars + `(+N parked)` when parked WFs > 0. Hidden on empty stack.
+workflow_section=""
+if [ -n "$claude_md" ]; then
+  state_file="$(dirname "$claude_md")/.claude/orchestrate-state.json"
+  if [ -f "$state_file" ]; then
+    workflow_section=$(python -c "
+import json, sys
+try:
+    with open(sys.argv[1], 'r', encoding='utf-8') as f:
+        s = json.load(f)
+    stack = s.get('workflow_stack', [])
+    if not stack:
+        sys.exit(0)
+    title = (stack[0].get('title') or '').strip()
+    if not title:
+        sys.exit(0)
+    if len(title) > 50:
+        title = title[:47] + '...'
+    parked = sum(1 for w in stack[1:] if (w.get('status') or '') == 'parked')
+    if parked > 0:
+        print(f'{title} (+{parked} parked)')
+    else:
+        print(title)
+except Exception:
+    pass
+" "$state_file" 2>/dev/null)
+  fi
+fi
+
+# --- Section 6: open tasks ---
 tasks_section=""
 task_total=$(json_num "total")
 task_completed=$(json_num "completed")
@@ -108,6 +140,7 @@ parts=()
 [ -n "$ctx_section" ]  && parts+=("$ctx_section")
 [ -n "$cost_section" ] && parts+=("$cost_section")
 [ -n "$tokens_section" ] && parts+=("$tokens_section")
+[ -n "$workflow_section" ] && parts+=("$workflow_section")
 [ -n "$tasks_section" ] && parts+=("$tasks_section")
 
 output=""
