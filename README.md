@@ -6,7 +6,7 @@ Self-hosted MCP server for AI-assisted software development. Stores architectura
 
 ## Features
 
-- **39 MCP Tools** — search, create, update, recall knowledge across projects
+- **45 MCP Tools** — search, create, update, recall knowledge across projects
 - **Multi-Project** — one server, many codebases, cross-project search
 - **Skill Evolution** — tracks which AI checker rules actually help, auto-tunes
 - **Institutional Memory** — lessons learned with recall, gate levels, graph-based knowledge links
@@ -42,7 +42,7 @@ The console should show `Admin server listening on 127.0.0.1:8081`. **You're hal
    ```
    /mxSetup mxk_your_api_key_here
    ```
-   `mxSetup` downloads the 11 skills, installs the proxy, and writes your `.claude/settings.json`. Takes ~15 seconds.
+   `mxSetup` downloads the 12 skills, installs the proxy, and writes your `.claude/settings.json`. Takes ~15 seconds.
 5. **Verify the handshake** — ask Claude: *"ping the mxLore server"*. You should see `version: 2.4.0` come back.
 
 **That's it.** Your AI now has persistent memory across sessions.
@@ -72,11 +72,11 @@ The console should show `Admin server listening on 127.0.0.1:8081`. **You're hal
 - **Stack:** Delphi (RAD Studio) + TMS Sparkle + FireDAC + MariaDB
 - **Protocol:** MCP 2024-11-05 (JSON-RPC 2.0 over HTTP+SSE)
 - **Auth:** PBKDF2-HMAC-SHA256 API keys, per-project ACL
-- **Units:** 53 Delphi units, dot-notation (`mx.*.pas`), 5 layers
+- **Units:** 65 Delphi units, dot-notation (`mx.*.pas`), 5 layers
 
 ## Skills
 
-11 Claude Code skills via [mxLore-skills](https://github.com/MicrotronX/mxLore-skills) (MIT licensed), listed in the order you typically use them:
+12 Claude Code skills via [mxLore-skills](https://github.com/MicrotronX/mxLore-skills) (MIT licensed), listed in the order you typically use them:
 
 | # | Skill | When you use it |
 |---|-------|-----------------|
@@ -91,6 +91,7 @@ The console should show `Admin server listening on 127.0.0.1:8081`. **You're hal
 | 9 | `/mxSave` | End-of-session persistence — state, lessons, session notes into the DB. |
 | 10 | `/mxHealth` | Periodic consistency check on the knowledge DB and local docs. |
 | 11 | `/mxMigrateToDb` | One-time migration of legacy `docs/*.md` files into MCP. |
+| 12 | `/mxHelp` | Lists installed mx*-skills grouped by category, or explains one in detail. |
 
 Install all at once: run `/mxSetup` in Claude Code.
 
