@@ -40,6 +40,15 @@ function ConstantTimeEqualStrings(const A, B: string): Boolean;
 /// </summary>
 function MxGenerateRandomHex(AByteCount: Integer): string;
 
+/// <summary>
+///   PBKDF2-HMAC-SHA256 key derivation exposed for non-password-hashing callers
+///   (e.g. FR#3896 Project Export/Import bundle key derivation). Callers pick
+///   iteration count and output length explicitly. For password storage prefer
+///   MxHashKey which owns its policy constants.
+/// </summary>
+function MxDeriveKey(const ASecret: string; const ASalt: TBytes;
+  AIterations, AKeyLen: Integer): TBytes;
+
 implementation
 
 uses
@@ -140,6 +149,22 @@ end;
 function MxIsPBKDF2(const AHash: string): Boolean;
 begin
   Result := AHash.StartsWith(PBKDF2_PREFIX, True);
+end;
+
+function MxDeriveKey(const ASecret: string; const ASalt: TBytes;
+  AIterations, AKeyLen: Integer): TBytes;
+var
+  SecretBytes: TBytes;
+begin
+  if AIterations <= 0 then
+    raise Exception.Create('MxDeriveKey: iterations must be > 0');
+  if AKeyLen <= 0 then
+    raise Exception.Create('MxDeriveKey: key length must be > 0');
+  if Length(ASalt) = 0 then
+    raise Exception.Create('MxDeriveKey: salt must not be empty');
+
+  SecretBytes := TEncoding.UTF8.GetBytes(ASecret);
+  Result := PBKDF2_SHA256(SecretBytes, ASalt, AIterations, AKeyLen);
 end;
 
 function MxHashKey(const ARawKey: string): string;

@@ -174,7 +174,15 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 108;
+  MXAI_BUILD   = 109;
+  // Build 109 (Session 281, 2026-04-24): FR#3896 Project Export/Import —
+  //   encrypted multi-project bundle (.mxbundle). AES-256-GCM via Windows
+  //   CNG BCrypt, PBKDF2 key-derivation (api_key OR passphrase). 5-step
+  //   Admin-UI wizard (file → conflicts → devs → confirm → result).
+  //   Per-project import-audit `note` inside transaction. Supersedes
+  //   FR#2926 + FR#2882. Checker-duo (mxBug + mxDesign) clean before ship.
+  // Build 108 (Session 276): FR#3835 RFC7807 + FR#3836 handler-conflation
+  //   + FR#3860 EnforceOwnership + FR#3081 statusline + Bug#3295.
   // Build 107 (Session 273): Bug#3659 — mx_session_start active_workflows
   //   no longer leaks archived WFs (SQL: d.status='active' SSoT).
   // Build 106 (Session 270): Admin-UI Bundle — FR#3294 Intelligence Banner

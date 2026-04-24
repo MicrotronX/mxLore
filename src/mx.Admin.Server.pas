@@ -92,7 +92,8 @@ uses
   mx.Admin.Api.Global, mx.Admin.Api.Skills,
   mx.Admin.Api.Settings, mx.Admin.Api.Invite,
   mx.Admin.Api.SelfUpdate, mx.Admin.Api.Notes,
-  mx.Admin.Api.Intelligence, mx.Admin.Api.IniEditor;
+  mx.Admin.Api.Intelligence, mx.Admin.Api.IniEditor,
+  mx.Admin.Api.ProjectBundle;
 
 { Shared helpers }
 
@@ -837,6 +838,20 @@ begin
     end;
 
     MxSendError(C, 404, 'not_found');
+    Exit;
+  end;
+
+  // /export, /import — FR#3896 Project Export/Import (admin-only)
+  if (Len = 1) and SameText(ASegments[0], 'export') and
+     (C.Request.MethodType = THttpMethod.Post) then
+  begin
+    mx.Admin.Api.ProjectBundle.HandleExport(C, FPool, ASession, FLogger);
+    Exit;
+  end;
+  if (Len = 1) and SameText(ASegments[0], 'import') and
+     (C.Request.MethodType = THttpMethod.Post) then
+  begin
+    mx.Admin.Api.ProjectBundle.HandleImport(C, FPool, ASession, FLogger);
     Exit;
   end;
 
