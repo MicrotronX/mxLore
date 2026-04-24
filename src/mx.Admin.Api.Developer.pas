@@ -523,16 +523,28 @@ begin
           Qry.Free;
         end;
 
-        // Merge project access (highest level wins)
+        // Merge project access (highest level wins).
+        // Subquery-wrap isolates the SELECT so MariaDB doesn't flag
+        // `access_level` ambiguous between source-table and UPDATE-target.
+        // 4-level ACL (FR#3360 build 110): read < comment < read-write.
+        // Legacy 'write' rows are normalized to 'read-write'.
         Qry := Ctx.CreateQuery(
           'INSERT INTO developer_project_access ' +
           '  (developer_id, project_id, access_level) ' +
-          'SELECT :target, project_id, access_level ' +
-          'FROM developer_project_access WHERE developer_id = :source ' +
+          'SELECT :target, tmp.proj_id, tmp.lvl FROM ( ' +
+          '  SELECT project_id AS proj_id, access_level AS lvl ' +
+          '  FROM developer_project_access WHERE developer_id = :source ' +
+          ') AS tmp ' +
           'ON DUPLICATE KEY UPDATE access_level = ' +
-          '  CASE WHEN VALUES(access_level) = ''write'' ' +
-          '    OR developer_project_access.access_level = ''write'' ' +
-          '  THEN ''write'' ELSE developer_project_access.access_level END');
+          '  CASE ' +
+          '    WHEN VALUES(access_level) IN (''read-write'', ''write'') ' +
+          '      OR developer_project_access.access_level IN (''read-write'', ''write'') ' +
+          '    THEN ''read-write'' ' +
+          '    WHEN VALUES(access_level) = ''comment'' ' +
+          '      OR developer_project_access.access_level = ''comment'' ' +
+          '    THEN ''comment'' ' +
+          '    ELSE ''read'' ' +
+          '  END');
         try
           Qry.ParamByName('target').AsInteger := TargetId;
           Qry.ParamByName('source').AsInteger := SourceId;
