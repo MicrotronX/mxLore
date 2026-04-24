@@ -69,10 +69,19 @@ var App = (function () {
       try {
         var data = await Api.login(key);
         Api.setCsrfToken(data.csrf_token);
+        // M3/T09 — populate ACL gate from login response (is_admin + per-project levels)
+        if (window.AclHelper && data.developer) {
+          AclHelper.setAccessLevels(
+            data.developer.access_levels || {},
+            data.developer.is_admin === true
+          );
+        }
         setUserUI(data.developer.name);
         $('#page-login').style.display = 'none';
         keyInput.value = '';
-        navigateTo('global');
+        // FR-Admin-Nav-Lockdown — hide admin-only nav items for non-admins.
+        applyAdminNavVisibility();
+        navigateTo(AclHelper.isAdmin() ? 'global' : 'projects');
       } catch (err) {
         if (err.message === 'not_admin') {
           showAlert('login-alert', 'error', 'Admin keys only.');
@@ -92,8 +101,23 @@ var App = (function () {
 
   function initLogout() {
     $('#btn-logout').addEventListener('click', async function () {
-      try { await Api.logout(); } catch (e) { /* ignore */ }
+      // WF-2026-04-24-001 Task#8 - log logout failures (session may still be
+      // alive server-side) instead of silently swallowing. UI proceeds to the
+      // login page regardless — CSRF+ACL state is wiped below.
+      try {
+        await Api.logout();
+      } catch (e) {
+        console.warn('[auth] Logout failed (session may still be alive server-side):', e);
+      }
       Api.setCsrfToken('');
+      // M3/T09 — drop ACL state on logout (defensive: empty means deny-all)
+      if (window.AclHelper) AclHelper.clear();
+      // FR-Admin-Nav-Lockdown - reset visibility so a subsequent admin
+      // re-login sees all admin-only elements again (clear() leaves
+      // isAdmin()=false, so we must force-show here rather than re-running
+      // applyAdminNavVisibility). WF-2026-04-24-001 Fix#1 - generic selector
+      // so pd-tabs/pd-tab-panels/form buttons are also reset.
+      $$('[data-admin-only]').forEach(function (el) { el.style.display = ''; });
       showLogin();
     });
   }
@@ -276,6 +300,8 @@ var App = (function () {
 
   // --- Developer Detail ---
   async function openDeveloper(id) {
+    // FR-Admin-Nav-Lockdown — guard direct #developer/N URL for non-admins.
+    if (requireAdminOrRedirect()) return;
     showPage('detail');
     setActiveNav('developers');
     currentDeveloper = id;
@@ -634,8 +660,42 @@ var App = (function () {
     });
   }
 
+  // FR-Admin-Nav-Lockdown — hide admin-only nav items for non-admins.
+  // WF-2026-04-24-001 Task#7 - fail-closed: if AclHelper is missing (e.g. the
+  // script failed to load), treat every user as NON-admin so no admin-only UI
+  // is rendered. Backend still gates every endpoint (defence-in-depth).
+  function applyAdminNavVisibility() {
+    var isAdmin = (typeof AclHelper !== 'undefined') && AclHelper.isAdmin();
+    // WF-2026-04-24-001 Fix#1 - generic selector so any [data-admin-only]
+    // marker (nav-link, pd-tab, pd-tab-panel, form buttons, ...) obeys
+    // the admin gate uniformly.
+    $$('[data-admin-only]').forEach(function (el) {
+      el.style.display = isAdmin ? '' : 'none';
+    });
+  }
+
+  // Route-guard for admin-only pages. Returns true if access was denied and
+  // the caller should early-return (redirect + toast already issued).
+  // WF-2026-04-24-001 Task#7 - fail-closed: missing AclHelper = non-admin,
+  // so every admin page redirects away. Admins with a broken acl-helper must
+  // fix the script or use the backend API directly.
+  function requireAdminOrRedirect() {
+    var isAdmin = (typeof AclHelper !== 'undefined') && AclHelper.isAdmin();
+    if (isAdmin) return false;
+    navigateTo('projects');
+    showAlert('proj-list-alert', 'warn', 'Admin-only area');
+    return true;
+  }
+
   // --- Navigation ---
   function navigateTo(page) {
+    // Admin-only pages: guard at entry point (hash-direct + nav click both hit here).
+    if (page === 'global' || page === 'intelligence' ||
+        page === 'developers' || page === 'connect' ||
+        page === 'settings') {
+      if (requireAdminOrRedirect()) return;
+    }
+
     currentPage = page;
     location.hash = page;
     setActiveNav(page);
@@ -1348,12 +1408,30 @@ var App = (function () {
     var tbody = $('#proj-table-body');
     var sorted = sortProjects(projectCache, projectSortKey, projectSortDir);
 
+    // M3/T10 \u2014 ACL gate for project-list actions.
+    // WF-2026-04-24-001 Task#7 - fail-closed: missing AclHelper = deny.
+    var _canDeactivate = function (pid) {
+      return !!window.AclHelper && AclHelper.canEdit(pid);
+    };
+    var _canHardDelete = function (/* pid */) {
+      // Hard-Delete is admin-only (data-loss op, mirrors server-ACL)
+      return !!window.AclHelper && AclHelper.canAdmin();
+    };
+
     tbody.innerHTML = sorted.map(function (p) {
       var statusClass = p.is_active ? 'active' : 'inactive';
       var statusText = p.is_active ? 'Active' : 'Inactive';
       var lastAct = p.last_activity ? formatDate(p.last_activity) : '\u2014';
+      var mergeDisabled = (!p.is_active || !_canHardDelete(p.id));
+      var actions = '<button class="btn btn--small btn--ghost" onclick="App.openProject(' + p.id + ')" title="Details">&#9998;</button>';
+      if (p.is_active && _canDeactivate(p.id)) {
+        actions += '<button class="btn btn--small btn--danger" onclick="App.confirmDeleteProject(' + p.id + ', \'' + escJsStr(p.name) + '\', false)" title="Deactivate">&#10005;</button>';
+      }
+      if (_canHardDelete(p.id)) {
+        actions += '<button class="btn btn--small btn--danger" onclick="App.confirmDeleteProject(' + p.id + ', \'' + escJsStr(p.name) + '\', true)" title="Hard Delete" style="opacity:0.6">&#128465;</button>';
+      }
       return '<tr data-id="' + p.id + '" data-creator="' + escHtml(p.created_by_name || '') + '">' +
-        '<td><input type="checkbox" class="row-check proj-merge-check" data-id="' + p.id + '" data-name="' + escHtml(p.name) + '"' + (p.is_active ? '' : ' disabled') + '></td>' +
+        '<td><input type="checkbox" class="row-check proj-merge-check" data-id="' + p.id + '" data-name="' + escHtml(p.name) + '"' + (mergeDisabled ? ' disabled' : '') + '></td>' +
         '<td><span class="cell-link" onclick="App.openProject(' + p.id + ')">' + escHtml(p.name) + '</span></td>' +
         '<td class="mono text-secondary">' + escHtml(p.slug) + '</td>' +
         '<td class="cell-stat">' + (p.doc_count || 0) + '</td>' +
@@ -1361,11 +1439,7 @@ var App = (function () {
         '<td class="text-secondary" style="font-size:0.82rem">' + escHtml(p.created_by_name || '\u2014') + '</td>' +
         '<td class="text-secondary" style="font-size:0.82rem">' + lastAct + '</td>' +
         '<td><span class="badge badge--' + statusClass + '">' + statusText + '</span></td>' +
-        '<td>' +
-          '<button class="btn btn--small btn--ghost" onclick="App.openProject(' + p.id + ')" title="Details">&#9998;</button>' +
-          (p.is_active ? '<button class="btn btn--small btn--danger" onclick="App.confirmDeleteProject(' + p.id + ', \'' + escJsStr(p.name) + '\', false)" title="Deactivate">&#10005;</button>' : '') +
-          '<button class="btn btn--small btn--danger" onclick="App.confirmDeleteProject(' + p.id + ', \'' + escJsStr(p.name) + '\', true)" title="Hard Delete" style="opacity:0.6">&#128465;</button>' +
-        '</td>' +
+        '<td>' + actions + '</td>' +
       '</tr>';
     }).join('');
 
@@ -1415,7 +1489,14 @@ var App = (function () {
       var projects = data.projects || [];
 
       if (projects.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="empty-state__icon">&#128193;</div>No projects yet. Run <code>/mxInitProject</code> in your project directory to register the first one.</div></td></tr>';
+        // M3/T13 — non-admin with 0 accessible projects = access-issue, not fresh install.
+        // Admin with 0 projects = legit empty-state (mxInitProject hint).
+        if (window.AclHelper && !AclHelper.isAdmin()) {
+          tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="empty-state__icon">&#128274;</div>No projects assigned to you yet — ask your admin for access.</div></td></tr>';
+          showAlert('proj-list-alert', 'info', 'No projects yet — ask your admin for access.');
+        } else {
+          tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="empty-state__icon">&#128193;</div>No projects yet. Run <code>/mxInitProject</code> in your project directory to register the first one.</div></td></tr>';
+        }
         return;
       }
 
@@ -1467,6 +1548,15 @@ var App = (function () {
 
   // --- Project Detail ---
   async function openProject(id) {
+    // M3/T12 — route-guard for direct hash-navigation (#project/N URL).
+    // Server also enforces (non-admin → 403 on foreign /api/projects load),
+    // but a client pre-check avoids the wasted round-trip and gives cleaner UX.
+    // WF-2026-04-24-001 Task#7 - fail-closed: missing AclHelper = deny view.
+    if (!window.AclHelper || !AclHelper.canView(id)) {
+      navigateTo('projects');
+      showAlert('proj-list-alert', 'warn', 'No access to this project.');
+      return;
+    }
     currentProjectId = id;
     // Only overwrite hash if it doesn't already target this project
     // (preserves `project/N/tab` during F5 refresh)
@@ -1482,15 +1572,32 @@ var App = (function () {
         var data = await Api.getProjects();
         projectCache = data.projects || [];
         proj = projectCache.find(function (p) { return p.id === id; });
-      } catch (e) { /* fall through */ }
+      } catch (e) {
+        // WF-2026-04-24-001 Task#8 - preserve existing fall-through (user still
+        // gets the "No access / not found" path below) but log the real cause
+        // so devtools reveals network/parse errors instead of silently swallowing.
+        if (e && e.message === 'session_expired') return; // auto-redirect handled upstream
+        console.error('[openProject] project-cache refresh failed:', e);
+      }
     }
-    if (!proj) { navigateTo('projects'); return; }
+    if (!proj) {
+      // M3/T12 — project not in server-filtered list = 403-equivalent for non-admin
+      navigateTo('projects');
+      if (window.AclHelper && !AclHelper.isAdmin()) {
+        showAlert('proj-list-alert', 'warn', 'No access to this project.');
+      }
+      return;
+    }
 
     showPage('project-detail');
     setActiveNav('projects');
 
     // Phase B: reset to default tab on fresh open (restore path overrides later)
-    switchProjectTab('team', true);
+    // WF-2026-04-24-001 Fix#3 - non-admin has no Team-Tab access (admin-only
+    // /api/developers endpoints return 403). Land on Docs instead.
+    // Task#7 fail-closed: missing AclHelper = non-admin, so land on Docs.
+    var _defaultTab = (!window.AclHelper || !AclHelper.isAdmin()) ? 'docs' : 'team';
+    switchProjectTab(_defaultTab, true);
 
     // Fill data
     $('#proj-detail-title').textContent = proj.name;
@@ -1507,6 +1614,29 @@ var App = (function () {
     $('#pd-docs').textContent = proj.doc_count || 0;
     $('#pd-devs').textContent = proj.developer_count || 0;
     $('#pd-activity').textContent = proj.last_activity ? formatDate(proj.last_activity) : '\u2014';
+
+    // WF-2026-04-24-001 Fix#4 - project-meta edit is admin-only (PUT
+    // /projects/:id is 403 for non-admin regardless of ACL level). Disable
+    // the inputs so non-admin sees a read-only info-strip. Save-button
+    // visibility is handled via data-admin-only + applyAdminNavVisibility.
+    // WF-2026-04-24-001 Task#7 - fail-closed: missing AclHelper = non-admin.
+    var _pdIsAdmin = (typeof AclHelper !== 'undefined') && AclHelper.isAdmin();
+    ['proj-detail-name', 'proj-detail-slug', 'proj-detail-creator'].forEach(function (elId) {
+      var el = document.getElementById(elId);
+      if (!el) return;
+      if (_pdIsAdmin) {
+        // slug stays disabled (never editable), others restored
+        if (elId !== 'proj-detail-slug') el.disabled = false;
+        el.removeAttribute('title');
+      } else {
+        el.disabled = true;
+        el.title = 'Admin-only';
+      }
+    });
+
+    // Re-apply admin-only visibility now that the project-detail page is
+    // mounted (the Team tab/panel + Save-button carry data-admin-only).
+    applyAdminNavVisibility();
 
     Icons.render();
 
@@ -2748,12 +2878,18 @@ var App = (function () {
     devBody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:8px"><span class="spinner"></span></td></tr>';
 
     try {
-      var results = await Promise.all([
-        Api.getProjectDashboard(projId),
-        Api.getDevelopers()
-      ]);
+      // WF-2026-04-24-001 Fix#5 - /api/developers is admin-only and returns
+      // 403 for non-admin. Skip that call to avoid crashing the whole
+      // dashboard render (doc-type chips + relations live here too).
+      // Task#7 fail-closed: missing AclHelper = treat as non-admin.
+      var _dashIsAdmin = (typeof AclHelper !== 'undefined') && AclHelper.isAdmin();
+      var _calls = [Api.getProjectDashboard(projId)];
+      if (_dashIsAdmin) _calls.push(Api.getDevelopers());
+      var results = await Promise.all(_calls);
       var dash = results[0];
-      var allDevs = (results[1].developers || []).filter(function (d) { return d.is_active; });
+      var allDevs = _dashIsAdmin
+        ? ((results[1].developers || []).filter(function (d) { return d.is_active; }))
+        : [];
       var docTypes = dash.doc_types || {};
       var devs = dash.developers || [];
 
@@ -2894,12 +3030,33 @@ var App = (function () {
       // Creator select
       if (creatorSel) {
         var currentCreator = proj.created_by_developer_id || 0;
-        creatorSel.innerHTML = '<option value="">— unbekannt —</option>' +
-          allDevs.map(function (d) {
-            return '<option value="' + d.id + '"' +
-              (d.id === currentCreator ? ' selected' : '') + '>' +
-              escHtml(d.name) + '</option>';
-          }).join('');
+        if (_dashIsAdmin) {
+          creatorSel.innerHTML = '<option value="">— unbekannt —</option>' +
+            allDevs.map(function (d) {
+              return '<option value="' + d.id + '"' +
+                (d.id === currentCreator ? ' selected' : '') + '>' +
+                escHtml(d.name) + '</option>';
+            }).join('');
+        } else {
+          // WF-2026-04-24-001 Fix#5 - non-admin: no developers list available
+          // (403). Render current creator as a single disabled option so the
+          // control doesn't show "-loading-" forever. created_by_name is set
+          // by the dashboard response (falls back to current-session-user
+          // when we're the creator).
+          // WF-2026-04-24-001 Task#9 - server emits `created_by_name` (see
+          // mx.Admin.Api.Projects.pas HandleGetDashboard). Fallback-cascade
+          // keeps legacy `creator_name` just in case.
+          var creatorName =
+            (dash && (dash.created_by_name || dash.creator_name)) ||
+            proj.created_by_name || proj.creator_name || '';
+          if (!creatorName && currentCreator === 0) creatorName = 'unknown';
+          if (!creatorName) creatorName = '#' + currentCreator;
+          creatorSel.innerHTML =
+            '<option value="' + (currentCreator || '') + '" selected>' +
+            escHtml(creatorName) + '</option>';
+          creatorSel.disabled = true;
+          creatorSel.title = 'Admin-only';
+        }
       }
 
       Icons.render();
@@ -2912,6 +3069,12 @@ var App = (function () {
   function switchProjectTab(tabName, skipHashUpdate) {
     var valid = ['team', 'docs', 'reviews', 'relations'];
     if (valid.indexOf(tabName) < 0) tabName = 'team';
+    // WF-2026-04-24-001 Fix#3 - guard hash-restore + direct calls: non-admin
+    // must never land on Team (endpoints 403 -> endless spinner).
+    // Task#7 fail-closed: missing AclHelper = treat as non-admin.
+    if (tabName === 'team' && (!window.AclHelper || !AclHelper.isAdmin())) {
+      tabName = 'docs';
+    }
     $$('.pd-tab').forEach(function (btn) {
       var on = btn.dataset.tab === tabName;
       btn.classList.toggle('is-active', on);
@@ -3182,6 +3345,16 @@ var App = (function () {
       // FR#3472 A — fire-and-forget thread-load; silent on error/empty
       loadDocThread(docId);
     } catch (err) {
+      // M3/T11 — unified 403 handling (server returns access_denied / forbidden /
+      // not_found for non-admin on foreign docs; OQ1 info-leak unified).
+      // api.js converts HTTP 403 to Error(data.error || 'forbidden').
+      var msg = err && err.message;
+      if (msg === 'forbidden' || msg === 'access_denied' ||
+          msg === 'doc_not_found' || msg === 'not_found') {
+        navigateTo('projects');
+        showAlert('proj-list-alert', 'warn', 'Access denied.');
+        return;
+      }
       showAlert('doc-detail-alert', 'error',
         'Failed to load doc: ' + (err && err.message ? err.message : 'unknown'));
       $('#doc-detail-title').textContent = 'Error';
@@ -3361,9 +3534,28 @@ var App = (function () {
     var delBtn = $('#doc-detail-delete-btn');
     var restBtn = $('#doc-detail-restore-btn');
     var editBtn = $('#doc-detail-edit-btn');
-    if (delBtn)  delBtn.style.display  = isDeleted ? 'none' : '';
-    if (restBtn) restBtn.style.display = isDeleted ? '' : 'none';
-    if (editBtn) editBtn.style.display = isDeleted ? 'none' : '';
+    // M3/T11 — ACL gate: edit/delete/restore need canEdit on doc's project.
+    // WF-2026-04-24-001 Task#7 - fail-closed: missing AclHelper = deny edit.
+    var _docCanEdit = !!window.AclHelper && AclHelper.canEdit(d.project_id);
+    if (delBtn)  delBtn.style.display  = (isDeleted || !_docCanEdit) ? 'none' : '';
+    if (restBtn) restBtn.style.display = (isDeleted && _docCanEdit)  ? '' : 'none';
+    if (editBtn) editBtn.style.display = (isDeleted || !_docCanEdit) ? 'none' : '';
+    // Hard-gate Cancel/Save as well — defense-in-depth against leftover edit-mode
+    // state (browser-cache, stale SPA state, direct URL). Backend write-gate is
+    // authoritative; this prevents the UI from even presenting the action.
+    var cancelBtn = $('#doc-detail-cancel-btn');
+    var saveBtn   = $('#doc-detail-save-btn');
+    if (!_docCanEdit) {
+      if (cancelBtn) cancelBtn.style.display = 'none';
+      if (saveBtn)   saveBtn.style.display   = 'none';
+      // Also collapse edit-mode if somehow active
+      var ta = $('#doc-detail-edit-area');
+      var pre = $('#doc-detail-content');
+      var reason = $('#doc-detail-edit-reason');
+      if (ta) ta.setAttribute('hidden', '');
+      if (pre) pre.removeAttribute('hidden');
+      if (reason) reason.setAttribute('hidden', '');
+    }
     // Visual "deleted" cue on whole page
     var page = $('#page-doc-detail');
     if (page) page.classList.toggle('is-doc-deleted', isDeleted);
@@ -3405,6 +3597,14 @@ var App = (function () {
   var _currentDoc = null;
 
   function toggleDocEdit(on) {
+    // Defense-in-depth: refuse entering edit-mode for non-writers (backend
+    // also rejects via 403, but this stops users from typing into a dead form).
+    // WF-2026-04-24-001 Task#7 - fail-closed: missing AclHelper = deny.
+    if (on && _currentDoc &&
+        (!window.AclHelper || !AclHelper.canEdit(_currentDoc.project_id))) {
+      showAlert('doc-detail-alert', 'warn', 'Read-only — editing not allowed');
+      return;
+    }
     var pre    = $('#doc-detail-content');
     var ta     = $('#doc-detail-edit-area');
     var reason = $('#doc-detail-edit-reason');
@@ -3436,6 +3636,13 @@ var App = (function () {
 
   async function saveDocEdit() {
     if (!_currentDoc) return;
+    // Final client-side gate before POST — backend is the authority (403 if
+    // bypassed), but catching it here avoids an empty-body wipe attempt.
+    // WF-2026-04-24-001 Task#7 - fail-closed: missing AclHelper = deny save.
+    if (!window.AclHelper || !AclHelper.canEdit(_currentDoc.project_id)) {
+      showAlert('doc-detail-alert', 'warn', 'Read-only — save blocked');
+      return;
+    }
     var newContent = $('#doc-detail-edit-area').value;
     var reason = $('#doc-detail-reason-input').value || 'Admin-UI content edit';
     if (newContent === _currentDoc.content) {
@@ -3533,6 +3740,11 @@ var App = (function () {
 
   // FR#3353 Phase A Gap#6 — inline Add-Member panel
   function toggleAddMember() {
+    // WF-2026-04-24-001 Fix#6 - defence in depth: Team-Tab is hidden for
+    // non-admin via data-admin-only, but block the public API too in case
+    // something still wires into it (hash, console, extension, ...).
+    // Task#7 fail-closed: missing AclHelper = deny.
+    if (!window.AclHelper || !AclHelper.isAdmin()) return;
     var panel = $('#pd-add-member');
     var btn   = $('#btn-add-member');
     if (!panel) return;
@@ -3704,6 +3916,14 @@ var App = (function () {
 
   // --- Init ---
   async function init() {
+    // WF-2026-04-24-001 Task#7 - fail-closed ACL boot check.
+    // If acl-helper.js failed to load (404, parse error, CSP block, ...) the
+    // UI must treat every user as NON-admin. Backend remains the authority
+    // on every endpoint — this only shrinks the client-side attack surface.
+    if (typeof AclHelper === 'undefined' || typeof AclHelper.isAdmin !== 'function') {
+      console.warn('[mxLore] AclHelper not loaded — UI will treat every user as NON-admin. Backend remains authoritative.');
+    }
+
     // Re-render icons after initial DOM parse (icons.js auto-renders once)
     if (typeof Icons !== 'undefined') Icons.render();
 
@@ -3736,12 +3956,22 @@ var App = (function () {
     try {
       var data = await Api.checkSession();
       Api.setCsrfToken(data.csrf_token);
+      // M3/T09 — restore ACL gate from session response on page-refresh
+      if (window.AclHelper && data.developer) {
+        AclHelper.setAccessLevels(
+          data.developer.access_levels || {},
+          data.developer.is_admin === true
+        );
+      }
       setUserUI(data.developer.name);
       $('#page-login').style.display = 'none';
+      // FR-Admin-Nav-Lockdown — hide admin-only nav items for non-admins.
+      applyAdminNavVisibility();
       // Setup mode: first start with no members → go to Team Members page
       // Detect via developer.id === 0 (server sets DeveloperId=0 in HasNoDevelopers bypass)
       var isSetupMode = data.developer && data.developer.id === 0;
-      var restoreHash = location.hash.replace('#', '') || (isSetupMode ? 'developers' : 'global');
+      var defaultLanding = isSetupMode ? 'developers' : (AclHelper.isAdmin() ? 'global' : 'projects');
+      var restoreHash = location.hash.replace('#', '') || defaultLanding;
       if (restoreHash.indexOf('developer/') === 0) {
         var devParts = restoreHash.split('/');
         var devId = parseInt(devParts[1]);

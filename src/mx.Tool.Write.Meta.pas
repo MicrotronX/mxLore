@@ -144,16 +144,48 @@ begin
       end;
     end;
 
-    Qry := AContext.CreateQuery(
-      'INSERT IGNORE INTO developer_project_access ' +
-      '(developer_id, project_id, access_level) VALUES (:dev_id, :proj_id, :level)');
-    try
-      Qry.ParamByName('dev_id').AsInteger := CallerDevId;
-      Qry.ParamByName('proj_id').AsInteger := ProjectId;
-      Qry.ParamByName('level').AsWideString :='write';
-      Qry.ExecSQL;
-    finally
-      Qry.Free;
+    // FR#4015 — auto-grant read-write ACL to the creator so they can
+    // immediately see + edit their new project without manual team-setup.
+    // ON DUPLICATE KEY UPDATE no-op (Session 281 polish): preserves any
+    // pre-existing explicit assignment (won't downgrade admin-set 'admin'
+    // row to 'read-write') while letting non-dup-key errors (FK violation,
+    // truncation, deadlock) surface instead of being swallowed by
+    // INSERT IGNORE. Level aligned with 4-level ACL (sql/046 migrated
+    // legacy 'write' -> 'read-write').
+    // Dev-exists pre-check defends against orphaned CallerDevId (e.g. dev
+    // soft-deleted between auth and here) to avoid FK-violation crash.
+    if CallerDevId > 0 then
+    begin
+      Qry := AContext.CreateQuery(
+        'SELECT 1 FROM developers WHERE id = :dev_id LIMIT 1');
+      try
+        Qry.ParamByName('dev_id').AsInteger := CallerDevId;
+        Qry.Open;
+        if not Qry.IsEmpty then
+        begin
+          Qry.Close;
+          Qry.SQL.Text :=
+            'INSERT INTO developer_project_access ' +
+            '(developer_id, project_id, access_level) ' +
+            'VALUES (:dev_id, :proj_id, :level) ' +
+            'ON DUPLICATE KEY UPDATE developer_id = developer_id';
+          Qry.ParamByName('dev_id').AsInteger := CallerDevId;
+          Qry.ParamByName('proj_id').AsInteger := ProjectId;
+          Qry.ParamByName('level').AsWideString := 'read-write';
+          Qry.ExecSQL;
+        end
+        else
+        begin
+          // Session 281 polish: surface orphaned-dev skip instead of silent
+          // continue — makes the ACL-grant gap diagnosable from logs.
+          if Assigned(AContext.Logger) then
+            AContext.Logger.Log(mlWarning,
+              Format('Creator auto-grant skipped: dev %d not found (project %d)',
+                     [CallerDevId, ProjectId]));
+        end;
+      finally
+        Qry.Free;
+      end;
     end;
 
     if (Path <> '') and (MxGetThreadAuth.KeyId > 0) then

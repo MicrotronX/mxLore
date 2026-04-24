@@ -150,13 +150,16 @@
   }
 
   function fetchAndRender() {
-    if (isDismissed()) return;
-    if (typeof Api === 'undefined' || typeof Api.getDeepThreads !== 'function') return;
-    Api.getDeepThreads()
+    if (isDismissed()) return Promise.resolve();
+    if (typeof Api === 'undefined' || typeof Api.getDeepThreads !== 'function') return Promise.resolve();
+    // FR#3360 lockdown: /api/notes/deep-threads is admin-only.
+    // Fail-closed: if AclHelper is missing, skip too (Session 281 polish).
+    if (!window.AclHelper || !AclHelper.isAdmin()) return Promise.resolve();
+    return Api.getDeepThreads()
       .then(function (resp) {
         if (resp && Array.isArray(resp.threads)) render(resp);
       })
-      .catch(function () { /* silent — admin can refresh */ });
+      .catch(function (e) { console.warn('[deep-threads] fetch failed:', e); });
   }
 
   // Public API for explicit refresh (e.g. after promote action)

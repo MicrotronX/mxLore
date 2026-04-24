@@ -136,10 +136,13 @@
   }
 
   function fetchAndRender() {
-    if (typeof Api === 'undefined' || typeof Api.getIntelligenceStatus !== 'function') return;
-    Api.getIntelligenceStatus()
+    if (typeof Api === 'undefined' || typeof Api.getIntelligenceStatus !== 'function') return Promise.resolve();
+    // FR#3360 lockdown: /api/intelligence/status is admin-only.
+    // Fail-closed: if AclHelper is missing, skip too (Session 281 polish).
+    if (!window.AclHelper || !AclHelper.isAdmin()) return Promise.resolve();
+    return Api.getIntelligenceStatus()
       .then(render)
-      .catch(function () { /* silent — admin can refresh */ });
+      .catch(function (e) { console.warn('[intelligence] status fetch failed:', e); });
   }
 
   window.mxIntelligence = {

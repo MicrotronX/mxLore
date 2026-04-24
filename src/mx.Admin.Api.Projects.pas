@@ -4,10 +4,14 @@ interface
 
 uses
   Sparkle.HttpServer.Context,
-  mx.Types, mx.Data.Pool;
+  mx.Types, mx.Data.Pool, mx.Admin.Auth;
 
+// FR#4006 / Plan#4007 M2: non-admin callers see only projects they hold
+// developer_project_access rows for. Admin (ASession.IsAdmin) bypasses
+// the filter. Session passed by server-router.
 procedure HandleGetProjects(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession;
+  ALogger: IMxLogger);
 procedure HandleUpdateProject(const C: THttpServerContext;
   APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
 procedure HandleDeleteProject(const C: THttpServerContext;
@@ -21,27 +25,38 @@ procedure HandleUpdateDevProjects(const C: THttpServerContext;
   APool: TMxConnectionPool; ADevId: Integer; ALogger: IMxLogger);
 
 procedure HandleGetDashboard(const C: THttpServerContext;
-  APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; AProjId: Integer;
+  const ASession: TMxAdminSession; ALogger: IMxLogger);
 
 // FR#3353 Phase A Gap#2: PUT /projects/:id/access { developer_id, access_level }
 procedure HandleSetProjectAccess(const C: THttpServerContext;
   APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
 
 // FR#3353 Phase C: GET /projects/:id/documents?type=&q=&status=&limit=&offset=
+// FR#4006 / Plan#4007 M2: non-admin callers need project-ACL read (row presence).
 procedure HandleListProjectDocs(const C: THttpServerContext;
-  APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; AProjId: Integer;
+  const ASession: TMxAdminSession; ALogger: IMxLogger);
 
 // FR#3353 Phase C: GET /docs/:id — full document detail (view-only)
+// FR#4006 / Plan#4007 M2: non-admin callers get 403 when the doc's project
+// is outside their ACL.
 procedure HandleGetDocDetail(const C: THttpServerContext;
-  APool: TMxConnectionPool; ADocId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ADocId: Integer;
+  const ASession: TMxAdminSession; ALogger: IMxLogger);
 
 // FR#3353 Phase C: DELETE /docs/:id — soft-delete (status='deleted')
+// FR#4006 / Plan#4007 M2: non-admin callers need project-ACL read-write
+// (ACL row presence; granular level-check out-of-scope for this milestone).
 procedure HandleDeleteDoc(const C: THttpServerContext;
-  APool: TMxConnectionPool; ADocId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ADocId: Integer;
+  const ASession: TMxAdminSession; ALogger: IMxLogger);
 
 // FR#3353 Phase C: PUT /docs/:id — admin-side content/title/summary/status edit
+// FR#4006 / Plan#4007 M2: non-admin callers need project-ACL (row presence).
 procedure HandleUpdateDocAdmin(const C: THttpServerContext;
-  APool: TMxConnectionPool; ADocId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ADocId: Integer;
+  const ASession: TMxAdminSession; ALogger: IMxLogger);
 
 // FR#3353 Phase C: DELETE /relations/:id — remove single doc_relations row
 procedure HandleDeleteRelation(const C: THttpServerContext;
@@ -52,16 +67,21 @@ procedure HandleDeleteProjectRelation(const C: THttpServerContext;
   APool: TMxConnectionPool; ARelId: Integer; ALogger: IMxLogger);
 
 // FR#3472 A (SPEC#3583): GET /docs/:id/thread — hierarchischer Review-Thread
-// ausgehend von Doc :id, via WITH RECURSIVE CTE über doc_relations.review-on.
+// ausgehend von Doc :id, via WITH RECURSIVE CTE ueber doc_relations.review-on.
 // depth<10 cap + LIMIT 200 rows.
+// FR#4006 / Plan#4007 M2: non-admin callers get 403 when the root doc's
+// project is outside their ACL (404->403 info-leak collapse like GetDocDetail).
 procedure HandleGetDocThread(const C: THttpServerContext;
-  APool: TMxConnectionPool; ADocId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ADocId: Integer;
+  const ASession: TMxAdminSession; ALogger: IMxLogger);
 
 // FR#3472 C (SPEC#3583): GET /projects/:id/reviews — Root-Aggregate aller
 // Review-Threads im Projekt (Docs mit review-Kindern), 1-Query GROUP BY
 // root_parent_doc_id, ORDER BY last_activity DESC, LIMIT 100.
+// FR#4006 / Plan#4007 M2: non-admin callers need project-ACL read.
 procedure HandleListProjectReviews(const C: THttpServerContext;
-  APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; AProjId: Integer;
+  const ASession: TMxAdminSession; ALogger: IMxLogger);
 
 implementation
 
@@ -72,20 +92,31 @@ uses
   mx.Admin.Server, mx.Logic.Projects;
 
 procedure HandleGetProjects(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession;
+  ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
   Arr: TJSONArray;
   Obj, Json: TJSONObject;
-  LastAct: string;
+  LastAct, SQL: string;
 begin
   Ctx := APool.AcquireContext;
-  Qry := Ctx.CreateQuery(
+  // FR#4006 / Plan#4007 M2: admin sees all projects; non-admin filtered by
+  // developer_project_access membership (row-presence, any level).
+  SQL :=
     'SELECT id, slug, name, is_active, doc_count, developer_count, ' +
     '  last_activity, created_at, deleted_at, created_by_developer_id, created_by_name ' +
-    'FROM v_admin_project_overview ORDER BY name');
+    'FROM v_admin_project_overview ';
+  if not ASession.IsAdmin then
+    SQL := SQL +
+      'WHERE id IN (SELECT project_id FROM developer_project_access ' +
+      '             WHERE developer_id = :dev_id) ';
+  SQL := SQL + 'ORDER BY name';
+  Qry := Ctx.CreateQuery(SQL);
   try
+    if not ASession.IsAdmin then
+      Qry.ParamByName('dev_id').AsInteger := ASession.DeveloperId;
     Qry.Open;
     Arr := TJSONArray.Create;
     while not Qry.Eof do
@@ -611,13 +642,23 @@ begin
 end;
 
 procedure HandleGetDashboard(const C: THttpServerContext;
-  APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; AProjId: Integer;
+  const ASession: TMxAdminSession; ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
   Json, DocTypes: TJSONObject;
   Changes, Devs, Rels: TJSONArray;
 begin
+  // FR#4006 / Plan#4007 M2: non-admin must hold an ACL row for this
+  // project, else 403. Admin bypasses.
+  if (not ASession.IsAdmin) and
+     (not DeveloperHasProjectAccess(APool, ASession.DeveloperId, AProjId)) then
+  begin
+    MxSendError(C, 403, 'forbidden');
+    Exit;
+  end;
+
   Json := TJSONObject.Create;
   try
     Ctx := APool.AcquireContext;
@@ -802,7 +843,8 @@ end;
 // GET /projects/:id/documents?type=X&q=Y&status=Z&limit=N&offset=N
 // ===========================================================================
 procedure HandleListProjectDocs(const C: THttpServerContext;
-  APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; AProjId: Integer;
+  const ASession: TMxAdminSession; ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
@@ -811,6 +853,14 @@ var
   SQL, FilterType, FilterQ, FilterStatus, FilterDocIdStr, Qstr: string;
   FilterDocId, Lim, Off: Integer;
 begin
+  // FR#4006 / Plan#4007 M2: non-admin ACL gate (read-level suffices — listing).
+  if (not ASession.IsAdmin) and
+     (not DeveloperHasProjectAccess(APool, ASession.DeveloperId, AProjId)) then
+  begin
+    MxSendError(C, 403, 'forbidden');
+    Exit;
+  end;
+
   Qstr := C.Request.Uri.Query;
   FilterType   := Trim(QGet(Qstr, 'type'));
   FilterQ      := Trim(QGet(Qstr, 'q'));
@@ -929,17 +979,49 @@ end;
 // GET /docs/:id
 // ===========================================================================
 procedure HandleGetDocDetail(const C: THttpServerContext;
-  APool: TMxConnectionPool; ADocId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ADocId: Integer;
+  const ASession: TMxAdminSession; ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
   Json: TJSONObject;
   Tags, Rels: TJSONArray;
+  DocProjId: Integer;
 begin
   if ADocId <= 0 then
   begin
     MxSendError(C, 400, 'invalid_id');
     Exit;
+  end;
+
+  // FR#4006 / Plan#4007 M2: non-admin callers require project-ACL. We
+  // resolve project_id via a cheap lookup first, then 403 on foreign. This
+  // keeps admin-path unchanged (no extra round-trip).
+  // Security: for non-admin callers we collapse 404 (not-exists) to 403 so
+  // attackers cannot probe for document existence via response-code delta.
+  // Admins still get legitimate 404 to debug input errors.
+  if not ASession.IsAdmin then
+  begin
+    Ctx := APool.AcquireContext;
+    Qry := Ctx.CreateQuery(
+      'SELECT project_id FROM documents WHERE id = :id');
+    try
+      Qry.ParamByName('id').AsInteger := ADocId;
+      Qry.Open;
+      if Qry.IsEmpty then
+      begin
+        MxSendError(C, 403, 'forbidden');
+        Exit;
+      end;
+      DocProjId := Qry.FieldByName('project_id').AsInteger;
+    finally
+      Qry.Free;
+    end;
+    if not DeveloperHasProjectAccess(APool, ASession.DeveloperId, DocProjId) then
+    begin
+      MxSendError(C, 403, 'forbidden');
+      Exit;
+    end;
   end;
 
   Json := TJSONObject.Create;
@@ -963,7 +1045,11 @@ begin
       Qry.Open;
       if Qry.IsEmpty then
       begin
-        MxSendError(C, 404, 'not_found');
+        // Info-leak guard: non-admin sees 403 even on race-condition 404.
+        if ASession.IsAdmin then
+          MxSendError(C, 404, 'not_found')
+        else
+          MxSendError(C, 403, 'forbidden');
         Exit;  // finally frees Qry; outer finally frees Json (no double-free)
       end;
       Json.AddPair('id',
@@ -1071,16 +1157,48 @@ end;
 // DELETE /docs/:id
 // ===========================================================================
 procedure HandleDeleteDoc(const C: THttpServerContext;
-  APool: TMxConnectionPool; ADocId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ADocId: Integer;
+  const ASession: TMxAdminSession; ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
   Json: TJSONObject;
+  DocProjId: Integer;
 begin
   if ADocId <= 0 then
   begin
     MxSendError(C, 400, 'invalid_id');
     Exit;
+  end;
+  // FR#4006 / Plan#4007 M2: non-admin ACL gate (row-presence). Resolve
+  // project_id first, then 403 for foreign or non-existent (info-leak
+  // guard — do not reveal existence to non-admin). Admin path returns 404
+  // on non-existent for legitimate input-error debugging.
+  if not ASession.IsAdmin then
+  begin
+    Ctx := APool.AcquireContext;
+    Qry := Ctx.CreateQuery(
+      'SELECT project_id FROM documents WHERE id = :id');
+    try
+      Qry.ParamByName('id').AsInteger := ADocId;
+      Qry.Open;
+      if Qry.IsEmpty then
+      begin
+        MxSendError(C, 403, 'forbidden');
+        Exit;
+      end;
+      DocProjId := Qry.FieldByName('project_id').AsInteger;
+    finally
+      Qry.Free;
+    end;
+    // FR#3360 — write-level gate (was DeveloperHasProjectAccess which
+    // returned TRUE for read/comment access too, letting a read-only dev
+    // wipe docs via the Admin-UI Save/Delete button — data-loss bug).
+    if not DeveloperHasProjectWriteAccess(APool, ASession.DeveloperId, DocProjId) then
+    begin
+      MxSendError(C, 403, 'forbidden');
+      Exit;
+    end;
   end;
   try
     Ctx := APool.AcquireContext;
@@ -1092,7 +1210,11 @@ begin
       Qry.ExecSQL;
       if Qry.RowsAffected = 0 then
       begin
-        MxSendError(C, 404, 'not_found_or_already_deleted');
+        // Info-leak guard: collapse to 403 for non-admin.
+        if ASession.IsAdmin then
+          MxSendError(C, 404, 'not_found_or_already_deleted')
+        else
+          MxSendError(C, 403, 'forbidden');
         Exit;
       end;
     finally
@@ -1122,7 +1244,8 @@ end;
 // Notes (doc_type='note') MUST use mx_update_note (M2.5 edit-window enforcement).
 // ===========================================================================
 procedure HandleUpdateDocAdmin(const C: THttpServerContext;
-  APool: TMxConnectionPool; ADocId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ADocId: Integer;
+  const ASession: TMxAdminSession; ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
@@ -1130,11 +1253,42 @@ var
   NewTitle, NewSummary, NewContent, NewStatus, ChangeReason, DocType: string;
   HasTitle, HasSummary, HasContent, HasStatus: Boolean;
   SetClauses: string;
+  DocProjId: Integer;
 begin
   if ADocId <= 0 then
   begin
     MxSendError(C, 400, 'invalid_id');
     Exit;
+  end;
+  // FR#4006 / Plan#4007 M2: non-admin ACL gate. Resolve project_id pre-
+  // parse so we 403 before we bother parsing the body.
+  // Info-leak guard: non-admin sees 403 even for non-existent docs so the
+  // response-code delta cannot be used to probe existence.
+  if not ASession.IsAdmin then
+  begin
+    Ctx := APool.AcquireContext;
+    Qry := Ctx.CreateQuery(
+      'SELECT project_id FROM documents WHERE id = :id');
+    try
+      Qry.ParamByName('id').AsInteger := ADocId;
+      Qry.Open;
+      if Qry.IsEmpty then
+      begin
+        MxSendError(C, 403, 'forbidden');
+        Exit;
+      end;
+      DocProjId := Qry.FieldByName('project_id').AsInteger;
+    finally
+      Qry.Free;
+    end;
+    // FR#3360 — write-level gate (was DeveloperHasProjectAccess which
+    // returned TRUE for read/comment access too, letting a read-only dev
+    // overwrite docs via the Admin-UI Save button — data-loss bug).
+    if not DeveloperHasProjectWriteAccess(APool, ASession.DeveloperId, DocProjId) then
+    begin
+      MxSendError(C, 403, 'forbidden');
+      Exit;
+    end;
   end;
   Body := MxParseBody(C);
   if Body = nil then
@@ -1177,7 +1331,11 @@ begin
       Qry.Open;
       if Qry.IsEmpty then
       begin
-        MxSendError(C, 404, 'not_found');
+        // Info-leak guard: non-admin gets 403 even on race-condition 404.
+        if ASession.IsAdmin then
+          MxSendError(C, 404, 'not_found')
+        else
+          MxSendError(C, 403, 'forbidden');
         Exit;  // finally frees Qry (no double-free)
       end;
       DocType := Qry.FieldByName('doc_type').AsString;
@@ -1378,7 +1536,8 @@ end;
 // doc_relations.review-on (Edge source=child, target=parent).
 // ---------------------------------------------------------------------------
 procedure HandleGetDocThread(const C: THttpServerContext;
-  APool: TMxConnectionPool; ADocId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ADocId: Integer;
+  const ASession: TMxAdminSession; ALogger: IMxLogger);
 const
   DEPTH_CAP = 10;
   ROW_CAP   = 200;
@@ -1390,11 +1549,39 @@ var
   Item: TJSONObject;
   RowCount, MaxDepth: Integer;
   RootFound: Boolean;
+  DocProjId: Integer;
 begin
   if ADocId <= 0 then
   begin
     MxSendError(C, 400, 'invalid_id');
     Exit;
+  end;
+
+  // FR#4006 / Plan#4007 M2: ACL pre-check — non-admin callers collapse
+  // 404 (not-exists) to 403 so attackers cannot probe doc existence via
+  // response-code delta. Same pattern as HandleGetDocDetail.
+  if not ASession.IsAdmin then
+  begin
+    Ctx := APool.AcquireContext;
+    Qry := Ctx.CreateQuery(
+      'SELECT project_id FROM documents WHERE id = :id');
+    try
+      Qry.ParamByName('id').AsInteger := ADocId;
+      Qry.Open;
+      if Qry.IsEmpty then
+      begin
+        MxSendError(C, 403, 'forbidden');
+        Exit;
+      end;
+      DocProjId := Qry.FieldByName('project_id').AsInteger;
+    finally
+      Qry.Free;
+    end;
+    if not DeveloperHasProjectAccess(APool, ASession.DeveloperId, DocProjId) then
+    begin
+      MxSendError(C, 403, 'forbidden');
+      Exit;
+    end;
   end;
 
   Json := TJSONObject.Create;
@@ -1521,7 +1708,8 @@ end;
 // Root-Aggregate aller Review-Threads im Projekt. 1-Query GROUP BY, kein N+1.
 // ---------------------------------------------------------------------------
 procedure HandleListProjectReviews(const C: THttpServerContext;
-  APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; AProjId: Integer;
+  const ASession: TMxAdminSession; ALogger: IMxLogger);
 const
   LIMIT_ROWS = 100;
 var
@@ -1535,6 +1723,14 @@ begin
   if AProjId <= 0 then
   begin
     MxSendError(C, 400, 'invalid_id');
+    Exit;
+  end;
+
+  // FR#4006 / Plan#4007 M2: non-admin ACL gate (read-level suffices).
+  if (not ASession.IsAdmin) and
+     (not DeveloperHasProjectAccess(APool, ASession.DeveloperId, AProjId)) then
+  begin
+    MxSendError(C, 403, 'forbidden');
     Exit;
   end;
 

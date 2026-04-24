@@ -51,6 +51,8 @@ var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
   SQL: string;
+  OldCreatorId: Integer;
+  DevExists: Boolean;
 begin
   if AName.Trim.IsEmpty then
     raise Exception.Create('name_required');
@@ -58,6 +60,25 @@ begin
   Ctx := FPool.AcquireContext;
   Ctx.StartTransaction;
   try
+    // FR#4015 (Session 281 late-find): remember prior creator so we can
+    // detect a real change and sync ACL below. SELECT must happen inside
+    // the transaction to avoid TOCTOU with concurrent updates.
+    OldCreatorId := -1;
+    if ACreatorId >= 0 then
+    begin
+      Qry := Ctx.CreateQuery(
+        'SELECT created_by_developer_id FROM projects WHERE id = :id');
+      try
+        Qry.ParamByName('id').AsInteger := AId;
+        Qry.Open;
+        if (not Qry.IsEmpty) and
+           (not Qry.FieldByName('created_by_developer_id').IsNull) then
+          OldCreatorId := Qry.FieldByName('created_by_developer_id').AsInteger;
+      finally
+        Qry.Free;
+      end;
+    end;
+
     SQL := 'UPDATE projects SET name = :name';
     if ACreatorId >= 0 then
       SQL := SQL + ', created_by_developer_id = :creator';
@@ -76,6 +97,53 @@ begin
     finally
       Qry.Free;
     end;
+
+    // FR#4015 (Session 281 late-find) — sync ACL when creator changes:
+    // auto-grant read-write so the new creator immediately has team-
+    // membership on their project (mirrors HandleInitProject path in
+    // mx.Tool.Write.Meta). ON DUPLICATE KEY UPDATE dev=dev preserves
+    // any pre-existing explicit assignment (won't downgrade 'admin' to
+    // 'read-write') and only suppresses the dup-key error; FK/trunc/
+    // deadlock still surface. Dev-exists pre-check defends against an
+    // orphaned creator_id (dev soft-deleted) to avoid FK-violation
+    // crash; silent-skip is logged via mlWarning for diagnosability.
+    if (ACreatorId > 0) and (ACreatorId <> OldCreatorId) then
+    begin
+      DevExists := False;
+      Qry := Ctx.CreateQuery(
+        'SELECT 1 FROM developers WHERE id = :dev_id LIMIT 1');
+      try
+        Qry.ParamByName('dev_id').AsInteger := ACreatorId;
+        Qry.Open;
+        DevExists := not Qry.IsEmpty;
+      finally
+        Qry.Free;
+      end;
+
+      if DevExists then
+      begin
+        Qry := Ctx.CreateQuery(
+          'INSERT INTO developer_project_access ' +
+          '(developer_id, project_id, access_level) ' +
+          'VALUES (:dev_id, :proj_id, ''read-write'') ' +
+          'ON DUPLICATE KEY UPDATE developer_id = developer_id');
+        try
+          Qry.ParamByName('dev_id').AsInteger := ACreatorId;
+          Qry.ParamByName('proj_id').AsInteger := AId;
+          Qry.ExecSQL;
+        finally
+          Qry.Free;
+        end;
+      end
+      else
+      begin
+        if Assigned(FLogger) then
+          FLogger.Log(mlWarning,
+            Format('Creator-change auto-grant skipped: dev %d not found (project %d)',
+                   [ACreatorId, AId]));
+      end;
+    end;
+
     Ctx.Commit;
   except
     Ctx.Rollback;

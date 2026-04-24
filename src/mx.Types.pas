@@ -174,7 +174,18 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 109;
+  MXAI_BUILD   = 110;
+  // Build 110 (Session 282, 2026-04-24): FR#3360 Admin-UI Dev-Login +
+  //   4-level ACL-Filter. M1 Auth-Guard-Lift (lrNotAdmin → ui_login_enabled
+  //   + ACL-presence, admin hard-bypass). M2 ACL-Filter server-side
+  //   (HandleGetProjects/Dashboard/DocDetail/UpdateDocAdmin/DeleteDoc JOIN
+  //   developer_project_access, 403 on foreign). M3 Frontend (acl-helper.js
+  //   zentral, route-guards, 3-layer defense in doc-detail, settings/team
+  //   tab-hide, project-bundle gate). Checker-Duo (mxDesignChecker +
+  //   mxBugChecker + silent-failure-hunter + code-reviewer): 3 CRIT gates
+  //   (/documents, /reviews, /docs/:id/thread) + Data-Loss-Fix
+  //   (DeveloperHasProjectWriteAccess for UpdateDoc+DeleteDoc) + fail-closed
+  //   AclHelper + RequireAdmin nested function (20 sites). Live-verified.
   // Build 109 (Session 281, 2026-04-24): FR#3896 Project Export/Import —
   //   encrypted multi-project bundle (.mxbundle). AES-256-GCM via Windows
   //   CNG BCrypt, PBKDF2 key-derivation (api_key OR passphrase). 5-step

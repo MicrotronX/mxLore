@@ -184,11 +184,15 @@
   }
 
   function checkStatus(force) {
+    // FR#3360 lockdown: self-update is admin-only. Skip the fetch for
+    // non-admins so the console stays clean and we don't spam 403s.
+    // Fail-closed: if AclHelper is missing, skip too (Session 281 polish).
+    if (!window.AclHelper || !AclHelper.isAdmin()) return Promise.resolve();
     var path = force ? 'recheck' : 'status';
     var method = force ? 'POST' : 'GET';
     return fetchJson(path, method)
       .then(function (data) { handleStatusResponse(data, !!force); })
-      .catch(function () { /* network failure: stay silent on initial load */ });
+      .catch(function (e) { console.warn('[self-update] status fetch failed:', e); });
   }
 
   var polling = false;

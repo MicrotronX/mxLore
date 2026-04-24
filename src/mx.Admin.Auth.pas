@@ -15,6 +15,11 @@ type
     CsrfToken: string;
     ExpiresAt: TDateTime;
     Valid: Boolean;
+    // FR#4006 / Plan#4007 M1: admin-flag on session so handlers can cheaply
+    // branch admin-bypass vs ACL-filter without a per-request client_keys
+    // lookup. Populated on Login + ValidateSession. HasNoDevelopers setup
+    // mode sets this True so bootstrap works before any admin key exists.
+    IsAdmin: Boolean;
   end;
 
   TMxLoginResult = (lrSuccess, lrInvalidKey, lrNotAdmin, lrUiLoginDisabled);
@@ -34,8 +39,22 @@ type
     procedure CleanupExpired;
   end;
 
-  // Cookie helpers
-  function GetCookieValue(const ACookieHeader, AName: string): string;
+// FR#4006 / Plan#4007 M1 helpers. Public so non-admin API handlers can
+// gate per-request without duplicating the SELECT.
+function DeveloperIsAdmin(APool: TMxConnectionPool; ADevId: Integer): Boolean;
+function DeveloperHasAnyProjectAccess(APool: TMxConnectionPool;
+  ADevId: Integer): Boolean;
+function DeveloperHasProjectAccess(APool: TMxConnectionPool;
+  ADevId, AProjId: Integer): Boolean;
+// FR#3360 — write-level gate. DeveloperHasProjectAccess returns TRUE for any
+// access-level (read/comment/read-write/write). For destructive ops (doc
+// update/delete) the handler must gate on this write-only variant instead,
+// otherwise a read-only dev can wipe docs via the Admin-UI Save-Button.
+function DeveloperHasProjectWriteAccess(APool: TMxConnectionPool;
+  ADevId, AProjId: Integer): Boolean;
+
+// Cookie helpers
+function GetCookieValue(const ACookieHeader, AName: string): string;
 
 implementation
 
@@ -117,12 +136,21 @@ begin
       begin
         Found := True;
         FoundKeyId := Qry.FieldByName('key_id').AsInteger;
-        if not SameText(Qry.FieldByName('permissions').AsString, 'admin') then
-          Exit(lrNotAdmin);
-        if not Qry.FieldByName('ui_login_enabled').AsBoolean then
-          Exit(lrUiLoginDisabled);
+        // FR#4006 / Plan#4007 M1: lift admin-only gate. Admins still
+        // hard-bypass; non-admins may log in iff ui_login_enabled AND they
+        // hold at least one developer_project_access row (→ handlers will
+        // scope by ACL). Zero-access non-admins have nothing to show.
+        ASession.IsAdmin :=
+          SameText(Qry.FieldByName('permissions').AsString, 'admin');
         ASession.DeveloperId := Qry.FieldByName('dev_id').AsInteger;
         ASession.DeveloperName := Qry.FieldByName('dev_name').AsString;
+        if not ASession.IsAdmin then
+        begin
+          if not Qry.FieldByName('ui_login_enabled').AsBoolean then
+            Exit(lrUiLoginDisabled);
+          if not DeveloperHasAnyProjectAccess(FPool, ASession.DeveloperId) then
+            Exit(lrNotAdmin);
+        end;
         Break;
       end;
       Qry.Next;
@@ -153,12 +181,19 @@ begin
       Found := True;
       IsLegacy := True;
       FoundKeyId := Qry.FieldByName('key_id').AsInteger;
-      if not SameText(Qry.FieldByName('permissions').AsString, 'admin') then
-        Exit(lrNotAdmin);
-      if not Qry.FieldByName('ui_login_enabled').AsBoolean then
-        Exit(lrUiLoginDisabled);
+      // FR#4006 / Plan#4007 M1: identical guard-lift as PBKDF2 path above —
+      // admin hard-bypass, else ui_login_enabled + ACL-presence required.
+      ASession.IsAdmin :=
+        SameText(Qry.FieldByName('permissions').AsString, 'admin');
       ASession.DeveloperId := Qry.FieldByName('dev_id').AsInteger;
       ASession.DeveloperName := Qry.FieldByName('dev_name').AsString;
+      if not ASession.IsAdmin then
+      begin
+        if not Qry.FieldByName('ui_login_enabled').AsBoolean then
+          Exit(lrUiLoginDisabled);
+        if not DeveloperHasAnyProjectAccess(FPool, ASession.DeveloperId) then
+          Exit(lrNotAdmin);
+      end;
     finally
       Qry.Free;
     end;
@@ -221,12 +256,23 @@ var
   Qry: TFDQuery;
 begin
   Result.Valid := False;
+  Result.IsAdmin := False;
   if AToken = '' then Exit;
 
   Ctx := FPool.AcquireContext;
+  // FR#4006 / Plan#4007 M1: surface is_admin per session so handlers can
+  // branch admin-bypass vs ACL-filter without a second round-trip. Derived
+  // from "developer owns >=1 active admin client_key" (same definition as
+  // Login + mx.Admin.Api.ProjectBundle.IsAdminDeveloper).
   Qry := Ctx.CreateQuery(
     'SELECT s.token, s.developer_id, d.name AS dev_name, ' +
-    '  s.csrf_token, s.expires_at ' +
+    '  s.csrf_token, s.expires_at, ' +
+    '  EXISTS(SELECT 1 FROM client_keys ck ' +
+    '         WHERE ck.developer_id = d.id AND ck.is_active = TRUE ' +
+    '           AND ck.permissions = ''admin'' ' +
+    '           AND ck.revoked_at IS NULL ' +
+    '           AND (ck.expires_at IS NULL OR ck.expires_at > NOW())) ' +
+    '  AS is_admin ' +
     'FROM admin_sessions s ' +
     'JOIN developers d ON s.developer_id = d.id ' +
     'WHERE s.token = :token AND s.expires_at > NOW()');
@@ -241,7 +287,101 @@ begin
     Result.DeveloperName := Qry.FieldByName('dev_name').AsString;
     Result.CsrfToken := Qry.FieldByName('csrf_token').AsString;
     Result.ExpiresAt := Qry.FieldByName('expires_at').AsDateTime;
+    // MariaDB EXISTS returns BIGINT(1), not BOOLEAN — FireDAC refuses .AsBoolean.
+    Result.IsAdmin := Qry.FieldByName('is_admin').AsLargeInt <> 0;
     Result.Valid := True;
+  finally
+    Qry.Free;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// FR#4006 / Plan#4007 M1 — ACL helpers (public, used by API handlers)
+// ---------------------------------------------------------------------------
+
+function DeveloperIsAdmin(APool: TMxConnectionPool;
+  ADevId: Integer): Boolean;
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+begin
+  Result := False;
+  if ADevId <= 0 then Exit;
+  Ctx := APool.AcquireContext;
+  Qry := Ctx.CreateQuery(
+    'SELECT 1 FROM client_keys ' +
+    'WHERE developer_id = :id AND is_active = TRUE ' +
+    '  AND permissions = ''admin'' AND revoked_at IS NULL LIMIT 1');
+  try
+    Qry.ParamByName('id').AsInteger := ADevId;
+    Qry.Open;
+    Result := not Qry.IsEmpty;
+  finally
+    Qry.Free;
+  end;
+end;
+
+function DeveloperHasAnyProjectAccess(APool: TMxConnectionPool;
+  ADevId: Integer): Boolean;
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+begin
+  Result := False;
+  if ADevId <= 0 then Exit;
+  Ctx := APool.AcquireContext;
+  Qry := Ctx.CreateQuery(
+    'SELECT 1 FROM developer_project_access ' +
+    'WHERE developer_id = :id LIMIT 1');
+  try
+    Qry.ParamByName('id').AsInteger := ADevId;
+    Qry.Open;
+    Result := not Qry.IsEmpty;
+  finally
+    Qry.Free;
+  end;
+end;
+
+function DeveloperHasProjectAccess(APool: TMxConnectionPool;
+  ADevId, AProjId: Integer): Boolean;
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+begin
+  Result := False;
+  if (ADevId <= 0) or (AProjId <= 0) then Exit;
+  Ctx := APool.AcquireContext;
+  Qry := Ctx.CreateQuery(
+    'SELECT 1 FROM developer_project_access ' +
+    'WHERE developer_id = :dev AND project_id = :pid LIMIT 1');
+  try
+    Qry.ParamByName('dev').AsInteger := ADevId;
+    Qry.ParamByName('pid').AsInteger := AProjId;
+    Qry.Open;
+    Result := not Qry.IsEmpty;
+  finally
+    Qry.Free;
+  end;
+end;
+
+function DeveloperHasProjectWriteAccess(APool: TMxConnectionPool;
+  ADevId, AProjId: Integer): Boolean;
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+begin
+  Result := False;
+  if (ADevId <= 0) or (AProjId <= 0) then Exit;
+  Ctx := APool.AcquireContext;
+  Qry := Ctx.CreateQuery(
+    'SELECT 1 FROM developer_project_access ' +
+    'WHERE developer_id = :dev AND project_id = :pid ' +
+    '  AND access_level IN (''read-write'', ''write'') LIMIT 1');
+  try
+    Qry.ParamByName('dev').AsInteger := ADevId;
+    Qry.ParamByName('pid').AsInteger := AProjId;
+    Qry.Open;
+    Result := not Qry.IsEmpty;
   finally
     Qry.Free;
   end;

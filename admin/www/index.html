@@ -20,15 +20,15 @@
       <div class="navbar__title">mx<span>Lore</span></div>
     </div>
     <div class="navbar__nav">
-      <button class="nav-link active" data-nav="global" onclick="App.navigateTo('global')">
+      <button class="nav-link active" data-nav="global" data-admin-only onclick="App.navigateTo('global')">
         <i data-lucide="globe" class="icon-sm"></i>
         <span>Global</span>
       </button>
-      <button class="nav-link" data-nav="intelligence" onclick="App.navigateTo('intelligence')">
+      <button class="nav-link" data-nav="intelligence" data-admin-only onclick="App.navigateTo('intelligence')">
         <i data-lucide="brain" class="icon-sm"></i>
         <span>Intelligence</span>
       </button>
-      <button class="nav-link" data-nav="developers" onclick="App.navigateTo('developers')">
+      <button class="nav-link" data-nav="developers" data-admin-only onclick="App.navigateTo('developers')">
         <i data-lucide="users" class="icon-sm"></i>
         <span>Team Members</span>
       </button>
@@ -36,11 +36,11 @@
         <i data-lucide="folder-open" class="icon-sm"></i>
         <span>Projects</span>
       </button>
-      <button class="nav-link" data-nav="connect" onclick="App.navigateTo('connect')">
+      <button class="nav-link" data-nav="connect" data-admin-only onclick="App.navigateTo('connect')">
         <i data-lucide="link" class="icon-sm"></i>
         <span>Connect Team</span>
       </button>
-      <button class="nav-link nav-link--icon" data-nav="settings" onclick="App.navigateTo('settings')" title="Settings" aria-label="Settings">
+      <button class="nav-link nav-link--icon" data-nav="settings" data-admin-only onclick="App.navigateTo('settings')" title="Settings" aria-label="Settings">
         <i data-lucide="settings" class="icon-sm"></i>
       </button>
     </div>
@@ -513,7 +513,7 @@
             <option value="">&mdash; loading &mdash;</option>
           </select>
         </label>
-        <button type="submit" class="btn btn--primary btn--small pd-info-strip__save">
+        <button type="submit" class="btn btn--primary btn--small pd-info-strip__save" data-admin-only>
           <i data-lucide="save" class="icon-xs"></i> Save
         </button>
       </div>
@@ -522,7 +522,7 @@
     <!-- Tab navigation -->
     <div class="pd-tabs" role="tablist" aria-label="Project detail sections">
       <button class="pd-tab is-active" role="tab" data-tab="team"
-              aria-selected="true" tabindex="0"
+              aria-selected="true" tabindex="0" data-admin-only
               onclick="App.switchProjectTab('team')">
         <i data-lucide="users" class="icon-xs"></i>
         <span>Team</span>
@@ -549,7 +549,7 @@
     </div>
 
     <!-- Tab: Team -->
-    <div class="pd-tab-panel is-active" data-panel="team" role="tabpanel" aria-labelledby="tab-team">
+    <div class="pd-tab-panel is-active" data-panel="team" role="tabpanel" aria-labelledby="tab-team" data-admin-only>
       <div class="detail-card">
         <div class="detail-card__header">
           <span class="detail-card__title">
@@ -1847,6 +1847,7 @@
 </div>
 
 <script src="js/icons.js"></script>
+<script src="js/acl-helper.js"></script>
 <script src="js/api.js"></script>
 <script src="js/app.js"></script>
 <script src="js/self-update.js"></script>

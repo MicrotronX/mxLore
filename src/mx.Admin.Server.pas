@@ -326,6 +326,9 @@ begin
         Session.Valid := True;
         Session.DeveloperId := 0;
         Session.DeveloperName := 'Setup';
+        // FR#4006 / Plan#4007 M1: bootstrap mode bypasses ACL — no dev rows
+        // exist yet, so treat the setup session as full admin.
+        Session.IsAdmin := True;
       end
       else
       begin
@@ -367,6 +370,17 @@ end;
 
 procedure TMxAdminApiModule.RouteRequest(const C: THttpServerContext;
   const ASegments: TArray<string>; const ASession: TMxAdminSession);
+
+  // DRY admin-gate. Returns True when caller is admin; otherwise emits a
+  // 403 forbidden response and returns False. Callers pattern:
+  //   if not RequireAdmin then Exit;
+  function RequireAdmin: Boolean;
+  begin
+    Result := ASession.IsAdmin;
+    if not Result then
+      MxSendError(C, 403, 'forbidden');
+  end;
+
 var
   Len, Id: Integer;
 begin
@@ -386,15 +400,16 @@ begin
     else if SameText(ASegments[1], 'logout') and (C.Request.MethodType = THttpMethod.Post) then
       mx.Admin.Api.Auth.HandleLogout(C, FAuth, ASession, FLogger)
     else if SameText(ASegments[1], 'check') and (C.Request.MethodType = THttpMethod.Get) then
-      mx.Admin.Api.Auth.HandleCheckSession(C, ASession, FLogger)
+      mx.Admin.Api.Auth.HandleCheckSession(C, FPool, ASession, FLogger)
     else
       MxSendError(C, 404, 'not_found');
     Exit;
   end;
 
-  // /developers/*
+  // /developers/*  — admin-only (all sub-routes manage devs/keys/ACL)
   if SameText(ASegments[0], 'developers') then
   begin
+    if not RequireAdmin then Exit;
     // GET /developers
     if (Len = 1) and (C.Request.MethodType = THttpMethod.Get) then
     begin
@@ -459,10 +474,11 @@ begin
         Exit;
       end;
 
-      // PUT /developers/:id/projects
+      // PUT /developers/:id/projects  (admin-only — ACL-matrix edit)
       if (Len = 3) and SameText(ASegments[2], 'projects') and
          (C.Request.MethodType = THttpMethod.Put) then
       begin
+        if not RequireAdmin then Exit;
         mx.Admin.Api.Projects.HandleUpdateDevProjects(C, FPool, Id, FLogger);
         Exit;
       end;
@@ -480,9 +496,10 @@ begin
     Exit;
   end;
 
-  // /keys/*
+  // /keys/*  — admin-only (key management)
   if SameText(ASegments[0], 'keys') then
   begin
+    if not RequireAdmin then Exit;
     if (Len = 2) and TryStrToInt(ASegments[1], Id) then
     begin
       // DELETE /keys/:id[?hard=true]
@@ -523,9 +540,10 @@ begin
     Exit;
   end;
 
-  // /environments/*
+  // /environments/*  — admin-only (env-var management tied to keys)
   if SameText(ASegments[0], 'environments') then
   begin
+    if not RequireAdmin then Exit;
     // DELETE /environments/:id
     if (Len = 2) and TryStrToInt(ASegments[1], Id) and
        (C.Request.MethodType = THttpMethod.Delete) then
@@ -538,9 +556,10 @@ begin
     Exit;
   end;
 
-  // /global/*
+  // /global/*  — admin-only (global stats, backup, cleanup)
   if SameText(ASegments[0], 'global') then
   begin
+    if not RequireAdmin then Exit;
     if (Len = 2) and SameText(ASegments[1], 'stats') and
        (C.Request.MethodType = THttpMethod.Get) then
     begin
@@ -643,9 +662,10 @@ begin
     Exit;
   end;
 
-  // /intelligence/* — FR#3294 Semantic Search status
+  // /intelligence/* — FR#3294 Semantic Search status  — admin-only
   if SameText(ASegments[0], 'intelligence') then
   begin
+    if not RequireAdmin then Exit;
     if (Len = 2) and SameText(ASegments[1], 'status') and
        (C.Request.MethodType = THttpMethod.Get) then
     begin
@@ -658,9 +678,10 @@ begin
     Exit;
   end;
 
-  // /ini + /settings/reload — FR#3610 runtime config editor
+  // /ini + /settings/reload — FR#3610 runtime config editor  — admin-only
   if SameText(ASegments[0], 'ini') then
   begin
+    if not RequireAdmin then Exit;
     if (Len = 1) and (C.Request.MethodType = THttpMethod.Get) then
     begin
       mx.Admin.Api.IniEditor.HandleGetIni(C, FPool, FConfig, FLogger);
@@ -675,9 +696,10 @@ begin
     Exit;
   end;
 
-  // /skills/*
+  // /skills/*  — admin-only (global skill stats + feedback moderation)
   if SameText(ASegments[0], 'skills') then
   begin
+    if not RequireAdmin then Exit;
     if (Len = 2) and SameText(ASegments[1], 'dashboard') and
        (C.Request.MethodType = THttpMethod.Get) then
     begin
@@ -702,14 +724,15 @@ begin
     // GET /projects
     if (Len = 1) and (C.Request.MethodType = THttpMethod.Get) then
     begin
-      mx.Admin.Api.Projects.HandleGetProjects(C, FPool, FLogger);
+      mx.Admin.Api.Projects.HandleGetProjects(C, FPool, ASession, FLogger);
       Exit;
     end;
 
-    // POST /projects/merge
+    // POST /projects/merge  (admin-only)
     if (Len = 2) and SameText(ASegments[1], 'merge') and
        (C.Request.MethodType = THttpMethod.Post) then
     begin
+      if not RequireAdmin then Exit;
       mx.Admin.Api.Projects.HandleMergeProjects(C, FPool, FLogger);
       Exit;
     end;
@@ -717,16 +740,18 @@ begin
     // /projects/:id
     if (Len >= 2) and TryStrToInt(ASegments[1], Id) then
     begin
-      // PUT /projects/:id
+      // PUT /projects/:id  (admin-only — project meta edit)
       if (Len = 2) and (C.Request.MethodType = THttpMethod.Put) then
       begin
+        if not RequireAdmin then Exit;
         mx.Admin.Api.Projects.HandleUpdateProject(C, FPool, Id, FLogger);
         Exit;
       end;
 
-      // DELETE /projects/:id
+      // DELETE /projects/:id  (admin-only)
       if (Len = 2) and (C.Request.MethodType = THttpMethod.Delete) then
       begin
+        if not RequireAdmin then Exit;
         mx.Admin.Api.Projects.HandleDeleteProject(C, FPool, Id,
           Pos('hard=true', LowerCase(C.Request.Uri.Query)) > 0, FLogger);
         Exit;
@@ -736,14 +761,15 @@ begin
       if (Len = 3) and SameText(ASegments[2], 'dashboard') and
          (C.Request.MethodType = THttpMethod.Get) then
       begin
-        mx.Admin.Api.Projects.HandleGetDashboard(C, FPool, Id, FLogger);
+        mx.Admin.Api.Projects.HandleGetDashboard(C, FPool, Id, ASession, FLogger);
         Exit;
       end;
 
-      // PUT /projects/:id/access  body: {developer_id, access_level}
+      // PUT /projects/:id/access  body: {developer_id, access_level}  (admin-only)
       if (Len = 3) and SameText(ASegments[2], 'access') and
          (C.Request.MethodType = THttpMethod.Put) then
       begin
+        if not RequireAdmin then Exit;
         mx.Admin.Api.Projects.HandleSetProjectAccess(C, FPool, Id, FLogger);
         Exit;
       end;
@@ -752,7 +778,7 @@ begin
       if (Len = 3) and SameText(ASegments[2], 'documents') and
          (C.Request.MethodType = THttpMethod.Get) then
       begin
-        mx.Admin.Api.Projects.HandleListProjectDocs(C, FPool, Id, FLogger);
+        mx.Admin.Api.Projects.HandleListProjectDocs(C, FPool, Id, ASession, FLogger);
         Exit;
       end;
 
@@ -760,7 +786,7 @@ begin
       if (Len = 3) and SameText(ASegments[2], 'reviews') and
          (C.Request.MethodType = THttpMethod.Get) then
       begin
-        mx.Admin.Api.Projects.HandleListProjectReviews(C, FPool, Id, FLogger);
+        mx.Admin.Api.Projects.HandleListProjectReviews(C, FPool, Id, ASession, FLogger);
         Exit;
       end;
     end;
@@ -780,24 +806,24 @@ begin
       begin
         if (Len = 2) and (C.Request.MethodType = THttpMethod.Get) then
         begin
-          mx.Admin.Api.Projects.HandleGetDocDetail(C, FPool, DocId, FLogger);
+          mx.Admin.Api.Projects.HandleGetDocDetail(C, FPool, DocId, ASession, FLogger);
           Exit;
         end;
         if (Len = 2) and (C.Request.MethodType = THttpMethod.Delete) then
         begin
-          mx.Admin.Api.Projects.HandleDeleteDoc(C, FPool, DocId, FLogger);
+          mx.Admin.Api.Projects.HandleDeleteDoc(C, FPool, DocId, ASession, FLogger);
           Exit;
         end;
         if (Len = 2) and (C.Request.MethodType = THttpMethod.Put) then
         begin
-          mx.Admin.Api.Projects.HandleUpdateDocAdmin(C, FPool, DocId, FLogger);
+          mx.Admin.Api.Projects.HandleUpdateDocAdmin(C, FPool, DocId, ASession, FLogger);
           Exit;
         end;
         // GET /docs/:id/thread — FR#3472 A
         if (Len = 3) and SameText(ASegments[2], 'thread') and
            (C.Request.MethodType = THttpMethod.Get) then
         begin
-          mx.Admin.Api.Projects.HandleGetDocThread(C, FPool, DocId, FLogger);
+          mx.Admin.Api.Projects.HandleGetDocThread(C, FPool, DocId, ASession, FLogger);
           Exit;
         end;
       end;
@@ -807,9 +833,10 @@ begin
     Exit;
   end;
 
-  // /relations/:id  — FR#3353 Phase C single-relation delete
+  // /relations/:id  — FR#3353 Phase C single-relation delete  (admin-only)
   if SameText(ASegments[0], 'relations') then
   begin
+    if not RequireAdmin then Exit;
     if (Len = 2) and (C.Request.MethodType = THttpMethod.Delete) then
     begin
       var RelId := StrToIntDef(ASegments[1], 0);
@@ -824,9 +851,10 @@ begin
     Exit;
   end;
 
-  // /project-relations/:id  — FR#3353 Phase C project-relation delete
+  // /project-relations/:id  — FR#3353 Phase C project-relation delete  (admin-only)
   if SameText(ASegments[0], 'project-relations') then
   begin
+    if not RequireAdmin then Exit;
     if (Len = 2) and (C.Request.MethodType = THttpMethod.Delete) then
     begin
       var PRelId := StrToIntDef(ASegments[1], 0);
@@ -845,19 +873,22 @@ begin
   if (Len = 1) and SameText(ASegments[0], 'export') and
      (C.Request.MethodType = THttpMethod.Post) then
   begin
+    if not RequireAdmin then Exit;
     mx.Admin.Api.ProjectBundle.HandleExport(C, FPool, ASession, FLogger);
     Exit;
   end;
   if (Len = 1) and SameText(ASegments[0], 'import') and
      (C.Request.MethodType = THttpMethod.Post) then
   begin
+    if not RequireAdmin then Exit;
     mx.Admin.Api.ProjectBundle.HandleImport(C, FPool, ASession, FLogger);
     Exit;
   end;
 
-  // /settings/* — v2.4.0 runtime settings
+  // /settings/* — v2.4.0 runtime settings  (admin-only)
   if SameText(ASegments[0], 'settings') then
   begin
+    if not RequireAdmin then Exit;
     // GET /settings — list all
     if (Len = 1) and (C.Request.MethodType = THttpMethod.Get) then
     begin
@@ -885,11 +916,12 @@ begin
     Exit;
   end;
 
-  // --- Invites (admin + public) ---
-  // /invites[/:id]       (admin, auth required)  — list/create/revoke
-  // /invite/:token[/...] (public, rate-limited)  — resolve, confirm
+  // --- Invites (admin + public via separate top-level prefixes) ---
+  // /invites          (admin-only: list/create/delete/cleanup — this block)
+  // /invite/:token    (public, rate-limited: resolve/confirm — next block)
   if SameText(ASegments[0], 'invites') then
   begin
+    if not RequireAdmin then Exit;
     if (Len = 1) and (C.Request.MethodType = THttpMethod.Get) then
     begin
       mx.Admin.Api.Invite.HandleListInvites(C, FPool, FLogger);
@@ -960,9 +992,10 @@ begin
     Exit;
   end;
 
-  // /notes/*  (FR#2936, Plan#3266 M2.6 — review-thread admin alerts)
+  // /notes/*  (FR#2936, Plan#3266 M2.6 — review-thread admin alerts)  — admin-only
   if SameText(ASegments[0], 'notes') then
   begin
+    if not RequireAdmin then Exit;
     // GET /notes/deep-threads — review-notes with depth >= warn-threshold
     if (Len = 2) and SameText(ASegments[1], 'deep-threads') and
        (C.Request.MethodType = THttpMethod.Get) then
@@ -974,9 +1007,10 @@ begin
     Exit;
   end;
 
-  // /self-update/*  (FR#2242, Plan#2311 Phase 4)
+  // /self-update/*  (FR#2242, Plan#2311 Phase 4)  — admin-only
   if SameText(ASegments[0], 'self-update') then
   begin
+    if not RequireAdmin then Exit;
     // GET /self-update/status
     if (Len = 2) and SameText(ASegments[1], 'status') and
        (C.Request.MethodType = THttpMethod.Get) then
