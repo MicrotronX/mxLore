@@ -458,6 +458,25 @@ begin
   if Title = '' then
     raise EMxValidation.Create('Parameter "title" is required');
 
+  // CC-CLI XML-tool-call bug detection (Lesson#4198, Bug#4192/2738/3345).
+  // When content is empty/trivial AND summary_l1 contains XML tool-call markup
+  // fragments, the call hit the Claude-Code-CLI converter bug at content
+  // >~5500 chars: content leaked into summary_l1 as XML markup, leaving
+  // content="". Return helpful error pointing at the Subagent workaround so
+  // reporters do not chase phantom server/bridge bugs.
+  if (Length(Trim(Content)) < 50)
+     and ((Pos('<parameter name="content"', Summary1) > 0)
+       or (Pos('</parameter>', Summary1) > 0)
+       or (Pos('</invoke>', Summary1) > 0)) then
+    raise EMxValidation.CreateFmt(
+      'Claude-Code-CLI XML-tool-call bug detected: content empty (%d chars) but ' +
+      'summary_l1 contains XML tool-call markup. Known issue at content >~5500 chars. ' +
+      'Workaround: delegate this mx_create_doc to a Background-Subagent ' +
+      '(Agent tool, subagent_type=general-purpose) — subagent constructs the ' +
+      'tool-call internally on a different code path. See mxLore Lesson#4198 + ' +
+      'TODO#4197 (Anthropic CC-CLI issue).',
+      [Length(Trim(Content))]);
+
   // High-signal doc types MUST carry substantive content (defense-in-depth
   // against caller-side body-drop, e.g. subagent crash / token-cap / empty
   // return). An empty session_note / lesson / spec / plan / decision is never
@@ -820,6 +839,27 @@ begin
   // Validate doc_type if provided (Bug #352, Bug#3034: + skill)
   if (DocType <> '') and not IsAllowedDocType(DocType) then
     raise EMxValidation.CreateFmt('Invalid doc_type "%s"', [DocType]);
+
+  // CC-CLI XML-tool-call bug detection on update path (Lesson#4198,
+  // Bug#4192/2738/3345). If summary_l1 update payload contains XML tool-call
+  // markup fragments, the caller is likely victim of the Claude-Code-CLI
+  // converter bug at content >~5500 chars (content leaked into summary_l1).
+  // Reject early with the Subagent-workaround hint regardless of content
+  // state — accepting the leak would corrupt the doc record.
+  if (Summary1 <> '')
+     and ((Pos('<parameter name="content"', Summary1) > 0)
+       or (Pos('</parameter>', Summary1) > 0)
+       or (Pos('</invoke>', Summary1) > 0)) then
+    raise EMxValidation.Create(
+      'Claude-Code-CLI XML-tool-call bug detected on update: summary_l1 contains ' +
+      'XML tool-call markup, indicating content leaked during main-context ' +
+      'tool-call encoding (known issue at content >~5500 chars). ' +
+      'Workaround: delegate this mx_update_doc to a Background-Subagent ' +
+      '(Agent tool, subagent_type=general-purpose) — subagent constructs the ' +
+      'tool-call internally on a different code path. ' +
+      'Bypass for legitimate meta-docs: update via mx_update_doc with content= ' +
+      'only and leave summary_l1 unset, or pass summary_l1 sanitized of XML ' +
+      'fragments. See mxLore Lesson#4198 + TODO#4197 (Anthropic CC-CLI issue).');
 
   // Build dynamic SET clause (before transaction)
   // Bug#3018: append_content path also writes to docs.content after

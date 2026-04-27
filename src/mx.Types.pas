@@ -174,7 +174,7 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 110;
+  MXAI_BUILD   = 111;
   // Build 110 (Session 282, 2026-04-24): FR#3360 Admin-UI Dev-Login +
   //   4-level ACL-Filter. M1 Auth-Guard-Lift (lrNotAdmin → ui_login_enabled
   //   + ACL-presence, admin hard-bypass). M2 ACL-Filter server-side
