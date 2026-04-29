@@ -407,10 +407,17 @@ begin
   ProjectSlug := AParams.GetValue<string>('project', '');
   DocType := AParams.GetValue<string>('doc_type', '');
   Title := AParams.GetValue<string>('title', '');
-  Content := AParams.GetValue<string>('content', '');
-  // B6.1: body alias for mx_create_note compat
-  if Content = '' then
-    Content := AParams.GetValue<string>('body', '');
+  // Spec#4427 AC3 (Bug#4378): JSON-null vs missing-key vs empty-string
+  // differentiation. Pre-fix collapsed all three into '' and let the body
+  // fallback fire for explicit `content:""`, masking caller bugs. Post-fix:
+  // missing key OR explicit JSON null → fall back to `body`. Explicit empty
+  // string content="" → keep the empty value so the high-signal length-check
+  // below can reject it instead of silently substituting body.
+  var ContentNode: TJSONValue := AParams.GetValue('content');
+  if (ContentNode = nil) or (ContentNode is TJSONNull) then
+    Content := AParams.GetValue<string>('body', '')
+  else
+    Content := AParams.GetValue<string>('content', '');
   Summary1 := AParams.GetValue<string>('summary_l1', '');
   Summary2 := AParams.GetValue<string>('summary_l2', '');
   CreatedBy := AParams.GetValue<string>('created_by', 'mcp');
@@ -477,15 +484,20 @@ begin
       'TODO#4197 (Anthropic CC-CLI issue).',
       [Length(Trim(Content))]);
 
-  // High-signal doc types MUST carry substantive content (defense-in-depth
-  // against caller-side body-drop, e.g. subagent crash / token-cap / empty
-  // return). An empty session_note / lesson / spec / plan / decision is never
-  // a legitimate outcome — reject it server-side.
-  if MatchStr(DocType, ['session_note', 'lesson', 'spec', 'plan', 'decision'])
+  // Spec#4427 AC1+AC2 (Bug#4378): high-signal doc types MUST carry substantive
+  // content. Defense-in-depth against caller-side body-drop (subagent crash,
+  // token-cap, JSON-null payload, partial-read transport). Bug#4378 traf
+  // doc_type=note → list extended from 5 → 10 canonical types. Length-check is
+  // an INDEPENDENT reject path (NOT gated by the XML-pattern check above) so
+  // clean-empty payloads with empty summary_l1 still get rejected.
+  if MatchStr(DocType, ['session_note', 'lesson', 'spec', 'plan', 'decision',
+                         'note', 'bugreport', 'feature_request',
+                         'workflow_log', 'todo'])
      and (Length(Trim(Content)) < 50) then
     raise EMxValidation.CreateFmt(
       'Parameter "content" required for doc_type="%s" (got %d chars, minimum 50). ' +
-      'Empty/trivial bodies cannot be persisted for high-signal documents.',
+      'Empty/trivial bodies cannot be persisted for high-signal documents. ' +
+      'Check JSON payload — were both "content" and "body" empty/null?',
       [DocType, Length(Trim(Content))]);
 
   // Generate slug from title
@@ -730,7 +742,10 @@ begin
   try
     Data.AddPair('doc_id', TJSONNumber.Create(DocId));
     Data.AddPair('slug', Slug);
-    Result := MxSuccessResponse(Data);
+    // Spec#4427 AC4 (Bug#4378): emit content_length so callers can verify
+    // the body actually made it to disk (defends against silent transport-loss
+    // or partial-read at a layer below the handler).
+    Result := MxSuccessResponse(Data, 0, Length(Content));
   except
     Data.Free;
     raise;
@@ -1136,7 +1151,13 @@ begin
     Data.AddPair('updated_at', NewUpdatedAt);
     if NewProject <> '' then
       Data.AddPair('moved_to', NewProject);
-    Result := MxSuccessResponse(Data);
+    // Spec#4427 AC4 (Bug#4378): emit content_length when caller supplied
+    // replace-content. append_content path leaves Content empty so we only
+    // emit the field when Content was actually set (Length > 0).
+    if Length(Content) > 0 then
+      Result := MxSuccessResponse(Data, 0, Length(Content))
+    else
+      Result := MxSuccessResponse(Data);
   except
     Data.Free;
     raise;

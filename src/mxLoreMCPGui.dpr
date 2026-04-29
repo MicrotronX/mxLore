@@ -1,4 +1,4 @@
-program mxLoreMCPGui;
+﻿program mxLoreMCPGui;
 
 uses
   Winapi.Windows,

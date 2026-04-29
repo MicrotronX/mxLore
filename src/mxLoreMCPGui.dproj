@@ -96,7 +96,7 @@
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;$(DCC_Namespace)</DCC_Namespace>
         <BT_BuildType>Debug</BT_BuildType>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
-        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.111;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.112;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
         <VerInfo_Locale>1033</VerInfo_Locale>
         <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
         <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
@@ -110,7 +110,7 @@
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
         <BT_BuildType>Debug</BT_BuildType>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
-        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.111;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.112;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
         <VerInfo_Locale>1033</VerInfo_Locale>
         <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
         <Icon_MainIcon>mxLoreMCPGui.ico</Icon_MainIcon>
@@ -129,13 +129,13 @@
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.111;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.112;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.111;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.112;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
         <DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
@@ -151,7 +151,7 @@
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.111;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX;FileDescription=mxLore MCP Server (GUI);FileVersion=2.4.0.112;InternalName=mxLoreMCPGui;LegalCopyright=(c) 2025-2026 MicrotronX;LegalTrademarks=;OriginalFilename=mxLoreMCPGui.exe;ProgramID=com.microtronx.mxLore;ProductName=mxLore;ProductVersion=2.4.0;Comments=Self-hosted MCP server for AI-assisted development</VerInfo_Keys>
         <Icon_MainIcon>mxLoreMCPGui.ico</Icon_MainIcon>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2_Win64)'!=''">
@@ -169,6 +169,7 @@
         <DCCReference Include="mx.Data.Context.pas"/>
         <DCCReference Include="mx.Auth.pas"/>
         <DCCReference Include="mx.Crypto.pas"/>
+        <DCCReference Include="mx.Crypto.Bundle.pas"/>
         <DCCReference Include="mx.MCP.Schema.pas"/>
         <DCCReference Include="mx.MCP.Protocol.pas"/>
         <DCCReference Include="mx.MCP.Server.pas"/>
@@ -181,13 +182,18 @@
         <DCCReference Include="mx.Tool.Session.pas"/>
         <DCCReference Include="mx.Logic.AccessControl.pas"/>
         <DCCReference Include="mx.Logic.AgentMessaging.pas"/>
+        <DCCReference Include="mx.Logic.ProjectExport.pas"/>
+        <DCCReference Include="mx.Logic.ProjectImport.pas"/>
         <DCCReference Include="mx.Logic.Projects.pas"/>
+        <DCCReference Include="mx.Logic.SelfUpdate.pas"/>
         <DCCReference Include="mx.Admin.Auth.pas"/>
         <DCCReference Include="mx.Admin.Server.pas"/>
         <DCCReference Include="mx.Admin.Api.Auth.pas"/>
         <DCCReference Include="mx.Admin.Api.Developer.pas"/>
         <DCCReference Include="mx.Admin.Api.Keys.pas"/>
         <DCCReference Include="mx.Admin.Api.Projects.pas"/>
+        <DCCReference Include="mx.Admin.Api.ProjectBundle.pas"/>
+        <DCCReference Include="mx.Admin.Api.SelfUpdate.pas"/>
         <DCCReference Include="mx.Admin.Api.Global.pas"/>
         <DCCReference Include="mx.Admin.Api.Notes.pas"/>
         <DCCReference Include="mx.Admin.Api.Intelligence.pas"/>
@@ -198,6 +204,7 @@
         <DCCReference Include="mx.Tool.Migrate.pas"/>
         <DCCReference Include="mx.Tool.Onboard.pas"/>
         <DCCReference Include="mx.Tool.ProjectRelation.pas"/>
+        <DCCReference Include="mx.Tool.Agent.pas"/>
         <DCCReference Include="mx.Data.SkillEvolution.pas"/>
         <DCCReference Include="mx.Logic.SkillEvolution.pas"/>
         <DCCReference Include="mx.Tool.SkillEvolution.pas"/>
@@ -209,6 +216,7 @@
         <DCCReference Include="mx.Logic.Invite.pas"/>
         <DCCReference Include="mx.Admin.Api.Invite.pas"/>
         <DCCReference Include="mx.Admin.Api.Settings.pas"/>
+        <DCCReference Include="mx.Intelligence.Prefetch.pas"/>
         <DCCReference Include="mx.Server.Boot.pas"/>
         <DCCReference Include="mx.Server.Host.pas"/>
         <DCCReference Include="frmMain.pas">

@@ -311,6 +311,24 @@ begin
     // Read request body
     Body := TEncoding.UTF8.GetString(C.Request.Content);
 
+    // Spec#4427 AC11 (Bug#4378): Sparkle Content-Length-header vs actual body
+    // bytes diagnostic. Closes the OQ2 partial-read evidence gap left open by
+    // Lesson#4198 — if the HTTP layer announced N bytes but Sparkle only
+    // surfaced fewer to us, partial-read is confirmed and the [Bug4378.AC11]
+    // log line will be the smoking gun. Cheap (one HEAD GetIfExists + one
+    // conditional log line) so it can stay live indefinitely.
+    var HdrContentLen: string := '';
+    var HdrLenInt: Integer := -1;
+    var ActualBytes: Integer := Length(C.Request.Content);
+    C.Request.Headers.GetIfExists('Content-Length', HdrContentLen);
+    if HdrContentLen <> '' then
+      TryStrToInt(HdrContentLen, HdrLenInt);
+    if (HdrLenInt > 0) and (ActualBytes < HdrLenInt) then
+      FLogger.Log(mlWarning, Format(
+        '[Bug4378.AC11] Sparkle body partial-read suspected: ' +
+        'header_content_length=%d actual_bytes=%d delta=%d',
+        [HdrLenInt, ActualBytes, HdrLenInt - ActualBytes]));
+
     // Bug#3345 diagnostic (Session 267) — log raw request-body metrics to
     // distinguish transport-loss vs parse-loss. BytesLen = on-wire, BodyLen =
     // UTF-8 decoded chars. First 200 chars + last 200 chars help spot
