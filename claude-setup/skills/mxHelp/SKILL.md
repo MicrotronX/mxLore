@@ -44,16 +44,16 @@ allowed-tools: Glob, Grep, Read
 
 ### Public Skill Allowlist
 
-⚡ mxHelp ONLY renders skills from the public mxLore-skills GitHub bundle. Internal/customer-specific skills (mxerptrigger, mxTicketSystemHannes, etc.) are FILTERED OUT — they are not part of the public distribution and must not appear in mxHelp output.
+⚡ mxHelp ONLY renders skills from the public mxLore-skills GitHub bundle. Internal/customer-specific skills (mxerptrigger, mxTicketSystemHannes, mxDelphiAnsi2UTF8, etc.) are FILTERED OUT — they are not part of the public distribution and must not appear in mxHelp output.
 
 | Category | Public skills (allowlist) |
 |----------|---------------------------|
 | Core workflow | mxPlan, mxSpec, mxDecision, mxSave, mxOrchestrate |
 | Analysis | mxBugChecker, mxDesignChecker, mxHealth |
-| Setup / Migration | mxSetup, mxInitProject, mxMigrateToDb, mxDelphiAnsi2UTF8 |
+| Setup / Migration | mxSetup, mxInitProject, mxMigrateToDb |
 | Discoverability | mxHelp |
 
-**Total public skills:** 13. Any glob match whose frontmatter `name` is NOT in this allowlist (case-insensitive compare) → SILENTLY SKIPPED. Do NOT render under "Other". Do NOT emit drift warnings for non-allowlisted skills — they are intentionally private.
+**Total public skills:** 12. Any glob match whose frontmatter `name` is NOT in this allowlist (case-insensitive compare) → SILENTLY SKIPPED. Do NOT render under "Other". Do NOT emit drift warnings for non-allowlisted skills — they are intentionally private.
 
 **Drift warning ONLY fires** when an allowlisted skill is missing from disk: `Note: public allowlist references N missing skill(s): <names>` — this surfaces real distribution gaps.
 

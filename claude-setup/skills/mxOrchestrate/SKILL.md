@@ -1,7 +1,9 @@
 ---
 name: mxOrchestrate
 description: Persistent session orchestrator for mxLore. This skill should be used when the user says "park", "resume", "what's my workflow status", "/mxOrchestrate start/track/park/resume/status/suggest", "start a new feature/bugfix workflow", "track this as ad-hoc", "spawn a team agent", or when a session begins and workflow state must be loaded. Always-on via SessionStart/UserPromptSubmit hooks. Manages workflow stack (LIFO), ad-hoc tasks, team agents, and skill chains.
+user-invocable: true
 allowed-tools: Read, Write, Edit, Grep, Glob, Skill
+argument-hint: "start <type> | track <note> | park [reason] | resume [id] | status | suggest"
 ---
 
 # /mxOrchestrate — Persistent Session Orchestrator (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
