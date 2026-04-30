@@ -136,6 +136,7 @@ Read `.claude/orchestrate-state.json`. ⚡ ∅file → skip entire Step 4 (no st
 
 Step 5 runs in Main context synchronously (see Execution Mode Phase 3 + Step 5 header) so its returned doc_id is available here without any subagent-join primitive.
 
+- **⚡ Prune state (token-discipline):** apply state-pruning algorithm. → `references/pruning.md` for full spec (4b.1 two-pass adhoc-tasks, 4b.2 dual-cap events_log 30/50, 4b.3 commit-style schema v2→v3 bump + `last_pruned` stamp). ⚡ **Fail-soft:** missing/unreadable `references/pruning.md` → log + skip pruning, continue 4b. Output suffix: `; pruned <X> adhocs (<Y> migrated), <Z> events trimmed` OR `; pruning skipped: <reason>`.
 - **⚡ last_save_summary (Bug#3229 proper fix):** Update the in-memory state object:
   - `state.last_save_summary` = 1-line narrative, **max 200 chars**, describing this save's main artefacts (new/updated specs/plans/ADRs, bug-fixes, commits, WF-step-flips). NO internal reasoning, NO timestamps (those are in `last_save`). Example: `"Spec#3194 v3 + ADR#3264 + Plan#3266 (33 tasks M1-M3); Bug#3229/3230/3239 fixed (commits d327b92+577dff3)"`.
   - `state.last_save_session_note_doc_id` = doc_id returned by Step 5's `mx_create_doc`. Pointer for Resume/cross-session enrichment (Bug#3230 pairing). Always set when Step 5 succeeded.

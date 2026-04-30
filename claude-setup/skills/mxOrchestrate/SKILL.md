@@ -34,7 +34,8 @@ Full hook documentation + dormant PreCompact/PostCompact note → `references/ho
 2. Load state: `.claude/orchestrate-state.json`→parse. ∅file or corrupt→mode `init`
 3. **Ensure session:**
    - **Staleness check (ADR-0016):** compute `age = now() - max(state.last_save, state.last_reconciliation)`. Both fields missing → treat as stale. Threshold: **12h**.
-   - state.session_id present AND mode≠`init` AND age < 12h → mx_ping()→OK=MCP-mode | Error=Local
+   - ⚡ **Explicit-trigger fail-OPEN:** input contains `<command-name>` OR `<command-message>` tag OR detection ambiguous → `mx_session_start` regardless of age (slash invocations need fresh briefing in fresh Claude process; live-confirmed tag injection at prompt position 0). Fresh briefing > stale ping.
+   - hook-triggered (no command-tag) AND state.session_id present AND mode≠`init` AND age < 12h → mx_ping()→OK=MCP-mode | Error=Local
    - ∅session_id OR mode=`init` OR age ≥ 12h (STALE) → **Setup version:** `~/.claude/setup-version.json`→parse→`version`. ∅file→`''`
      → `mx_session_start(project, include_briefing=true, setup_version=<version>)`→session_id (overwrite cached)+Response into state, `state.last_reconciliation ← now()`
      → Error=Local(`docs/ops/workflow-log.md`+warning)
@@ -128,8 +129,8 @@ Schema v2, stack rules, and internal operations → `references/state-schema.md`
 5. **⚡ Reconciliation (Session-Boundary Sync):** `mx_detail` + compare local vs MCP, push/pull whichever is ahead, handle archived; **diverged → STOP + ask user which version to keep (NEVER silently overwrite)**; clamp; set `state.last_reconciliation = now()`. Full decision tree → `references/reconciliation.md`.
 6. **⚡ Context-Note Enrichment (Bug#3230) — MANDATORY, NEVER SKIP:** After WF mx_detail, you MUST always execute the session-note search — even if the WF Result-Column looks rich. Skipping is a skill-rule violation that reintroduces Bug#3230.
    - **Required call:** `mx_search(project, doc_type='session_note', query='<WF-ID> OR <primary_artifact_IDs>', limit=2)` — ALWAYS runs. 0-hit is a valid outcome, NOT a reason to skip the call.
-   - If hit: `mx_detail(note_id, max_content_tokens=1500)` on first match.
-   - Also: follow WF outbound relations (references/implements) if WF body lists `Spec#NNNN` / `Plan#NNNN` / `Decision#NNNN` with `in-progress` or `draft` status → `mx_detail(primary_artifact, max_content_tokens=1000)`.
+   - If hit: `mx_detail(note_id, max_content_tokens=1500)` on first match. # 1500: full session_note body for Mode 5 enrichment
+   - Also: follow WF outbound relations (references/implements) if WF body lists `Spec#NNNN` / `Plan#NNNN` / `Decision#NNNN` with `in-progress` or `draft` status → `mx_detail(primary_artifact, max_content_tokens=600)`. # 600 server-default: status/next-action peek only
    - Merge surfaced pivot-decisions, next-action hints, and open-OQ-state into the Resume output. This prevents "orphan resume" where Mode 5 technically succeeds but the user is blind to pivot decisions captured post-save.
    - **⚡ Event-log invariant:** The resume event you write MUST include either `context-note=<note_id>` or `context-note=none` in its `detail` field. Missing = rule violation. Allows audit that Step 6 ran.
 7. Identify next pending step from reconciled state

@@ -1,23 +1,40 @@
-# mxOrchestrate State File Schema (v2)
+# mxOrchestrate State File Schema (v3)
 
 State file: `.claude/orchestrate-state.json`. Owned by mxOrchestrate.
 
-## Schema v2 (Spec#1161)
+## Single-writer assumption (cross-skill invariant)
+
+state.json is single-writer per /mxSave or /mxOrchestrate invocation. Concurrent writers (e.g. /mxSave running while /mxOrchestrate auto-invoke fires from another tool-call) accept overwrite-loss per Step 4 "concurrent state_deltas race" note in mxSave SKILL.md. Stronger mitigation (file-lock, Read-Modify-Write pre-Write) is documented as a deferred hardening — current sessions trust the rarity of true concurrent writes in interactive flows.
+
+## Schema v3 (additive over v2 — Spec#1161 + token-efficiency-pass-v1)
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "session_id": "<int|null>",
   "workflow_stack": [{"id","name","doc_id","doc_revision","status","current_step","total_steps","started","unsynced"}],
-  "adhoc_tasks": [{"note","created","origin_workflow","mcp_note_id"}],
+  "adhoc_tasks": [{"note","created","origin_workflow","mcp_note_id","status"}],
   "team_agents": [{"id","task","origin_workflow","spawned","status","workflow_id"}],
   "state_deltas": "<int>",
   "last_save_deltas": "<int>",
   "last_save": "<ISO|null>",
+  "last_pruned": "<ISO|null>",
   "last_reconciliation": "<ISO|null>",
   "events_log": [{"ts","type","wf","detail","synced"}]
 }
 ```
+
+### v2 → v3 additive fields
+
+| Field | Type | Default | Owner | Notes |
+|---|---|---|---|---|
+| `schema_version` | int | `3` | mxSave Step 4b.3 | bumped commit-style after 4b.1+4b.2 succeed |
+| `last_pruned` | ISO 8601 OR null | `null` | mxSave Step 4b.3 | `null` = never pruned (legacy v2 file) |
+| `adhoc_tasks[*].status` | string OR null | `null` | mxOrchestrate Mode 3 + caller | structured token (prefix ∈ `{fixed,done,archived,later,active,in-progress}` + opt `-<suffix>`); used by mxSave Step 4b.1 for migration triage |
+
+### Migration
+
+Skills running with v2-aware-only code IGNORE the new fields. mxSave Step 4b.3 silently bumps `schema_version` and stamps `last_pruned` on the next /mxSave after upgrade. No backup file. No migration marker.
 
 ## Field `last_save_deltas` (Compact-Cycle, Spec#2152)
 
