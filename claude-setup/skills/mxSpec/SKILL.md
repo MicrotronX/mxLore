@@ -98,6 +98,52 @@ Template → `~/.claude/skills/mxSpec/assets/spec-template.md` (9 sections: Over
 
 **Local:** Read → Edit → "Last Modified" to today → index update if status changed.
 
+### 3b) Decision-Marker Detection + Auto-Suggest /mxDecision
+
+After body-validation passes BUT BEFORE the final `mx_create_doc`/`mx_update_doc` call, scan the spec body for inline Decision-Markers that should live as separate ADRs.
+
+**Single source-of-truth marker list** (regex-twin lives in `mxOrchestrate/SKILL.md` Mode 5 Step 6 — keep in sync via inline comment in BOTH files):
+
+```
+# regex-twin in mxOrchestrate Mode 5 Step 6 AC5; keep in sync
+# ASCII-only — no Unicode operators (mcp body corruption rule)
+DECISION_MARKER_REGEX = (?m)^(\*\*)?Decision:\s+\S|^Q\d+\s*=\s*\S|^Approval-Modell:|^Konsens:
+```
+
+**Fence-exclusion algorithm — REUSE the AC-counter `in_fence` toggle from step 4 verbatim** (column-zero ` ``` ` toggle, language-tag ok, indented fences ignored, unclosed fence bails to file-end as in-fence). Bias: "safer to miss real markers than false-positive on example payloads".
+
+```
+in_fence = false
+markers = []  # list of (line_number, line_text)
+for each line in body:
+  if line.trim() starts with "```": in_fence = !in_fence; continue
+  if in_fence: continue
+  if line matches DECISION_MARKER_REGEX:
+    markers.append((line_number, line_text))
+```
+
+If `len(markers) == 0` → skip prompt, proceed to mx_create_doc/mx_update_doc.
+
+If `len(markers) > 0` → emit ONE batched prompt at end of Create/Update event (not per-marker spam):
+
+```
+Detected N decision-marker(s) in spec body. Persist as separate /mxDecision (ADR)? (y / n / skip-once / show)
+```
+
+Branches:
+
+- **y** → invoke `/mxDecision` via Skill-Tool with pre-filled args: marker-line + 2 lines context above + 2 lines below + `parent_spec=<spec_id>`. /mxDecision returns `decision_id`. THEN:
+  1. `mx_add_relation(source_doc_id=spec_id, target_doc_id=decision_id, relation_type='references')` — **BROAD-SKIP idempotency:** skip if ANY source→target relation exists between this spec_id and decision_id, regardless of relation_type (handles user-manual `supersedes`/`implements` links without creating duplicate edge).
+  2. `mx_remove_tags(spec_id, ['unbacked-decision'])` if tag present (stale-tag closure). Idempotent — re-run on already-untagged spec is no-op. On failure: log warning, continue.
+  # /mxDecision-abort: skip relation+tag-clear, leave spec untouched
+- **n** → `mx_add_tags(spec_id, ['unbacked-decision'])`. Idempotent — re-run on already-tagged spec → no duplicate.
+- **skip-once** → no tag, no relation, no prompt. Event-scoped only — next Create/Update re-evaluates from scratch.
+- **show** → display all detected markers with line numbers, then re-prompt with same 4 choices.
+
+Multiple markers → list all in single batched prompt with line refs, accept user's single-choice answer for the batch.
+
+**NIT — manual escape-hatch:** user can directly call `mx_remove_tags(spec_id, ['unbacked-decision'])` to clear false-warnings without re-running /mxDecision. **Concurrency note:** single-shell assumption — 2 simultaneous /mxSpec calls on same spec_id can both detect+prompt+act; idempotent ops cover relation+tag dupes but double-prompt UX is undefined. **Interrupted-Create note:** user-navigation-away mid-prompt aborts the entire Create — mx_create_doc never fires, next attempt re-detects and re-prompts.
+
 ### 4) Status Transition (on update)
 After step 3: count Acceptance Criteria lines in the `## Acceptance Criteria` section.
 

@@ -135,8 +135,19 @@ Schema v2, stack rules, and internal operations → `references/state-schema.md`
    - Also: follow WF outbound relations (references/implements) if WF body lists `Spec#NNNN` / `Plan#NNNN` / `Decision#NNNN` with `in-progress` or `draft` status → `mx_detail(primary_artifact, max_content_tokens=600)`. # 600 server-default: status/next-action peek only
    - Merge surfaced pivot-decisions, next-action hints, and open-OQ-state into the Resume output. This prevents "orphan resume" where Mode 5 technically succeeds but the user is blind to pivot decisions captured post-save.
    - **⚡ Event-log invariant:** The resume event you write MUST include either `context-note=<note_id>` or `context-note=none` in its `detail` field. Missing = rule violation. Allows audit that Step 6 ran.
+   - **⚡ unbacked-decision tag detection (decoupled detect-time vs render-time):** IMMEDIATELY after the primary_artifact `mx_detail` returns (within this step), inspect the returned tags array for `unbacked-decision`. If present, run a regex-scan over the body to count Decision-Markers using the AC1 regex-twin from mxSpec:
+     ```
+     # regex-twin in mxSpec AC1; keep in sync
+     # ASCII-only — no Unicode operators (mcp body corruption rule)
+     DECISION_MARKER_REGEX = (?m)^(\*\*)?Decision:\s+\S|^Q\d+\s*=\s*\S|^Approval-Modell:|^Konsens:
+     ```
+     Same fence-exclusion algorithm as mxSpec (`in_fence` toggle on column-zero ` ``` `, indented fences ignored, unclosed fence bails to file-end as in-fence). Store result in local variable `unbacked_decision_warning = {tag_present: bool, marker_count: int, spec_id: int}`. Rendering happens at Step 8 — see below.
 7. Identify next pending step from reconciled state
-8. Output: `WF "<Name>" resumed. Progress: <X>/<Y>. Next step: <Description>.` — include 2-3 bullet summary of any session-note enrichment from step 6. — followed by the `state_deltas` band line per the Rules section (structured timestamps only, no `gestern`/`heute` free-form)
+8. Output assembly:
+   - Line 1: `WF "<Name>" resumed. Progress: <X>/<Y>. Next step: <Description>.`
+   - **⚡ unbacked-decision warning (TOP of output, BEFORE bullet-summary, AFTER `Next step:` line):** if `unbacked_decision_warning.tag_present == true AND unbacked_decision_warning.marker_count > 0` → render exactly: `WARNING: spec#<spec_id> carries unbacked-decision tag - <N> decision-markers in body without ADR. Run /mxDecision or override.` **Double-check guard:** if `tag_present == true AND marker_count == 0` → log INFO `stale tag detected on spec#<spec_id>` and SKIP warning render (defends against AC4 stale-tag false-positives that escaped AC3 cleanup).
+   - 2-3 bullet summary of any session-note enrichment from step 6.
+   - `state_deltas` band line per the Rules section (structured timestamps only, no `gestern`/`heute` free-form)
 9. Auto-invoke next step
 
 **Backward-compatible (Empty-Stack Resume) — Bug#3230 empty-stack-gap closure (FR#3566):** `--resume` without active stack still loads the open-items list, **BUT Step 6 (Context-Note-Enrichment) and the `events_log` resume-event are STACK-INDEPENDENT and STILL RUN**. Pre-fix, these were silently skipped when `workflow_stack=[]`, re-opening Bug#3230 for every empty-stack resume (e.g. post-WF-completion restarts, fresh `/clear`+`/mxOrchestrate resume` cycles). Enforcement:
