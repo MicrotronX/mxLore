@@ -15,8 +15,10 @@ locally so the caller can confirm with the user before truncation.
    boundary at or before position 100. If no boundary exists, hard-cut at
    100.
 6. Strip any trailing `-` produced by step 5.
-7. Verify the result matches `^[a-z0-9-]+$`. Empty result is invalid —
-   ask the user for a different slug.
+7. Verify the result matches `^[a-z0-9-]+$`.
+   Failure-branch (degenerate input — empty, whitespace-only, or collapses
+   to a bare `-`): do NOT auto-fallback or guess. Show the raw input back
+   to the user and ask for a fresh ASCII slug before proceeding.
 8. If the normalized slug differs from the raw input, show both forms and
    confirm with the user before proceeding.
 

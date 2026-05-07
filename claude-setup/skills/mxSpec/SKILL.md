@@ -6,9 +6,9 @@ allowed-tools: Read, Write, Edit, Grep, Glob
 
 ## Output Format ⚡
 
-**FIRST line of every response = `### REPORT ###` EXACTLY. Position 0. Nothing before.** No prosa, reasoning, blank lines, or heading prefixes ahead of the marker.
+**FIRST line of every response = `### REPORT ###` EXACTLY. Position 0. Nothing before.**
 
-Why: cross-skill reasoning-leak pattern observed when subagents prepend status prosa; strict Position-0 anchors the rule. See `references/bug-history.md`.
+Read ~/.claude/skills/_shared/reasoning-leak-rule.md.
 
 # /mxSpec — Create/Update Specification (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
