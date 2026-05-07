@@ -20,13 +20,7 @@ Title from command argument. ∅arg→?user.
 
 ⚡ **Title clamp:** server ClampTitle=255 (Bug#2889). The final title will be `ADR-NNNN: <Title>` — the `ADR-NNNN: ` prefix eats ~12 chars, so keep the title content under ~240 chars. Truncate locally and warn if longer.
 
-⚡ **Slug derivation + normalization** (slug is derived from title for the local file path; MCP path uses auto-numbering):
-1. Lowercase the title
-2. Replace `[^a-z0-9-]` with `-`
-3. Collapse multiple `-` and strip leading/trailing `-`
-4. Enforce max 100 chars — truncate at a `-` boundary, strip trailing `-` after
-5. Verify `^[a-z0-9-]+$`
-6. If the result differs from an obvious derivation → show and confirm with user (Server ClampSlug=100, Bug#2889)
+⚡ **Slug derivation + normalization** (slug is derived from title for the local file path; MCP path uses auto-numbering): Read ~/.claude/skills/_shared/slug-normalization.md.
 
 ## Workflow
 
@@ -86,66 +80,32 @@ After mx_create_doc — 4 optional questions to user (each skippable).
 
 ⚡ **Status whitelist:** auto-transition only runs when the current MCP status is `active`. Skip for already-`archived`, `superseded`, `deprecated`. Check current status via `mx_detail` before flipping.
 
-⚡ **ClampVarchar limits (Bug#2889):** titlemax 255 (content prefix `ADR-NNNN: ` eats ~12), slugmax 100, change_reasonmax 500. Keep change_reason concise; long values silently truncate.
+⚡ **Server-clamp limits:** Read ~/.claude/skills/_shared/mcp-clamp-limits.md. Note: title prefix `ADR-NNNN: ` eats ~12 chars from the 255 budget. Keep change_reason concise; long values silently truncate.
 
 **Editing rules (preserve audit history):**
 - **Flip status line:** match the current status line with a **case-insensitive** regex `(?i)^\*\*Status:\*\*\s*(active|accepted|proposed|implemented|superseded|deprecated)` — users routinely type `Accepted`/`PROPOSED`/mixed case. Replace in place with the new status (preserving the line prefix); do NOT remove the line. Literal lowercase-only matching is a silent no-op bug (same family as mxSpec `[resolved]` case-sensitivity).
 - **Mark follow-up done:** flip `- [ ]` to `- [x]` (or `- [X]`); do NOT remove the line.
 - **Remove obsolete follow-up:** annotate as `- [x] ~~original~~ (dropped)` — never delete silently.
 
-**Supersedes chain (step 5a):** For each `supersedes` relation created in step 4, update the OLD ADR. ⚡ **Two-phase protocol to avoid partial-failure inconsistency:**
+**Supersedes chain (step 5a):** For each `supersedes` relation created in step 4, update the OLD ADR. ⚡ **Two-phase contract:**
 
-**Phase A — Pre-flight (collect, do not mutate):**
-1. For each old doc_id → `mx_detail(old_doc_id, max_content_tokens=0)` to fetch full body
-2. Verify current DB status is `active` (via mx_search or mx_detail metadata); skip any already `archived`/`superseded` with a warning (do not re-flip)
-3. Build the updated content for each (case-insensitive status flip to `superseded` + append `**Superseded by:** ADR-NNNN (doc_id=<new_doc_id>)` footer)
-4. If ANY pre-flight check fails (old ADR missing, already archived, mx_detail truncates despite `max_content_tokens=0`) → abort ALL Phase B writes, warn user with the complete failure list, and let them manually reconcile
+- **Phase A — Read:** for each old doc_id call `mx_detail(old_doc_id, max_content_tokens=0)` (the 600-token default truncates and writing it back causes silent data loss).
+- **Phase B — Flip:** for each old ADR call `mx_update_doc(old_doc_id, content, status='archived', change_reason='Superseded by ADR-NNNN')` with the case-insensitive content status flip to `superseded` + appended `**Superseded by:** ADR-NNNN (doc_id=<new_doc_id>)` footer. Status flips ONE WAY ONLY (old ADR → `superseded`); never flip the new ADR backwards. Skip any old ADR whose current DB status is not `active` (already `archived`/`superseded`/`deprecated`) and warn — do not re-flip. Collect a per-iteration outcome `{old_doc_id, prev_status, new_status, error?}` for every iteration.
+- **Partial-failure recovery:** on a failed iteration do NOT abort the loop and do NOT roll back successful flips — continue the remaining old doc_ids and surface a combined report at the end (`N/M old ADRs archived as superseded. Failed: [list with errors]. Completed: [list].`). The `supersedes` relations from step 4 stay valid; the user reconciles the failures manually.
+- **Order:** the new ADR (this skill's `mx_create_doc`) is ALREADY created at step 2. The supersede-flips here run AFTER the new ADR exists but BEFORE the skill returns success — so the chain is: (1) create new ADR, (2) add `supersedes` relations [step 4], (3) flip every old ADR's status [Phase A+B above], (4) report. If you ever invoke this skill in a mode where the new ADR is not yet created, the supersedes-flips MUST wait until after creation (or after explicit partial-failure acknowledgement).
 
-**Phase B — Commit (iterate, per-iteration outcome log):**
-5. For each successfully pre-flight'd old ADR → `mx_update_doc(old_doc_id, content, status='archived', change_reason='Superseded by ADR-NNNN')`
-6. ⚡ **Per-iteration outcome log:** after each `mx_update_doc`, record `{old_doc_id, result: 'ok'|'error', error?}` in memory
-7. **On mid-loop failure:** stop the loop, report `Partial supersede: N/M old ADRs updated. Failed: [list]. Completed: [list].` Do NOT roll back the successful ones — the `rejected_in_favor_of`/`supersedes` relations from step 4 are still valid; the user needs to decide whether to manually finish the remaining flips or roll back.
-8. **On full success:** report `N/N old ADRs archived as superseded.`
+⚡ **change_reason clamp safety:** the `Superseded by ADR-NNNN` string is ~28 chars, safe. If the caller wants to append a rationale, enforce a local 497-char cap and append `...` if longer (see `_shared/mcp-clamp-limits.md`).
 
-⚡ **change_reason clamp safety:** the `Superseded by ADR-NNNN` string is ~28 chars, safe. If the caller wants to append a rationale (`Superseded by ADR-NNNN because X, Y, Z...`), enforce a local 497-char cap and append `...` if longer. Do NOT let the server clamp silently.
+**Follow-ups completed (step 5b):** Scan H3 `### Follow-ups` under H2 `## Consequences` (or first matching H2 carrying `Consequences` / `Konsequenzen`). Skip fenced code blocks. Drop strikethrough lines containing `~~` AND `(dropped)`. See `~/.claude/skills/mxDecision/references/followup-scope.md` for the canonical algorithm. Outputs `M` (total live follow-ups) and `N` (completed).
 
-**Follow-ups completed (step 5b):** Detect via checkbox scan with explicit nested-header scope:
-
-⚡ **Scope algorithm (explicit, so all agents count the same way):**
-```
-in_fence = false
-in_followups = false
-in_consequences = false
-M = 0; N = 0
-for each line in content:
-  if line.trim() starts with "```": in_fence = !in_fence; continue
-  if in_fence: continue
-  if line matches /^## /:
-    in_consequences = (line == "## Consequences")
-    in_followups = false  # any H2 resets H3 scope
-    continue
-  if line matches /^### / and in_consequences:
-    in_followups = (line == "### Follow-ups")
-    continue
-  if line matches /^### / and !in_consequences:
-    in_followups = false  # H3 outside Consequences is NOT follow-ups
-    continue
-  if !in_followups: continue
-  if line matches /^- \[[ xX]\] / (no leading whitespace):
-    if line contains "~~" AND "(dropped)": continue  # exclude dropped follow-ups
-    M += 1
-    if line matches /^- \[[xX]\] /: N += 1
-```
-
-1. **M = total live follow-ups** (open + done, excluding dropped).
-2. **If M == 0 → skip transition** (no follow-ups to check).
-3. **Status whitelist:** only transition when current MCP status is `active`.
-4. **If M > 0 AND N = M (all done) AND current MCP status == `active`**:
+1. `M == 0` → skip transition (no follow-ups to check).
+2. Status whitelist: only transition when current MCP status is `active`.
+3. `M > 0 AND N == M AND DB-status == active`:
    - `mx_detail(doc_id, max_content_tokens=0)` → full body
    - Case-insensitive flip: `**Status:** accepted` → `**Status:** implemented`
    - `mx_update_doc(doc_id, content, status='archived', change_reason='All follow-ups completed')`
    - Output: `ADR #<doc_id> archived — fully implemented`
-5. **Mixed (N < M):** ∅change, info only: `<N>/<M> follow-ups completed`
+4. Mixed (`N < M`): ∅change, info only: `<N>/<M> follow-ups completed`
 
 **Proposed→Accepted (step 5c):** When user confirms a proposed decision in chat:
 1. `mx_detail(doc_id, max_content_tokens=0)` → full body

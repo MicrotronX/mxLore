@@ -46,89 +46,16 @@ Migration agent. Import local `docs/*.md` files of a project into the central Kn
 
 ## Modes
 
-| Argument | Mode |
-|----------|------|
-| (no argument) | Import: Import local files into DB |
-| `--dry-run` | Only show what would be imported, change nothing |
-| `--cleanup` | Cleanup only: Delete local files already present in DB |
-| `--sync` | Import + Cleanup in one step (recommended after MCP outage) |
-| `--scan` | Auto-scan: Compare local docs against DB + stub detection |
-| `--extract-backlog` | Extract legacy backlog from status.md and create directly as MCP docs |
+| Argument | Mode | Detail |
+|----------|------|--------|
+| (no argument) | Import local files into DB | inline below |
+| `--dry-run` | Show what would be imported, change nothing | inline below |
+| `--cleanup` | Delete local files already present in DB | inline below |
+| `--sync` | Import + Cleanup in one step (recommended after MCP outage) | inline below |
+| `--scan` | Compare local docs against DB + stub detection | `references/modes/scan.md` |
+| `--extract-backlog` | Extract legacy backlog from status.md → MCP plans | `references/modes/extract-backlog.md` |
 
-### Extract-Backlog Mode (--extract-backlog)
-
-Extracts backlog/todo lists from `docs/status.md` and creates them directly as MCP documents (plans/todos). Replaces the former mxMigratelegacy skill.
-
-1. **Analyze status.md:**
-   - Read `docs/status.md` and identify backlog sections:
-     - Long bullet lists with open items (>3 consecutive bullets)
-     - Sections: "Backlog", "ToDo", "Open Tasks", "Next Steps", "Naechste Aufgaben", "Spaetere Features", "Offene Punkte"
-   - **Do not extract** (keep in status.md):
-     - "Implemented Features" lists (history)
-     - "Migrations" lists (reference)
-     - "Known Issues" (short lists, max 5 entries)
-     - Single references or one-liners
-
-2. **Create MCP docs (directly in DB, no local files):**
-   - Per identified backlog group: `mx_create_doc(project, doc_type='plan', title='PLAN: Legacy Backlog — <groupname>', content, status='draft')`
-   - Content template:
-     ```markdown
-     # PLAN: Legacy Backlog — <groupname>
-     **Created:** YYYY-MM-DD | **Status:** draft | **Source:** docs/status.md
-
-     ## Tasks
-     - [ ] Task 1
-     - [ ] Task 2
-     - [x] Completed task
-     ```
-   - Items marked as done → `[x]`
-   - Unclear status → `[ ]` with note "(status unclear)"
-
-3. **Shorten status.md:**
-   - Replace extracted task lists with reference:
-     `> Backlog migrated to Knowledge-DB (doc_id=X, YYYY-MM-DD)`
-   - Keep non-backlog content
-
-4. **Report:**
-   ```
-   Backlog extraction completed:
-   - Created: X MCP docs (plans)
-   - Extracted tasks: Y (of which Z completed)
-   - status.md shortened: N lines removed
-   ```
-
-### Scan Mode (--scan)
-
-Checks local docs/ against DB and detects stubs. No import, report only.
-
-1. **Find non-migrated files:**
-   - `mx_search(project, limit=50)` → load all DB docs → build `existing_slugs` set (⚡ 1 call instead of N)
-   - List all *.md in docs/ (recursive, except index.md, status.md, CLAUDE.md)
-   - Per file: Check file slug against `existing_slugs`. !mx_search per file
-   - No match = not migrated → include in report
-2. **Stub detection in DB:**
-   - `mx_search(project, limit=50)` → load all docs
-   - For each doc: Check token estimate from mx_search response
-   - Docs with token_estimate < 50 = stub → include in report
-3. **Output report:**
-   ```
-   ## Auto-Scan Report
-
-   ### Non-migrated local files
-   | File | doc_type (estimated) |
-   |------|----------------------|
-   | docs/plans/PLAN-foo.md | plan |
-
-   ### Stub documents in DB (<50 tokens)
-   | doc_id | Title | doc_type | Tokens |
-   |--------|-------|----------|--------|
-   | 360 | PLAN: Stub | plan | 12 |
-
-   ### Recommendation
-   - X files not migrated → run `/mxMigrateToDb`
-   - Y stubs in DB → fill in or delete
-   ```
-4. **Do not make any changes** — report only
+⚡ **Mode dispatch:** Argument → mode is fixed by the table above. Each mode has DISTINCT safety contracts; do not blend behaviors.
 
 ### Dry-Run Mode
 
@@ -145,77 +72,25 @@ The skill reads files LOCALLY (Claude Code has file access) and sends them in ba
 **Workflow (batch strategy — collect all files, then one call):**
 
 0. **Pre-load DB inventory (⚡ MANDATORY — avoids N+1 searches):**
-   `mx_search(project='<slug>', limit=50)` → loads up to 50 docs in ONE call. ⚡ **mx_search has NO server-side pagination** — there is no `offset` parameter (silently ignored), and `limit` is hard-capped at 50 by the server (`mx.Tool.Read.pas:477-479`: `if MaxLimit > 50 then MaxLimit := 50`). A single call is the only option.
-   ⚡ **Coverage warning:** if the project has >50 docs, this single call CANNOT see them all. Use `doc_type` filtering to narrow the scope (e.g. one call per `doc_type='plan'`, `doc_type='spec'`, `doc_type='decision'` etc.) and merge the results. Doc types: plan, spec, decision, status, workflow_log, session_note, finding, reference, snippet, note, bugreport, feature_request, todo, assumption, lesson. If even per-type queries hit 50 docs, log a clear warning that cleanup/import may be incomplete and flag this for server enhancement (TODO: add real pagination to mx_search).
-```
-all_docs = []
-for dt in [plan, spec, decision, session_note, workflow_log, reference, note, bugreport, feature_request, todo, assumption, lesson, finding, snippet, status]:
-  page = mx_search(project='<slug>', doc_type=dt, limit=50)
-  if len(page) >= 50: log_warning("doc_type=" + dt + " hit 50-cap, possible truncation")
-  all_docs.extend(page)
-```
-Build set from `all_docs`: `existing_slugs: set of string` (from slug field). Use this set for ALL duplicate checks. !individual mx_search per file.
+   Iterate `mx_search(project='<slug>', doc_type=<dt>, limit=50)` once per `doc_type` and merge results into `existing_slugs` set. Use this set for ALL duplicate checks. !individual mx_search per file.
+   ⚡ **50-cap fail-safe (inline-mandatory):** `mx_search` is hard-capped at 50 results per call and has NO offset/pagination. If any per-doc_type call returns exactly 50, log a coverage warning — the project may have un-seen docs and import duplicate-detection may be incomplete.
+   Read `references/mx_search-pagination.md` for the per-doc_type loop pattern, full doc_type list, and rationale.
 1. **Collection phase:** For each file in docs/:
    a. Read file locally (Read tool)
-   b. Determine doc_type based on filename (see mapping)
-   c. Parse status: Search content for `**Status:** <value>` using a **case-insensitive** regex `(?i)\*\*status:\*\*\s*(\w+)` to catch `Status:`, `status:`, `STATUS:`, and mixed-case legacy files. Normalize the captured group to lowercase before the mapping lookup. If found: Map to DB status (see status mapping). If not: no status parameter (default 'draft').
-   d. Duplicate check: Check file slug against `existing_slugs` set — if match with same doc_type: skip. ⚡ !mx_search per file
+   b. Determine doc_type based on filename (see `references/migration-mapping.md`)
+   c. Parse status: Search content for `**Status:** <value>` using a **case-insensitive** regex `(?i)\*\*status:\*\*\s*(\w+)` to catch `Status:`, `status:`, `STATUS:`, and mixed-case legacy files. Normalize the captured group to lowercase before the mapping lookup. If found: Map to DB status (see `references/migration-mapping.md`). If not: no status parameter (default 'draft').
+   d. **Idempotency:** Check file slug against `existing_slugs` set — if match with same doc_type: skip. ⚡ Don't re-migrate already-imported docs. !mx_search per file.
    e. Collect non-duplicates in items array: `{project, doc_type, title, content, status}`
 2. **Batch import:** `mx_batch_create(items='[{...}, {...}, ...]')` — all documents in one transaction. Returns: array with doc_ids. Maintain import map: filename → doc_id (for relations phase).
 3. Log result (imported / skipped / errors)
 
 **Batch limit:** If >20 files: split into groups of 20 (multiple mx_batch_create calls).
 **On connection error:** Up to 3 retry attempts with 5s pause per batch. After 3 failures: mark batch as failed, continue to next.
+**Backup-before-modify:** This phase is read-only on local files. Cleanup phase is the destructive one — see safety rails below.
 
-### doc_type Mapping (client-side)
+### Mappings (doc_type, status, relations, excludes)
 
-| Filename pattern | doc_type |
-|---|---|
-| `PLAN-*` | plan |
-| `SPEC-*` | spec |
-| `ADR-*` | decision |
-| `*session-notes*` | session_note |
-| `workflow-log*` | workflow_log |
-| Everything else | reference |
-
-### Status Mapping (Content → DB)
-
-| Content `**Status:**` | DB status |
-|---|---|
-| accepted | active |
-| proposed | draft |
-| active | active |
-| completed | archived |
-| superseded | superseded |
-| deprecated | archived |
-| paused | draft |
-| cancelled | archived |
-| (not found) | draft (default) |
-
-### Relations Phase (after import loop)
-
-After ALL files are imported, analyze Markdown links between documents:
-
-1. For each imported document: Scan content for links to other docs/ files
-   - Regex: `\[.*?\]\((.*?\.md)\)` (case-insensitive; reject matches where the captured path starts with `http://`, `https://`, or `//` — those are remote URLs, not local slugs). Also text patterns `(?i)\bsee\s+(plan|adr|spec)[-_]` for case-insensitive inline mentions.
-2. Extract target slug from link path
-3. Look up in import map (filename → doc_id)
-4. If match: Call `mx_add_relation()`:
-   - ADR → PLAN: `leads_to`
-   - PLAN → PLAN: `leads_to`
-   - SPEC → PLAN: `implements`
-   - Other: `references`
-5. Result: `N relations created`
-
-### Excluded files (do NOT import)
-
-- `index.md` (index files)
-- `status.md` (stays local)
-- `CLAUDE.md` (stays local)
-
-### All other files
-
-All *.md files that don't match a known prefix are imported as `reference`. This includes: design docs, findings, numbered session notes, brainstormings, meeting notes etc. **Nothing is lost — everything in docs/ is project knowledge!**
+Read `references/migration-mapping.md` for the complete tables. The rule itself is unchanged: filename pattern → `doc_type`, content `**Status:**` → DB status; relations are derived from inter-doc Markdown links after import.
 
 ## After migration
 
@@ -252,58 +127,30 @@ Migration completed:
 
 After successful import (or separately with `--cleanup`): Remove local fallback files that are now in the DB.
 
+⚡ **Safety-rail invariants (inline-mandatory contract):**
+- **Pre-load DB inventory by per-doc_type loop, NOT pagination.** mx_search has no offset; hard-capped at 50.
+- **50-cap hard fail-safe:** if any per-doc_type call returns exactly 50, ABORT cleanup with explicit error — silent data-loss risk (un-fetched DB matches would be mis-reported as "not in DB" and the local file kept; the inverse would never delete unsafely, but the report is wrong). The user must wait for server-side pagination support.
+- **Protected files NEVER deleted:** `CLAUDE.md`, `docs/status.md`, `docs/ops/workflow-log.md`, `docs/reference/*.md`, `*/index.md`. Full annotated list → `references/cleanup.md`.
+- **Verify-before-delete:** a local file is deleted ONLY if its slug matches a DB doc with the same doc_type AND content matches. No DB match → keep file.
+
 ### Cleanup workflow
 
-1. **Pre-load DB inventory (⚡ per-doc_type loop, NOT pagination):** Use the same per-`doc_type` loop pattern as the Import phase step 0 (mx_search has no `offset` param, hard-capped at 50 — `mx.Tool.Read.pas:477-479`). Build `existing_slugs` set by iterating all `doc_type` values and merging. ⚡ **Silent data loss risk** if you skip a doc_type or only call once without filters and the project has >50 docs: deletable files whose DB match lives in the un-fetched tail would be kept as "not in DB" and mis-reported. ⚡ **Hard fail-safe:** if any single per-doc_type call returns exactly 50 results, abort cleanup with an explicit error — the inventory is incomplete and cleanup is unsafe. The user must wait for server-side pagination support.
-   **For each local file** in `docs/plans/`, `docs/specs/`, `docs/decisions/`:
-   - Check file slug against `existing_slugs`. !mx_search per file
-   - If YES and content matches → delete file
-   - If NO → keep file (not yet imported)
-
-2. **Protected files (NEVER delete):**
-   - `CLAUDE.md` — always stays local
-   - `docs/status.md` — always stays local
-   - `docs/ops/workflow-log.md` — stays as local fallback
-   - `docs/reference/*.md` — stay as local reference
-   - `*/index.md` — index files stay
-
-3. **Deletable files (only after DB verification):**
-   - `docs/plans/PLAN-*.md` — if present in DB
-   - `docs/specs/SPEC-*.md` — if present in DB
-   - `docs/decisions/ADR-*.md` — if present in DB
-   - `docs/plans/session-notes-*.md` — if present in DB
-
-4. **Clean up index files:**
-   - Remove lines from `docs/plans/index.md`, `docs/specs/index.md`, `docs/decisions/index.md` that reference deleted files
-   - If index is empty afterwards: Insert placeholder line (`_No local entries — documents in Knowledge-DB_`)
-
-5. **Reference update (MANDATORY after each file deletion):**
-   For each deleted file, search for the filename (without path) in local files and update links:
-   - Grep for filename in: `CLAUDE.md`, `docs/status.md`, `docs/*/index.md`
-   - Replace each Markdown link `[text](path/file.md)` with: `text (Knowledge-DB, doc_id=X)`
-   - `docs/status.md` is NOT deleted but MUST be searched for dead links
-
-6. **Output result:**
-
-```
-Cleanup completed:
-- Deleted: X files (verified in DB)
-- Kept: Y files (protected or not in DB)
-
-| File | Action | Reason |
-|------|--------|--------|
-| docs/plans/PLAN-foo.md | deleted | in DB (doc_id=42) |
-| docs/status.md | kept | protected |
-```
+1. Pre-load DB inventory using the per-doc_type loop (see `references/mx_search-pagination.md`); apply the 50-cap fail-safe above.
+2. **For each local file** in `docs/plans/`, `docs/specs/`, `docs/decisions/`:
+   - Check file slug against `existing_slugs`. !mx_search per file.
+   - If YES and content matches → delete file.
+   - If NO → keep file (not yet imported).
+3. Update index files and dead links per `references/cleanup.md` (index-cleanup steps + Markdown-link rewrites in CLAUDE.md / status.md / `docs/*/index.md`).
+4. Report deleted vs kept counts (template in `references/cleanup.md`).
 
 ## Rules
 
-- **Idempotent:** Duplicates are detected by the server and skipped.
+- **Idempotent:** Duplicates are detected client-side via `existing_slugs` and skipped; the server is the secondary safety net.
 - **Cleanup only after verification:** Local file is ONLY deleted if the document is verifiably present in the DB (mx_search match).
 - **Protected files:** CLAUDE.md, status.md, workflow-log.md, reference/, index.md are NEVER deleted.
 - **Forward slashes:** Path parameters always with `/` instead of `\` (ADR-0001 TMS bug).
 - **Encoding:** Server detects ANSI vs. UTF-8 automatically.
 - **MCP errors:** On error → show error message, inform user. NO cleanup if import failed.
 - **Connection loss during migration:** If an MCP call fails (timeout, connection reset), up to 3 retry attempts with 5s pause. Only after 3 failures mark the step as failed and continue to the next. Final summary: X successful, Y failed (with filenames).
-- ⚡ **ClampVarchar (Bug#2889) before every write:** `title` max 255 chars (long legacy filenames like `PLAN-some-very-long-descriptive-name-with-many-words.md` can exceed this — trim locally), `slug` max 100 chars (derived from filename, truncate at `-` boundary after normalize), `change_reason` max 500 chars. Long values silently clamp server-side.
-- ⚡ **Mirror sync:** edits to this skill MUST propagate to `V:\Projekte\MX_Intern\mxLore-skills\mxMigrateToDb\` + `V:\Projekte\MX_Intern\mxHannesMCP\claude-setup\skills\mxMigrateToDb\` (per `feedback_mxlore_skill_sync_workflow.md`). Canonical first, then `cp` to both mirrors.
+- ⚡ **Clamp limits before every write:** Read `~/.claude/skills/_shared/mcp-clamp-limits.md`.
+- ⚡ **Mirror sync:** Read `~/.claude/skills/_shared/mirror-sync.md`.

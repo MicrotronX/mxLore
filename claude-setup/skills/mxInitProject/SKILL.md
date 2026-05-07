@@ -66,35 +66,13 @@ Enables multi-team scenarios: different projects can use different mxLore server
 **If custom URL:**
 1. Validate URL (case-insensitive): must start with `https://` (or `http://` for localhost only) and end with `/mcp`. Lowercase the scheme/suffix before comparing; treat `HTTPS://...`, `https://...`, `Https://...` as equivalent.
 2. Request API key: ?user: "API key for this server? (starts with mxk_)"
-3. **Create proxy INI:** `.claude/mxMCPProxy.ini` in the project directory:
-   ```ini
-   [Server]
-   BaseUrl=<URL without /mcp suffix>
-   ApiKey=<API-KEY>
-   McpEndpoint=/mcp
-
-   [Agent]
-   Polling=1
-   PollInterval=15
-   ```
-4. **Proxy EXE:** Link global `~/.claude/mxMCPProxy.exe` or note the path
-5. **Create/update `.mcp.json`** in the project directory:
-   ```json
-   {
-     "mcpServers": {
-       "mxai-knowledge": {
-         "command": "<absolute-path-to>/.claude/mxMCPProxy.exe",
-         "args": ["<absolute-path-to-project>/.claude/mxMCPProxy.ini"]
-       }
-     }
-   }
-   ```
-   (Proxy takes INI path as first argument, no flag needed)
-   ⚡ If `.mcp.json` already exists: only add/replace the `mxai-knowledge` key, keep the rest
-6. **Test:** Call `mx_ping()` — must reach the project-specific server
+3. **Create proxy INI** at `.claude/mxMCPProxy.ini` in the project directory using the template at the absolute path `~/.claude/skills/mxInitProject/assets/project-mcp-ini.md`. Substitute `<URL without /mcp suffix>` and `<API-KEY>`. Fallback if asset is unreadable: write the minimal skeleton `[Server]\nBaseUrl=<URL>\nApiKey=<KEY>\nMcpEndpoint=/mcp\n\n[Agent]\nPolling=1\nPollInterval=15\n`.
+4. **Proxy EXE:** Link global `~/.claude/mxMCPProxy.exe` or note the path.
+5. **Create/update `.mcp.json`** in the project directory using the template at `~/.claude/skills/mxInitProject/assets/project-mcp-json.md`. Substitute the absolute proxy + INI paths. ⚡ If `.mcp.json` already exists: only add/replace the `mxai-knowledge` key, keep the rest. Fallback if asset is unreadable: write a minimal `{ "mcpServers": { "mxai-knowledge": { "command": "<exe>", "args": ["<ini>"] } } }`.
+6. **Test:** Call `mx_ping()` — must reach the project-specific server.
    - Success: "Project MCP configured: <URL>"
-   - Failure: Check URL/key, abort with notice
-7. Add `.claude/` to `.gitignore` (INI contains API key)
+   - Failure: Check URL/key, abort with notice.
+7. Add `.claude/` to `.gitignore` (INI contains API key).
 
 ⚡ **Transparency:** After this step, all mx*-skills automatically communicate with the project server instead of the global one. No further changes needed.
 
@@ -122,13 +100,7 @@ For MCP projects, workflows are stored in the DB.
 ## 2. Index files (non-MCP projects only)
 
 **If MCP mode (mx_ping successful):** Do not create index files. Instead check if the project is registered in the DB:
-1. Read slug from CLAUDE.md (`**Slug:**` line). If no slug: derive from directory name, then normalize:
-   a. Lowercase
-   b. Replace `[^a-z0-9-]` with `-` (handles spaces, Umlauts, Windows-reserved chars, special symbols)
-   c. Collapse multiple `-` into one; strip leading/trailing `-`
-   d. Reject `..` or any path-traversal segment — fall back to "project" + random suffix and warn
-   e. Truncate to 100 chars (ClampSlug limit) at a `-` boundary
-   Then ask the user: "Suggested project slug: `<slug>` — does that work? (Enter=yes, or enter alternative)"
+1. Read slug from CLAUDE.md (`**Slug:**` line). If no slug: derive from directory name. Read `~/.claude/skills/_shared/slug-normalization.md` for the canonical algorithm (lowercase, `[^a-z0-9-]`->`-`, collapse, trim, ClampSlug=100). Then ask the user: "Suggested project slug: `<slug>` — does that work? (Enter=yes, or enter alternative)". Reject `..` or any path-traversal segment — fall back to "project" + random suffix and warn.
 2. Call `mx_briefing(project='<slug>')`
 3. If "Project not found":
    - **STOP — MUST ask the user!** Question: "Project name for `<slug>`? (e.g. 'My Project — Short description')"
@@ -143,40 +115,12 @@ CRITICAL **MCP-down fallback during bootstrap:** if `mx_ping` succeeded in Phase
 - Log the registration failure to docs/status.md under "Open Items": "TODO: register project in MCP (call /mxInitProject again or /mxMigrateToDb)"
 - Report the partial success in the Summary Report so the user knows registration is pending
 
-**If non-MCP mode:** Create index files as before:
+**If non-MCP mode:** Create index files from these absolute-path asset templates:
+- `docs/decisions/index.md` <- `~/.claude/skills/mxInitProject/assets/index-templates/decisions.md`
+- `docs/specs/index.md` <- `~/.claude/skills/mxInitProject/assets/index-templates/specs.md`
+- `docs/plans/index.md` <- `~/.claude/skills/mxInitProject/assets/index-templates/plans.md`
 
-### docs/decisions/index.md
-```markdown
-# Architecture Decision Records (ADR)
-
-Decisions are created exclusively via `/mxDecision`.
-
-| ADR | Title | Status | Date |
-|-----|-------|--------|------|
-| — | _No entries yet_ | — | — |
-```
-
-### docs/specs/index.md
-```markdown
-# Specifications (Specs)
-
-Specs are created exclusively via `/mxSpec`.
-
-| Spec | Title | Date |
-|------|-------|------|
-| — | _No entries yet_ | — |
-```
-
-### docs/plans/index.md
-```markdown
-# Plans
-
-Plans are created exclusively via `/mxPlan`.
-
-| Plan | Title | Status | Date |
-|------|-------|--------|------|
-| — | _No entries yet_ | — | — |
-```
+If any asset is unreadable, fall back to a minimal `# Index\n` header so the file still exists.
 
 ## 3. Adjust CLAUDE.md
 
@@ -185,81 +129,23 @@ If CLAUDE.md exists: Insert an "AI Start Here" block at the TOP (after the first
 If CLAUDE.md does not exist: Create a minimal CLAUDE.md using the following template.
 **IMPORTANT:** ONLY project-specific info. No global rules (security, encoding, etc.) — those are in `~/.claude/CLAUDE.md`.
 
-### Project CLAUDE.md Template (when newly created)
+### Assembly when newly creating CLAUDE.md
 
-⚡ **Template assembly:** the template below contains a placeholder `[INSERT AI-START-HERE BLOCK]` which MUST be substituted with the actual block from "### Block to insert (MCP project)" or "### Block to insert (non-MCP project)" below BEFORE writing the file. Never write the literal placeholder text to disk.
+Templates live at absolute paths (subagent CWD trap — always use these absolute references, never relative):
 
-```markdown
-# <ProjectName>
+- Body skeleton: `~/.claude/skills/mxInitProject/assets/claude-md-template.md`
+- AI-Start-Here block (MCP mode): `~/.claude/skills/mxInitProject/assets/ai-start-here-mcp.md`
+- AI-Start-Here block (non-MCP mode): `~/.claude/skills/mxInitProject/assets/ai-start-here-local.md`
 
-[INSERT AI-START-HERE BLOCK]
+Steps:
+1. Detect MCP mode (mx_ping success = MCP, otherwise non-MCP).
+2. Read the body skeleton and the matching AI-Start-Here block.
+3. Substitute the literal `[INSERT AI-START-HERE BLOCK]` placeholder in the body with the block verbatim. Never write the placeholder string to disk.
+4. Write the assembled content to `CLAUDE.md`.
 
-## Project
+⚡ Inline-skeleton fallback if any asset is unreadable: write a minimal CLAUDE.md containing only `# <ProjectName>\n\n## Project\n- **Slug:** <slug>\n- **Status:** Initialized\n` and skip the AI-Start-Here block. Report the missing asset in the Summary so the user can re-run later.
 
-- **Slug:** <slug>
-- **Stack:** <detected stack, e.g. "Delphi + FireDAC" or "PHP + Laravel">
-- **Status:** Initialized
-
-## Architecture
-
-_(will be expanded as the project progresses)_
-
-## Rules (project-specific)
-
-_(only rules that apply ONLY to this project, do not duplicate global rules)_
-```
-
-Assembly steps when creating a new CLAUDE.md:
-1. Detect MCP mode (mx_ping success = MCP, otherwise non-MCP)
-2. Pick the matching block: "Block to insert (MCP project)" or "Block to insert (non-MCP project)"
-3. Replace `[INSERT AI-START-HERE BLOCK]` in the template with the chosen block verbatim
-4. Write the assembled content to `CLAUDE.md`
-
-If CLAUDE.md exists: Insert ONLY the "AI Start Here" block (after the first H1 line). Do NOT overwrite anything.
-
-### Block to insert (MCP project)
-
-If MCP mode:
-
-```markdown
-> **AI Start Here** — Read these files to get started:
->
-> | Document | Purpose |
-> |----------|---------|
-> | [CLAUDE.md](./CLAUDE.md) | Architecture, conventions, rules (this file) |
-> | [docs/status.md](./docs/status.md) | Current project status, open items |
->
-> **Documentation rules (MCP-based):**
-> - Decisions ONLY via `/mxDecision` → Knowledge-DB (doc_type='decision')
-> - Plans ONLY via `/mxPlan` → Knowledge-DB (doc_type='plan')
-> - Specs ONLY via `/mxSpec` → Knowledge-DB (doc_type='spec')
-> - `/mxSave` updates CLAUDE.md + docs/status.md (local) + session notes (DB)
-> - Search documents: `mx_search(project='<slug>', ...)` or `mx_briefing(project='<slug>')`
-> - CLAUDE.md stays compact: links + rules + architecture. No long backlogs.
-```
-
-### Block to insert (non-MCP project)
-
-If no MCP server:
-
-```markdown
-> **AI Start Here** — Read these files to get started:
->
-> | Document | Purpose |
-> |----------|---------|
-> | [CLAUDE.md](./CLAUDE.md) | Architecture, conventions, rules (this file) |
-> | [docs/status.md](./docs/status.md) | Current project status, open items |
-> | [docs/decisions/index.md](./docs/decisions/index.md) | Architecture Decision Records (ADR) |
-> | [docs/specs/index.md](./docs/specs/index.md) | Specifications |
-> | [docs/plans/](./docs/plans/) | Plans and session notes |
->
-> **Documentation rules:**
-> - Decisions ONLY via `/mxDecision` → `docs/decisions/ADR-XXXX-slug.md`
-> - Plans ONLY via `/mxPlan` → `docs/plans/PLAN-XXXX-slug.md`
-> - Specs ONLY via `/mxSpec` → `docs/specs/SPEC-slug.md`
-> - `/mxSave` updates `docs/status.md` + session notes
-> - CLAUDE.md stays compact: links + rules + architecture. No long backlogs.
-```
+If CLAUDE.md exists: insert ONLY the matching AI-Start-Here block (after the first H1 line). Do NOT overwrite anything else.
 
 ## 4. Create docs/status.md (if missing)
 
@@ -301,4 +187,4 @@ If MCP mode and project registered in DB:
 - All files in UTF-8 without BOM
 - **Idempotency:** On repeated invocation, abort immediately if everything is present (pre-flight check)
 - **Summary report ALWAYS:** Even on immediate abort, output the table with status "already present"
-- CRITICAL **Mirror sync:** edits to this skill MUST propagate to `V:\Projekte\MX_Intern\mxLore-skills\mxInitProject\` + `V:\Projekte\MX_Intern\mxHannesMCP\claude-setup\skills\mxInitProject\` (per `feedback_mxlore_skill_sync_workflow.md`). Canonical first, then `cp` to both mirrors.
+- CRITICAL **Mirror sync:** Read `~/.claude/skills/_shared/mirror-sync.md` for the canonical 3-mirror cp + md5 verify protocol.
