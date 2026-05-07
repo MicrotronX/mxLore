@@ -4,35 +4,23 @@ description: Use when the user says "/spec", "/mxSpec", "write a spec", "write a
 allowed-tools: Read, Write, Edit, Grep, Glob
 ---
 
-## Output Format ⚡ (Bug#2989 F6 — Reasoning-Leak Fix)
+## Output Format ⚡
 
-**FIRST line of every response = `### REPORT ###` EXACTLY. Position 0. Nothing before.**
+**FIRST line of every response = `### REPORT ###` EXACTLY. Position 0. Nothing before.** No prosa, reasoning, blank lines, or heading prefixes ahead of the marker.
 
-Forbidden pre-marker content: prosa, reasoning sentences, "I will now...", "All done.", "Producing final report.", blank lines, markdown heading prefixes. The marker IS the first character-run of the first line, or the report is INVALID.
-
-Why: Cross-skill reasoning-leak pattern — 5/5 mx*-Skill-Subagents leaked internal reasoning above report body in Live-Test Session 2026-04-15 (doc#3017). Observed even after partial rule introduction ("All done. Producing final report." pre-marker prosa). Strict Position-0 anchors the rule.
+Why: cross-skill reasoning-leak pattern observed when subagents prepend status prosa; strict Position-0 anchors the rule. See `references/bug-history.md`.
 
 # /mxSpec — Create/Update Specification (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
-> **Context:** ALWAYS as subagent(Agent-Tool) !main-context. Result: max 20 lines.
-> **Tokens ⚡:** mx_create_doc/mx_update_doc body >300 words → assemble in this subagent, !echo to parent. mx_detail server default = 600 tokens.
-
 Spec-Agent. Creates/updates specifications in Knowledge-DB via MCP.
 
-## Verification ⚡ (Bug#3010 F1-F4 + Bug#2989 F4)
+## Verification ⚡
 
-!invent structural facts. Every spec-body claim about the following MUST be verified via `Grep` or `Read` BEFORE writing — no exceptions:
+!invent structural facts. Verify via `Grep`/`Read`/`mx_search` BEFORE writing — 6 targets:
 
-- **Class names** -> `Grep pattern='class <Name>\b' glob='*.php,*.pas,*.ts,*.js,*.py'` — must return at least one hit
-- **Method / function names** -> `Grep pattern='function <name>\b|def <name>\b|procedure <name>\b'` — must return a hit (storeTicket vs store, saveFoo vs persistFoo, etc.)
-- **File paths** (views, templates, controllers, units) -> `Glob pattern='<path>'` — must return a match. ⚡ Underscore vs hyphen matters: `notification_filters/create.php` != `notification-filters/form.php`. Never paraphrase a path from memory.
-- **i18n / language-key namespaces** -> `Grep pattern="'<prefix>\." glob='lang/**/*.php,locales/**/*.json,resources/lang/**'` — prefix must exist. `notification_filter.*` and `notification_filters.*` are NOT the same key.
-- **AC / test counts** when claiming "existing test has N cases" -> `Read` the test file AND count actual `it(`/`test(`/`assert` lines. !extrapolate from a summary or from memory.
-- **Plan / ADR / doc IDs** referenced in Related or body prose -> `mx_search` or `mx_detail` confirmation before writing the ID. Do not cite `Plan#145` unless you have just seen doc_id=145 exist.
+- Class names | Method/function names | File paths | i18n namespaces | AC/test counts | Plan/ADR/doc IDs
 
-If verification fails -> EITHER drop the claim ENTIRELY, OR mark it explicitly as `**unverified:** <reason>` inline in the spec body. Never write a plausible-sounding name without proof. Downstream `/mxDesignChecker` catches unverified claims, but the first line of defense is here at write-time — do not outsource integrity to the reviewer.
-
-Why: Live-Test 2026-04-15 (WF-2026-04-15-007) documented 4 hallucinations in a single spec run — `storeTicket()` vs actual `store()`, `views/notification_filters/create.php` vs actual `views/notification-filters/form.php`, 18 vs actual 19 AC cases, `notification_filter.*` vs actual `notification_filters.*` namespace. Parallel run surfaced unverified `Plan#145` citation (Bug#2989 F4). Root cause: mxSpec did not Grep/Glob-verify names against filesystem before writing the body. See Bug#3010 F1-F4 + Bug#2989 F4.
+Verification fails -> drop the claim, or tag inline `**unverified:** <reason>`. See `references/verification-examples.md` for per-target Grep/Glob commands and rationale.
 
 ## Init
 1. CLAUDE.md→`**Slug:**`=project-param. ∅slug→?user
@@ -41,21 +29,26 @@ Why: Live-Test 2026-04-15 (WF-2026-04-15-007) documented 4 hallucinations in a s
 ## Input
 Slug from command argument. ∅arg→?user.
 
-⚡ **Slug validation + normalization (order matters):**
-1. Lowercase everything
-2. Replace `[^a-z0-9-]` with `-`
-3. Collapse multiple `-` and strip leading/trailing `-`
-4. **Then** enforce length max 100 chars — truncate at a `-` boundary if possible, strip any trailing `-` after truncation. (Server ClampSlug=100, Bug#2889 — do this locally AFTER normalization to avoid mid-truncation of multi-byte characters or stranded leading `-`.)
-5. Verify the result matches `^[a-z0-9-]+$`
-6. If the normalized slug differs from input → show both and ask user to confirm before proceeding
+⚡ **Slug normalization:**
+1. Lowercase, replace `[^a-z0-9-]` with `-`, collapse + strip outer `-`. Then truncate to 100 chars at a `-` boundary, strip trailing `-`. Verify `^[a-z0-9-]+$`.
+2. If normalized slug differs from input → show both and confirm with user.
 
 ## Workflow
 
 ### 0) PRD Context
-- **Full brainstorming in session** → derive PRD from chat, no follow-up questions
-- **Partial brainstorming** (some of the 4 PRD facets already surfaced) → identify which facets are missing and ask ONLY those; do NOT re-ask already-covered ground
-- **∅brainstorming** → ask all 4 questions: (1) Problem? (2) Who benefits? (3) What if nothing done? (4) Partial solutions that already exist?
-- **Updating existing spec** → Phase 0 skip entirely
+- **Full brainstorming in session** → derive PRD from chat, no follow-up questions.
+- Otherwise (partial / no brainstorming, PRD-gaps): delegate to `superpowers:brainstorming` skill, then return here.
+- **Updating existing spec** → skip Phase 0 entirely.
+
+### 0b) Supersedes-FR Body-Load ⚡
+
+When input lists `supersedes:` / `consolidates:` / `merges:` (case-insensitive):
+1. Parse the supersedes-list (`FR#NNNN`, `[FR-NNNN]`, `Spec#NNNN`, `[SPEC-slug]`).
+2. `mx_detail(doc_id, max_content_tokens=1500)` for each merged doc body.
+3. Embed `## Konsens (aus supersedeten FRs)` section in the new spec — one bullet per merged doc with Goal/target extract.
+4. Conflicts → explicit `## Decision` block (fires Section 3b auto-suggest) OR `## Open Questions` entry. Never silently pick one body's answer.
+5. In Section 2, add `mx_add_relation(..., relation_type='supersedes')` per merged FR (alongside `references` edges).
+6. Out-of-scope: Section 3 Update path (supersedes is CREATE-time-only).
 
 ### 1) Check existence
 
@@ -63,30 +56,26 @@ Slug from command argument. ∅arg→?user.
 
 For each result, verify the slug field matches the normalized input EXACTLY (mx_search uses full-text, so `foo` can match `foo-v2`). Only an exact-slug active hit goes to Update (step 3) with that doc_id; ∅exact match → New (step 2).
 
-⚡ **TOCTOU guard:** after step 2 creates a new spec, re-query once with the same filter. If >1 active spec with this exact slug now exists, a parallel run raced us — warn user and keep the oldest, delete the new one (or ask which to keep).
-
 ### 2) New Spec
 
 Template → `~/.claude/skills/mxSpec/assets/spec-template.md` (9 sections: Overview, Related, Goals, Non-goals, Requirements, Acceptance Criteria, Interfaces/Data, Edge Cases, Open Questions — plus title/meta lines). ⚡ **Absolute path** — the subagent CWD is the project root, not the skill dir, so a relative `assets/…` read silently fails. If the template file is unreadable, fall back to a minimal inline skeleton (Overview + Requirements + Acceptance Criteria) and warn the user.
 
-⚡ **Title clamp:** server ClampTitle=255 (Bug#2889). Keep titles short.
+⚡ **Title clamp:** server ClampTitle=255. Keep titles short.
 
-**MCP:** `mx_create_doc(project, doc_type='spec', title='SPEC: <Title>', content)` — ⚡ Slug is auto-generated server-side from the title via `GenerateSlug(Title)` at `mx.Tool.Write.pas:541-542`. The server param `slug=` does not exist on `mx_create_doc` and is silently ignored. Ensure the title is canonical and unique; the server handles dedup via `ClampSlug` + retry-with-suffix (Bug#2262, `mx.Tool.Write.pas:588-599`).
+**MCP:** `mx_create_doc(project, doc_type='spec', title='SPEC: <Title>', content)` — ⚡ Slug is auto-generated server-side from the title; the `slug=` param does not exist on `mx_create_doc` and is silently ignored. Server handles dedup via ClampSlug + retry-with-suffix (see `references/bug-history.md`).
 
 **Related handling (iterate, do not stop at first):**
-1. Parse the Related section for ALL referenced ADRs + plans. **Canonical reference format:** `[ADR-NNNN]` or `[PLAN-slug]` in brackets. Accept case-insensitive variants (`[adr-1234]`, `[Plan-foo]`) by normalizing to uppercase TYPE + original ID. Reject ambiguous formats like `ADR#123` or `adr 123` — log a warning and skip that reference (do not guess).
-2. For each referenced item → `mx_search(project, doc_type='decision,plan', query='<id-or-slug>', status='active', limit=3)` to resolve target_id
-3. For each resolved target → `mx_add_relation(source_doc_id=<new spec doc_id>, target_doc_id=<target doc_id>, relation_type='references')` — ⚡ **source_doc_id is ALWAYS the new spec**, target_doc_id is the referenced ADR/plan. Never reverse. The server dedupes duplicate edges, so no pre-check required. ⚡ Param names are literally `source_doc_id`/`target_doc_id` (NOT `source`/`target`) — confirmed at `mx.Tool.Write.Meta.pas:365-366`.
+1. Parse the Related section for ALL referenced ADRs + plans. Canonical bracket form: `[ADR-NNNN]`, `[PLAN-slug]`. Reject ambiguous formats like `ADR#123` — warn and skip.
+2. For each → `mx_search(project, doc_type='decision,plan', query='<id-or-slug>', status='active', limit=3)` to resolve target_id.
+3. For each resolved target → `mx_add_relation(source_doc_id=<new spec doc_id>, target_doc_id=<target doc_id>, relation_type='references')`. ⚡ source = new spec, target = ADR/plan; never reverse. Server dedupes.
 4. Loop until all Related items processed.
 
 **Local (Fallback):** ensure `docs/specs/` exists (`mkdir -p docs/specs`); if `index.md` is absent create it with a minimal header, otherwise APPEND the new entry to the existing index (never overwrite). Write `docs/specs/SPEC-<slug>.md` + warning. ⚡ This fallback violates the ADR-0004 "local docs/ = only CLAUDE.md+status.md" rule — only used when MCP is unavailable; re-sync via `/mxMigrateToDb` once MCP is back.
 
 ### 3) Update Spec
-**MCP:** `mx_detail(doc_id, max_content_tokens=0)` → modify only the target section(s) → update `Last Modified` to **today in UTC, `YYYY-MM-DD` format** (compute via system clock in UTC to avoid TZ-boundary churn across sessions) → `mx_update_doc(doc_id, content, change_reason)`.
+**MCP:** `mx_detail(doc_id, max_content_tokens=0)` → modify only the target section(s) → update `Last Modified` to today in UTC (`YYYY-MM-DD`) → `mx_update_doc(doc_id, content, change_reason)`.
 
-⚡ **TOCTOU guard also applies to Update path:** pin the doc_id from step 1 throughout step 3. Do not re-query by slug mid-update — if a parallel write happens, the reconciliation during the next step 1 will catch the divergence. If `mx_update_doc` returns a revision conflict, surface it to the user; do not silently retry.
-
-⚡ **`max_content_tokens=0` is REQUIRED for updates** — the server default (600) silently truncates long spec bodies. Writing the truncated content back via `mx_update_doc` causes SILENT DATA LOSS of everything past the cut. The 600-token default is for queries, not edits.
+⚡ **`max_content_tokens=0` is REQUIRED for updates** — the 600-token default is for queries; using it on edits silently truncates and round-trips data loss.
 
 ⚡ **Preserve all headers and existing sections**; edit in place. Editing rules:
 - **Add a requirement / AC:** append a new numbered line under `## Requirements` or a new `- [ ]` under `## Acceptance Criteria`; do NOT replace the whole section.
@@ -94,7 +83,7 @@ Template → `~/.claude/skills/mxSpec/assets/spec-template.md` (9 sections: Over
 - **Remove an obsolete AC:** annotate as `- [x] ~~original text~~ (dropped)` rather than deleting the line. The strike-through preserves audit history. ⚡ **Dropped AC do NOT count toward `M` or `N`** — they are excluded from the status-transition totals (see step 4). Do NOT delete AC lines silently.
 - **Resolve an Open Question:** prepend `[resolved] ` (case-insensitive — `[Resolved]`, `[RESOLVED]`, `[done]`, `[DONE]` all accepted) and the resolution text; keep the original line. The status-transition check matches any of these prefixes as resolved.
 
-⚡ **Server clamp limits (Bug#2889 ClampVarchar family):** title=255, slug=100, change_reason=500. Keep change_reason concise but the budget is 500 chars. Long values past the limit are silently truncated.
+⚡ **Server clamp limits:** title=255, slug=100, change_reason=500. Long values past the limit are silently truncated. See `references/bug-history.md`.
 
 **Local:** Read → Edit → "Last Modified" to today → index update if status changed.
 
@@ -102,25 +91,7 @@ Template → `~/.claude/skills/mxSpec/assets/spec-template.md` (9 sections: Over
 
 After body-validation passes BUT BEFORE the final `mx_create_doc`/`mx_update_doc` call, scan the spec body for inline Decision-Markers that should live as separate ADRs.
 
-**Single source-of-truth marker list** (regex-twin lives in `mxOrchestrate/SKILL.md` Mode 5 Step 6 — keep in sync via inline comment in BOTH files):
-
-```
-# regex-twin in mxOrchestrate Mode 5 Step 6 AC5; keep in sync
-# ASCII-only — no Unicode operators (mcp body corruption rule)
-DECISION_MARKER_REGEX = (?m)^(\*\*)?Decision:\s+\S|^Q\d+\s*=\s*\S|^Approval-Modell:|^Konsens:
-```
-
-**Fence-exclusion algorithm — REUSE the AC-counter `in_fence` toggle from step 4 verbatim** (column-zero ` ``` ` toggle, language-tag ok, indented fences ignored, unclosed fence bails to file-end as in-fence). Bias: "safer to miss real markers than false-positive on example payloads".
-
-```
-in_fence = false
-markers = []  # list of (line_number, line_text)
-for each line in body:
-  if line.trim() starts with "```": in_fence = !in_fence; continue
-  if in_fence: continue
-  if line matches DECISION_MARKER_REGEX:
-    markers.append((line_number, line_text))
-```
+Read `~/.claude/skills/_shared/decision-marker.md` for the canonical regex + fence-exclusion algorithm.
 
 If `len(markers) == 0` → skip prompt, proceed to mx_create_doc/mx_update_doc.
 
@@ -142,40 +113,15 @@ Branches:
 
 Multiple markers → list all in single batched prompt with line refs, accept user's single-choice answer for the batch.
 
-**NIT — manual escape-hatch:** user can directly call `mx_remove_tags(spec_id, ['unbacked-decision'])` to clear false-warnings without re-running /mxDecision. **Concurrency note:** single-shell assumption — 2 simultaneous /mxSpec calls on same spec_id can both detect+prompt+act; idempotent ops cover relation+tag dupes but double-prompt UX is undefined. **Interrupted-Create note:** user-navigation-away mid-prompt aborts the entire Create — mx_create_doc never fires, next attempt re-detects and re-prompts.
-
 ### 4) Status Transition (on update)
-After step 3: count Acceptance Criteria lines in the `## Acceptance Criteria` section.
 
-⚡ **AC counting algorithm (explicit, so all agents count the same way):**
+**AC counting:** Count `- [ ]` / `- [x]` lines under `## Acceptance Criteria`. Skip fenced code blocks. Exclude `~~text~~ (dropped)` lines. M = total live, N = checked. If M == 0: skip transition (output `Spec has no acceptance criteria yet`). Status whitelist: only `active` auto-transitions.
 
-```
-in_fence = false
-in_ac_section = false
-M = 0; N = 0
-for each line in content:
-  if line.trim() starts with "```": in_fence = !in_fence; continue
-  if in_fence: continue
-  if line starts with "## ": in_ac_section = (line == "## Acceptance Criteria"); continue
-  if !in_ac_section: continue
-  if line matches /^- \[[ xX]\] / (no leading whitespace):
-    if line contains "~~" AND "(dropped)": continue  # exclude dropped AC
-    M += 1
-    if line matches /^- \[[xX]\] /: N += 1
-```
-
-Counts:
-- **M = total live AC** (excluding dropped). **⚡ If M == 0 → skip transition** (empty AC list is not "implemented"; output `Spec has no acceptance criteria yet`).
-- **Status whitelist:** auto-transition only applies when current status is `active`. Skip for `superseded`, `rejected`, `blocked`, or any other non-active status.
-- **Open Questions regex (case-insensitive):** a question is "resolved" if it matches `^\s*\[(resolved|done)\]` (any case). Any line NOT matching is an unresolved question.
-- **M > 0 AND N = M (all done) AND no unresolved Open Questions AND current status == `active`**:
-  - Content: add `**Status:** implemented` (after Last Modified)
-  - `mx_update_doc(doc_id, content, status='archived', change_reason='All AC fulfilled')`
-  - Output: `Spec #<doc_id> archived — all Acceptance Criteria fulfilled`
-- **Mixed (N < M):** ∅change, info only: `<N>/<M> AC fulfilled`
-- **Open Questions present (unresolved):** ∅archive, even if AC complete. Note: `AC complete but open questions remain`
-- **Dropped-AC safety:** if any AC is marked `(dropped)` AND the remaining live AC are all done, warn user: `Auto-archive skipped — spec has <K> dropped AC. Confirm intent before archiving.` Only archive after user confirmation.
-- ⚡ Only for clearly implemented specs with status=`active`. Doubt → leave open + ?user
+- **Open Questions:** unresolved if line does NOT match case-insensitive `^\s*\[(resolved|done)\]`.
+- **M > 0 AND N == M AND no unresolved Open Questions AND status == `active`** → add `**Status:** implemented`, call `mx_update_doc(doc_id, content, status='archived', change_reason='All AC fulfilled')`, output `Spec #<doc_id> archived — all Acceptance Criteria fulfilled`. ⚡ If any AC is `(dropped)`, warn `Auto-archive skipped — spec has <K> dropped AC. Confirm intent before archiving.` and only archive after user confirmation.
+- **Mixed (N < M):** info only `<N>/<M> AC fulfilled`. No change.
+- **Open Questions unresolved:** no archive even if AC complete. Note `AC complete but open questions remain`.
+- ⚡ Doubt → leave open + ?user.
 
 ## Rules
 - ⚡ Only verified knowledge from chat !invent. ∅info→?user or Open Question
