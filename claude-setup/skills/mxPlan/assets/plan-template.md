@@ -8,6 +8,10 @@
 - **Spec:** [SPEC-xxx] (only if identifiable in chat)
 - **Decision:** [ADR-xxx] (only if identifiable in chat)
 
+<!-- ## Inherited Decisions — auto-populated by mxPlan (FR#5177) from Decision-Markers
+     found in the referenced spec chain. Omitted entirely when there is nothing to inherit.
+     Do not hand-edit; do not re-run on plan updates. See references/inherited-decisions.md -->
+
 ## Non-goals
 - <What is NOT in scope>
 

@@ -43,11 +43,13 @@ For each result, verify the slug field matches the normalized input EXACTLY (mx_
 
 ### 2) New plan
 
-Template → `~/.claude/skills/mxPlan/assets/plan-template.md` (7 sections: Goal, Related, Non-goals, Milestones, Tasks, Risks, Notes — plus title/meta lines). ⚡ **Absolute path** — the subagent CWD is the project root, not the skill dir, so a relative `assets/…` read silently fails. If the template file is unreadable, fall back to a minimal inline skeleton (Goal + Tasks + Notes) and warn the user.
+Template → `~/.claude/skills/mxPlan/assets/plan-template.md` (8 sections: Goal, Related, Inherited Decisions, Non-goals, Milestones, Tasks, Risks, Notes — plus title/meta lines). ⚡ **Absolute path** — the subagent CWD is the project root, not the skill dir, so a relative `assets/…` read silently fails. If the template file is unreadable, fall back to a minimal inline skeleton (Goal + Tasks + Notes) and warn the user.
 
 ⚡ **Title clamp:** server ClampTitle=255 (Bug#2889). Keep titles short.
 
-**MCP:** `mx_create_doc(project, doc_type='plan', title='PLAN: <Title>', content)` (body assembled in this subagent from the template; !echo to parent — see Tokens rule).
+⚡ **Inherited-Decisions scan (FR#5177) — operates on the assembled body, BEFORE the mx_create_doc call:** if the body's `## Related` section references any spec, scan that spec chain (level-0 specs + 1 hop into their own Related) for inline Decision-Markers and inject an `## Inherited Decisions` section right after `## Related`. ≥1 marker → render; 0 markers → no section. Full algorithm → `~/.claude/skills/mxPlan/references/inherited-decisions.md` (lazy-load; fail-soft — any read/MCP error skips the scan, plan still created normally with a one-line note). Reuses the spec resolution done for **Related handling** below — no extra `mx_search`.
+
+**MCP:** `mx_create_doc(project, doc_type='plan', title='PLAN: <Title>', content)` (body — incl. any `## Inherited Decisions` section from the scan above — assembled in this subagent from the template; !echo to parent — see Tokens rule).
 
 **Related handling (iterate, do not stop at first):**
 1. Parse the Related section for ALL referenced specs + decisions (multiple common)
@@ -59,6 +61,8 @@ Template → `~/.claude/skills/mxPlan/assets/plan-template.md` (7 sections: Goal
 
 ### 3) Update plan
 **MCP:** `mx_detail(doc_id, max_content_tokens=0)` → modify only the target section(s) → `mx_update_doc(doc_id, content, change_reason)`.
+
+⚡ The Inherited-Decisions scan is **create-time-only** — do NOT re-run it on updates (mirrors mxSpec's supersedes-FR handling). Leave any existing `## Inherited Decisions` section untouched on the Update path.
 
 ⚡ **`max_content_tokens=0` is REQUIRED for updates** — the server default (600) silently truncates long plan bodies. Writing the truncated content back via `mx_update_doc` causes SILENT DATA LOSS of everything past the cut. The 600-token default is for queries, not edits.
 
