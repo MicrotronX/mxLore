@@ -34,13 +34,10 @@ cp "${SRCDIR}"/sql/0[0-9][0-9]-*.sql "${OUTDIR}/sql/"
 cp "${SRCDIR}/admin/www/index.html"        "${OUTDIR}/admin/www/"
 cp "${SRCDIR}/admin/www/connect.html"      "${OUTDIR}/admin/www/"
 cp "${SRCDIR}/admin/www/favicon.svg"       "${OUTDIR}/admin/www/"
-cp "${SRCDIR}/admin/www/css/style.css"     "${OUTDIR}/admin/www/css/"
-cp "${SRCDIR}/admin/www/css/connect.css"   "${OUTDIR}/admin/www/css/"
-cp "${SRCDIR}/admin/www/js/app.js"         "${OUTDIR}/admin/www/js/"
-cp "${SRCDIR}/admin/www/js/api.js"         "${OUTDIR}/admin/www/js/"
-cp "${SRCDIR}/admin/www/js/icons.js"       "${OUTDIR}/admin/www/js/"
-cp "${SRCDIR}/admin/www/js/connect.js"     "${OUTDIR}/admin/www/js/"
-cp "${SRCDIR}/admin/www/js/self-update.js" "${OUTDIR}/admin/www/js/"
+# CSS + JS: glob all files, never hand-enumerate. A per-file list silently
+# drops newly added assets (e.g. acl-helper.js) and ships a broken Admin-UI.
+cp "${SRCDIR}"/admin/www/css/*.css "${OUTDIR}/admin/www/css/"
+cp "${SRCDIR}"/admin/www/js/*.js   "${OUTDIR}/admin/www/js/"
 
 # claude-setup (skills, hooks, reference — served by mx_onboard_developer)
 cp -r "${SRCDIR}/claude-setup/skills" "${OUTDIR}/claude-setup/skills"
