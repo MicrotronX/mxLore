@@ -106,7 +106,7 @@ Output (max 20 lines, truncate aggressively):
 1. doc_id
 2. top-5 tasks (truncate each to 60 chars)
 3. up to 3 relations if created (show target title + doc_id only)
-4. Recommendation: `superpowers:executing-plans` or `superpowers:subagent-driven-development`
+4. Recommendation: `superpowers:executing-plans` or `superpowers:subagent-driven-development` (if the `superpowers` plugin is installed; otherwise implement the plan directly, milestone by milestone)
 5. If active workflow → name next step
 
 If more tasks or relations exist than shown, append `... and N more (see mx_detail <doc_id>)`.

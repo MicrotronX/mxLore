@@ -3,6 +3,8 @@
 Declarative workflow definitions for `/mxOrchestrate`.
 Projects can override or extend these templates in `docs/workflows.md` (project-specific takes precedence over global).
 
+> ⚡ **`superpowers:*` steps are optional.** If the `superpowers` plugin is not installed (`/mxSetup --with-superpowers` adds it), substitute the mx*-equivalent: `brainstorming` → `/mxSpec` PRD-phase · `executing-plans` / `subagent-driven-development` → manual implementation · `systematic-debugging` → `/mxBugChecker`. A WF step must not hard-fail on a missing superpowers skill.
+
 ---
 
 ## Template: new-feature

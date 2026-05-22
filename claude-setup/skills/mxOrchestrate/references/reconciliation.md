@@ -31,6 +31,52 @@ Compare local `current_step` vs `mcp_step`:
   WARN user, show both versions, ask which to keep before pushing.
 - **Equal:** no action needed.
 
+## FS-Anchor Post-Check (Bug#6813)
+
+⚡ The doc-vs-doc compare above can yield a **false GREEN**: if the implementation
+happened but neither the state file nor the MCP WF-doc was updated (e.g. the work
+ran through `superpowers:executing-plans`, not the mxOrchestrate auto-invoke
+step-flow), both tracking artefacts are stale *in the same direction* and the
+compare looks healthy. This post-check anchors the result against the real
+filesystem.
+
+Runs AFTER the 4-way compare, as an **orthogonal override** — not a 5th compare
+branch. It can overturn ANY of the four results above.
+
+### 1. Extract target files
+
+From the WF/Plan doc collect candidate target files **only from structured
+sources** — never from casual prose mentions:
+
+- backtick-quoted paths in the WF/Plan body (`dir/file.ext`)
+- the `## Interfaces / Data` section of a referenced spec (if the WF body links a
+  `Spec#NNNN`)
+
+∅ structured path references → skip to step 4 (unverifiable).
+
+### 2. Check existence
+
+Default: `Glob` each extracted path — existence is the cheap, deterministic
+signal. Deeper `Grep` content-check ONLY when the pending step text names a
+concrete symbol/function — then Grep that symbol in the target file. Do not Grep
+speculatively.
+
+### 3. Compare against step status
+
+For each step the compare-above classified as `pending`:
+
+- **target files exist** (and, if a symbol was named, the symbol is present) →
+  the code contradicts the doc. Do NOT report GREEN. Report
+  `divergence: doc says pending, code says implemented` → **STOP + ?user**
+  (same halt semantics as the "Both diverged" branch — never silently overwrite).
+- **target files absent** → FS-anchor confirms `pending`; no false-positive.
+
+### 4. Unverifiable case
+
+WF/Plan named no structured target paths → FS-anchor cannot run. Do NOT promise
+GREEN; mark the reconciliation result explicitly as `unverified against code` so
+the user knows the step status rests on doc-vs-doc alone.
+
 ## Finalize
 
 Set `state.last_reconciliation = now()`.

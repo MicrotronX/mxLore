@@ -19,8 +19,16 @@ the WF Result-Column looks rich. Skipping is a skill-rule violation that
 reintroduces Bug#3230.
 
 1. **Required call:** `mx_search(project, doc_type='session_note',
-   query='<WF-ID> OR <primary_artifact_IDs>', limit=2)` — ALWAYS runs. 0-hit
-   is a valid outcome, NOT a reason to skip the call.
+   query='<WF-ID> OR <primary_artifact_IDs> OR <outcome-keywords>', limit=4)`
+   — ALWAYS runs. 0-hit is a valid outcome, NOT a reason to skip the call.
+   - **Outcome-keywords (Bug#6813):** append language-neutral completion terms
+     so a WF *implementation* note is not out-ranked by its older *creation*
+     note — DE: `implementiert abgeschlossen fertig`, EN: `implemented completed
+     done`. mxOrchestrate is a global skill; session_notes may be in either
+     language.
+   - **Recency (Bug#6813):** prefer `updated_at DESC` ordering so the most
+     recent matching note wins the `limit` cut. `limit=4` (raised from 2) keeps
+     a stale creation note from crowding out the completion note.
 2. If hit: `mx_detail(note_id, max_content_tokens=1500)` on first match.
    `1500` = full session_note body for Mode 5 enrichment.
 3. Also: follow WF outbound relations (references / implements) if WF body
@@ -41,8 +49,10 @@ STACK-INDEPENDENT and STILL RUN.
   null` -> `mx_detail(note_id, max_content_tokens=1500)`. Loads the last
   session_note regardless of stack state.
 - **Unconditional `mx_search` fallback:** `mx_search(project,
-  doc_type='session_note', limit=2)` ordered by `updated_at DESC` (most
-  recent). 0-hit is valid, NOT a reason to skip.
+  doc_type='session_note', limit=4)` ordered by `updated_at DESC` (most
+  recent). 0-hit is valid, NOT a reason to skip. `limit=4` raised from 2
+  (Bug#6813) for consistency with the stack-pop path; the empty-stack path is
+  already recency-ordered, so no outcome-keyword query is needed here.
 - **Unconditional resume-event:** write `events_log` entry `{type: 'resume',
   wf: null, detail: '...context-note=<id|none>...'}`. `wf=null` explicitly
   signals the empty-stack path and keeps the audit-grep catchable.

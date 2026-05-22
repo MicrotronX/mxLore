@@ -37,7 +37,7 @@ Slug from command argument. ∅arg→?user.
 
 ### 0) PRD Context
 - **Full brainstorming in session** → derive PRD from chat, no follow-up questions.
-- Otherwise (partial / no brainstorming, PRD-gaps): delegate to `superpowers:brainstorming` skill, then return here.
+- Otherwise (partial / no brainstorming, PRD-gaps): if the `superpowers` plugin is installed, delegate to `superpowers:brainstorming`, then return here; if not, derive the PRD inline — ask the user the missing purpose / constraint / success-criteria questions one at a time.
 - **Updating existing spec** → skip Phase 0 entirely.
 
 ### 0b) Supersedes-FR Body-Load ⚡

@@ -3,7 +3,7 @@ name: mxSetup
 description: This skill should be used when a developer sets up mxLore on a new PC, runs a fresh Claude Code install, updates the global mx-rules block in ~/.claude/CLAUDE.md, refreshes skills/hooks from GitHub, or reinstalls the mxMCPProxy. Triggers "neuer PC", "fresh install", "onboard me", "/mxSetup", "update mx-rules", "mx-rules block veraltet", "reinstall proxy", "skills aktualisieren".
 user-invocable: true
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
-argument-hint: "<api-key> | --update | --update-rules | --update-proxy"
+argument-hint: "<api-key> | --update | --update-rules | --update-proxy | --with-superpowers"
 ---
 
 # /mxSetup — Developer Onboarding (~30 seconds)
@@ -142,6 +142,9 @@ Next steps:
 1. Restart Claude Code
 2. Switch to project directory
 3. Run /mxInitProject
+
+Optional: /mxSetup --with-superpowers installs the superpowers bridge plugin
+(enhanced brainstorming / plan-execution rigour) — not required, mx*-skills run standalone.
 ```
 
 ## Update Modes
@@ -158,6 +161,16 @@ Optional: `CLEAN=1 ~/.claude/skills/mxSetup/scripts/install-skills.sh` removes s
 Only re-runs Phase 3: `mx_ping()` → resolve URL → `install-proxy.sh` → replace `~/.claude/mxMCPProxy.exe`. INI left untouched. Use when the server build moved ahead of the local proxy.
 
 ⚡ Stop the running proxy first (`taskkill /IM mxMCPProxy.exe /F` on Windows) — staging+mv mitigates file lock but a clean swap is more reliable.
+
+### `--with-superpowers` (optional bridge plugin)
+
+Installs the optional `superpowers` plugin (Claude Code official marketplace). It provides `brainstorming`, `executing-plans`, `subagent-driven-development`, `systematic-debugging` etc. The mx*-skills work **fully without it**; when present they use it for extra rigour.
+
+```bash
+claude plugin install superpowers@claude-plugins-official
+```
+
+⚡ **Opt-in only** — never installed by the default `/mxSetup`, `--update`, `--update-rules` or `--update-proxy` flows (no forced third-party dependency — gh#2). Marketplace `claude-plugins-official` is built into Claude Code; if absent, run `claude plugin marketplace add` first. Verify after install: `claude plugin list` shows `superpowers`.
 
 ## Rules
 
