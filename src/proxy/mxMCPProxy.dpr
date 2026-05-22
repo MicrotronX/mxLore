@@ -1,4 +1,4 @@
-program mxMCPProxy;
+﻿program mxMCPProxy;
 
 {$APPTYPE CONSOLE}
 
