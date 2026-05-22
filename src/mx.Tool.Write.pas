@@ -951,22 +951,28 @@ begin
       // must not be gated by the Edit-Window. AI-Batch generates auto-summaries
       // on a daily schedule for every doc_type including note — rejecting these
       // left notes#3306/3312/3325/3397 without summaries since 2026-04-18.
-      // Bypass strictly when NO user-visible field is touched (Title/Content/
-      // AppendContent/Status/DocType/NewProject/ChangeReason all empty).
+      // Bypass when NO user-visible CONTENT field is touched (Title/Content/
+      // AppendContent/DocType/NewProject). #6250 — status is lifecycle
+      // metadata, not content: archiving a note must not be gated by the
+      // Edit-Window (consistent with feature_request/spec/plan, which archive
+      // freely via mx_update_doc). change_reason is revision metadata, never
+      // blocks the bypass.
       if SameText(CurrentDocType, 'note') then
       begin
-        // Metadata-only bypass: user-visible content fields all empty,
-        // at least one metadata field set. change_reason is revision
-        // metadata (stored in doc_revisions), not user-visible — AI-Batch
-        // passes it for audit trail, so it MUST NOT block the bypass.
-        var MetadataOnly := (Title = '') and (Content = '') and (AppendContent = '')
-          and (Status = '') and (DocType = '') and (NewProject = '')
-          and ((Summary1 <> '') or (Summary2 <> '') or Verified);
-        if not MetadataOnly then
+        // Non-content bypass: all user-visible content fields empty, at least
+        // one non-content field set. status (#6250) and summary_l1/l2/verified
+        // (AI-Batch auto-summaries) do not touch content authenticity, so the
+        // Edit-Window must not gate them. The actual status write + validation
+        // happens further down the shared (doc_type-agnostic) UPDATE path.
+        var ContentUntouched := (Title = '') and (Content = '') and (AppendContent = '')
+          and (DocType = '') and (NewProject = '');
+        var HasNonContentEdit := (Status <> '') or (Summary1 <> '') or (Summary2 <> '')
+          or Verified;
+        if not (ContentUntouched and HasNonContentEdit) then
           raise EMxValidation.Create(
             'mx_update_doc cannot edit review-notes (doc_type=note). ' +
             'Use mx_update_note instead — it enforces the 60min author / 24h admin Edit-Window. ' +
-            'Metadata-only updates (summary_l1/summary_l2/verified) are allowed via mx_update_doc.');
+            'Non-content updates (status, summary_l1/summary_l2/verified) are allowed via mx_update_doc.');
       end;
 
       // ACL: check write access to the document's project

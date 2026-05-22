@@ -150,7 +150,12 @@ begin
     raise;
   end;
 
-  FLogger.Log(mlInfo, 'Project updated: ID ' + IntToStr(AId));
+  // #2925 — Update() runs the UPDATE unconditionally, so this fires on every
+  // idempotent /mxInitProject call too. Demote to DEBUG: the line carries no
+  // field detail (the real change record is the projects row + revisions), so
+  // it is a low-signal breadcrumb, not an INFO-worthy event. Mirrors the
+  // Bug#3357 precedent (expected/low-signal paths log below WARNING/INFO).
+  FLogger.Log(mlDebug, 'Project updated: ID ' + IntToStr(AId));
 end;
 
 procedure TMxProjectManager.SoftDelete(AId: Integer);
