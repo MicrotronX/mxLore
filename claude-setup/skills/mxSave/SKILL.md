@@ -67,6 +67,26 @@ Check WFs whose title starts with "Ad-hoc:":
   → No output (no noise)
 - WF has real work→archive normally like other WFs
 
+**Stale-Suspect Detection (Spec#7070, Pre-Save Stale-Plan-Sweep):**
+- ⚡ Skip entire block if `!mcp_available`
+- ⚡ Skip entire block in `--loop` mode (interactive prompt incompatible; loop-silence preserved)
+- Threshold read: `r = mx_get_env(project, key='MXSAVE_STALE_THRESHOLD_DAYS')` → `T = int(r.value) if r.found else 14` (env tool returns `{found, value}` object, no `default=` param)
+- `mx_search(project, doc_type='plan,spec', status='active', limit=50)` — `plan,spec` only (FS-anchor doc_type matrix per `~/.claude/skills/_shared/fs-anchor.md`); limit=50 aligns with Plan#7071 T2.2 (catches deeper backlog)
+- For each candidate: `mx_detail(doc_id, max_content_tokens=0)` →
+  - **Age filter (post-detail, since `mx_search` does not return last-modified):** compute `days_since_update` from the detail response's last-modified timestamp; `days_since_update < T` → skip this candidate (NOT stale yet)
+  - Run FS-Anchor algorithm per `~/.claude/skills/_shared/fs-anchor.md`:
+    - Extract `- [ ]` lines from `## Tasks` (Plan) or `## Acceptance Criteria` (Spec) as items
+    - All items return `divergence` → stale-suspect (code shipped, doc not flipped)
+    - Any item `confirmed_pending` → NOT stale (real work outstanding) → skip
+    - All items `unverifiable` → skip silently (cannot determine, no false positive)
+- Build candidate list: `[{doc_id, title, doc_type, divergence_count, evidence, days_since_update}]`
+- ⚡ User-Prompt (sequential per item — tag is set ONLY on `skip` to avoid orphan-tag if user aborts mid-prompt):
+  - Show: `<type>#<id>: <title>` + `evidence: <path>` + `age: <D>d` + `(y=archive / n=ignore / skip=tag-for-next-session)`
+  - `y` → `mx_update_doc(doc_id, status='archived', change_reason='Pre-save stale sweep: code shipped, doc not flipped (FR#7066/Spec#7070)')`
+  - `n` → no-op (ignore for this session; no tag, no archive)
+  - `skip` → `mx_add_tags(doc_id, ['stale-suspect'])` (idempotent — re-run silently if already tagged; persists for next-session review)
+- Output: `Stale-Sweep: <Y> archived, <I> ignored, <S> tagged-for-review (of <C> candidates)`
+
 **Archive completed Plans/Specs/Decisions:**
 - Define `ARCHIVE_SWEEP_LIMIT = 20` once at the top of Step 3 (sync this constant if you change the limit anywhere)
 - `mx_search(project, doc_type='plan,spec,decision', status='active', limit=ARCHIVE_SWEEP_LIMIT)`→collect IDs→`mx_batch_detail(doc_ids=[...])`→check each doc:

@@ -43,39 +43,20 @@ filesystem.
 Runs AFTER the 4-way compare, as an **orthogonal override** — not a 5th compare
 branch. It can overturn ANY of the four results above.
 
-### 1. Extract target files
+**Algorithm:** see `~/.claude/skills/_shared/fs-anchor.md` (canonical shared
+helper — same algorithm reused by mxSave Step 3 Stale-Suspect Detection per
+Spec#7070).
 
-From the WF/Plan doc collect candidate target files **only from structured
-sources** — never from casual prose mentions:
+### mxOrchestrate-specific caller wiring
 
-- backtick-quoted paths in the WF/Plan body (`dir/file.ext`)
-- the `## Interfaces / Data` section of a referenced spec (if the WF body links a
-  `Spec#NNNN`)
-
-∅ structured path references → skip to step 4 (unverifiable).
-
-### 2. Check existence
-
-Default: `Glob` each extracted path — existence is the cheap, deterministic
-signal. Deeper `Grep` content-check ONLY when the pending step text names a
-concrete symbol/function — then Grep that symbol in the target file. Do not Grep
-speculatively.
-
-### 3. Compare against step status
-
-For each step the compare-above classified as `pending`:
-
-- **target files exist** (and, if a symbol was named, the symbol is present) →
-  the code contradicts the doc. Do NOT report GREEN. Report
-  `divergence: doc says pending, code says implemented` → **STOP + ?user**
-  (same halt semantics as the "Both diverged" branch — never silently overwrite).
-- **target files absent** → FS-anchor confirms `pending`; no false-positive.
-
-### 4. Unverifiable case
-
-WF/Plan named no structured target paths → FS-anchor cannot run. Do NOT promise
-GREEN; mark the reconciliation result explicitly as `unverified against code` so
-the user knows the step status rests on doc-vs-doc alone.
+- Input `items`: each WF/Plan step the 4-way compare classified as `pending`,
+  with `expected_state='pending'`.
+- Output handling:
+  - verdict `divergence` → STOP + ?user (same halt semantics as the doc-vs-doc
+    "Both diverged" branch — never silently overwrite).
+  - verdict `confirmed_pending` → keep as `pending`, no false-positive.
+  - verdict `unverifiable` → mark reconciliation result explicitly as
+    `unverified against code`; doc-vs-doc result stands but flagged.
 
 ## Finalize
 
