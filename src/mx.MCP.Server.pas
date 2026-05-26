@@ -329,17 +329,6 @@ begin
         'header_content_length=%d actual_bytes=%d delta=%d',
         [HdrLenInt, ActualBytes, HdrLenInt - ActualBytes]));
 
-    // Bug#3345 diagnostic (Session 267) — log raw request-body metrics to
-    // distinguish transport-loss vs parse-loss. BytesLen = on-wire, BodyLen =
-    // UTF-8 decoded chars. First 200 chars + last 200 chars help spot
-    // truncation-points in large bodies. REMOVE after root-cause found.
-    FLogger.Log(mlInfo, Format(
-      '[Bug3345] body: bytes=%d chars=%d head=%s | tail=%s',
-      [Length(C.Request.Content),
-       Length(Body),
-       Copy(Body, 1, 200).Replace(#10, '\n').Replace(#13, '\r'),
-       Copy(Body, Max(1, Length(Body) - 199), 200).Replace(#10, '\n').Replace(#13, '\r')]));
-
     if Body = '' then
     begin
       C.Response.StatusCode := 400;

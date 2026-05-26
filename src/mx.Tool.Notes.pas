@@ -148,7 +148,9 @@ begin
   BodyLen := Length(Body);
   if BodyLen > BODY_HARD_LIMIT then
     raise EMxError.Create('body_too_large',
-      Format('body exceeds hard limit (%d > %d chars)', [BodyLen, BODY_HARD_LIMIT]));
+      Format('body exceeds hard limit (%d > %d chars) — review-notes only; ' +
+             'use mx_create_doc(doc_type=note) for larger content',
+             [BodyLen, BODY_HARD_LIMIT]));
 
   // --- Tag-Whitelist: at least one review-* tag required
   HasValidTag := False;
@@ -434,8 +436,9 @@ begin
     BodyLen := Length(Body);
     if BodyLen > BODY_HARD_LIMIT then
       raise EMxError.Create('body_too_large',
-        Format('body exceeds hard limit (%d > %d chars)',
-          [BodyLen, BODY_HARD_LIMIT]));
+        Format('body exceeds hard limit (%d > %d chars) — review-notes only; ' +
+               'use mx_create_doc(doc_type=note) for larger content',
+               [BodyLen, BODY_HARD_LIMIT]));
   end
   else
     BodyLen := 0;

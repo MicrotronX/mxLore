@@ -427,22 +427,6 @@ begin
   if AParams.GetValue('tags') is TJSONArray then
     TagsArr := AParams.GetValue('tags') as TJSONArray;
 
-  // Bug#3345 diagnostic (Session 267): log per-param lengths at tool-entry.
-  // Compare against mx.MCP.Server.pas raw-body log to see if loss is at
-  // transport-layer (Body string smaller than expected) vs at JSON-parse-
-  // layer (Body complete but AParams.GetValue returns '').
-  AContext.Logger.Log(mlInfo, Format(
-    '[Bug3345.HandleCreateDoc] doc_type=%s title_len=%d content_len=%d body_len=%d ' +
-    'summary1_len=%d summary2_len=%d has_content_key=%s has_body_key=%s',
-    [DocType,
-     Length(Title),
-     Length(AParams.GetValue<string>('content', '')),
-     Length(AParams.GetValue<string>('body', '')),
-     Length(Summary1),
-     Length(Summary2),
-     BoolToStr(AParams.GetValue('content') <> nil, True),
-     BoolToStr(AParams.GetValue('body') <> nil, True)]));
-
   // Auto-Summary: generate L1/L2 from content if not provided (Spec D.19)
   if (Content <> '') and (Summary1 = '') then
     Summary1 := ExtractFirstSentence(Content);
