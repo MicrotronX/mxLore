@@ -428,7 +428,7 @@ begin
   // depth recursion-guard). General note creation stays in mx_create_doc.
   ARegistry
     .Add('mx_create_note', HandleCreateNote)
-    .Desc('Create a review-scoped note (doc_type=note, alComment floor). Requires parent_doc_id + at least one review-* tag. Body limit 8000 chars hard / 2000 soft. Depth hard-limit 10, warn at 5.')
+    .Desc('REVIEW-COMMENTS ONLY. Short inline review feedback on existing docs (max 8000 chars hard / 2000 soft, requires review-* tag + parent_doc_id, depth limit 10). NOT for impl-logs / session-notes / specs / plans — use mx_create_doc(doc_type=note) instead (no size limit). alComment ACL floor.')
     .Param('project', mptString, True, 'Project slug')
     .Param('parent_doc_id', mptInteger, True, 'Parent document (spec/plan/decision/note) the review attaches to — must be same project')
     .Param('title', mptString, True, 'Note title')
@@ -442,7 +442,7 @@ begin
   //   else             -> rejected (edit_window_expired, suggest mx_create_note reply)
   ARegistry
     .Add('mx_update_note', HandleUpdateNote)
-    .Desc('Update a review-note within Edit-Window (60min author / 24h admin / 24h hard-lock). doc_type=note only. Allowed fields: title, body/content, tags. Each edit creates a doc_revisions row.')
+    .Desc('REVIEW-COMMENTS ONLY. Update a review-note within Edit-Window (60min author / 24h admin / 24h hard-lock; body max 8000 chars hard / 2000 soft). NOT for impl-logs / session-notes / specs — for larger or non-review content use mx_create_doc(doc_type=note) instead (no size limit). doc_type=note only. Allowed fields: title, body/content, tags. Each edit creates a doc_revisions row.')
     .Param('doc_id', mptInteger, True, 'ID of the note to update')
     .Param('title', mptString, False, 'New title (optional)')
     .Param('body', mptString, False, 'New body (optional). Alias: content')
