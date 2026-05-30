@@ -93,7 +93,7 @@ uses
   mx.Admin.Api.Settings, mx.Admin.Api.Invite,
   mx.Admin.Api.SelfUpdate, mx.Admin.Api.Notes,
   mx.Admin.Api.Intelligence, mx.Admin.Api.IniEditor,
-  mx.Admin.Api.ProjectBundle;
+  mx.Admin.Api.ProjectBundle, mx.Admin.Api.Graph;
 
 { Shared helpers }
 
@@ -553,6 +553,19 @@ begin
     end;
 
     MxSendError(C, 404, 'not_found');
+    Exit;
+  end;
+
+  // /graph?project={slug} + /graph/universe — admin knowledge graph (Spec#7677)
+  if SameText(ASegments[0], 'graph') and (C.Request.MethodType = THttpMethod.Get) then
+  begin
+    if not RequireAdmin then Exit;
+    if Len = 1 then
+      mx.Admin.Api.Graph.HandleGetGraph(C, FPool, ASession, FLogger)
+    else if (Len = 2) and SameText(ASegments[1], 'universe') then
+      mx.Admin.Api.Graph.HandleGetUniverse(C, FPool, ASession, FLogger)
+    else
+      MxSendError(C, 404, 'not_found');
     Exit;
   end;
 

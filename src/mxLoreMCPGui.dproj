@@ -206,6 +206,7 @@
         <DCCReference Include="mx.Admin.Api.Keys.pas"/>
         <DCCReference Include="mx.Admin.Api.Projects.pas"/>
         <DCCReference Include="mx.Admin.Api.ProjectBundle.pas"/>
+        <DCCReference Include="mx.Admin.Api.Graph.pas"/>
         <DCCReference Include="mx.Admin.Api.Global.pas"/>
         <DCCReference Include="mx.Tool.Notes.pas"/>
         <DCCReference Include="mx.Tool.Env.pas"/>

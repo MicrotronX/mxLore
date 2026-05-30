@@ -1,0 +1,900 @@
+/* ============================================================
+   graph.css — mxLore Knowledge Graph (Admin UI)
+   ⚡ ALL styles scoped under #page-graph. The admin shell is a
+   LIGHT theme (#f7f8fb); this page is a DARK retro-futuristic
+   "observatory" canvas. Nothing here may leak outside #page-graph.
+   Adapted from prototype doc #7678 (SPEC #7677).
+   ============================================================ */
+
+#page-graph {
+  /* --- Dark theme vars (scoped) --- */
+  --g-bg: #0a0e14;
+  --g-bg-soft: #0f1620;
+  --g-panel: rgba(18, 26, 38, 0.82);
+  --g-border: rgba(120, 160, 220, 0.12);
+  --g-text: #c4d3e8;
+  --g-text-dim: #6b7e98;
+  /* doc_type neon palette */
+  --g-lesson: #3ee08a;
+  --g-spec: #4aa3ff;
+  --g-plan: #b07cff;
+  --g-decision: #ffb340;
+  --g-reference: #2fe0d0;
+  --g-feature_request: #ff6bb0;
+  --g-session_note: #7889a8;
+  --g-bugreport: #ff5a6e;
+  --g-note: #d4c98a;
+  --g-todo: #ff9d5c;
+  --g-workflow_log: #5cc8ff;
+
+  position: relative;
+  /* Full-bleed: .page caps at max-width:1200px, centers with margin:0 auto and
+     pads with var(--gap-xl). #page-graph (id) outranks .page (class), so we
+     reset all three — the canvas spans the full browser width below the navbar. */
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  height: calc(100vh - 64px);
+  min-height: 540px;
+  background: var(--g-bg);
+  color: var(--g-text);
+  font-family: 'Sora', system-ui, sans-serif;
+  overflow: hidden;
+  border-radius: 0;
+  isolation: isolate;
+}
+
+/* Load display fonts only when this page exists in the DOM. */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Sora:wght@300;400;600;700&display=swap');
+
+/* Atmospheric nebula wash */
+#page-graph::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 30% 20%, rgba(74, 163, 255, 0.08), transparent 60%),
+    radial-gradient(ellipse 70% 50% at 75% 80%, rgba(176, 124, 255, 0.07), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 90% 10%, rgba(46, 224, 208, 0.05), transparent 55%);
+}
+
+/* Film grain */
+#page-graph::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.025;
+  pointer-events: none;
+  z-index: 1;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* --- SVG canvas --- */
+#page-graph .gp-svg {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+#page-graph .gp-svg:active { cursor: grabbing; }
+
+#page-graph .node-glow { filter: blur(7px); opacity: 0.55; }
+#page-graph .link {
+  stroke-opacity: 0.22;
+  transition: stroke-opacity 0.25s;
+  /* Wave-like "flowing current" along each edge (Obsidian-style). The dash
+     pattern is set per-link in graph.js (period 12); we animate the offset so
+     the dashes stream from source -> target. */
+  animation: gp-flow 1.1s linear infinite;
+}
+#page-graph .link.dim { stroke-opacity: 0.04; animation-play-state: paused; }
+#page-graph .link.hot { stroke-opacity: 0.85; animation-duration: 0.55s; }
+/* Seamless loop: shift by one full dash+gap period (12 user units). */
+@keyframes gp-flow { to { stroke-dashoffset: -12; } }
+@media (prefers-reduced-motion: reduce) {
+  #page-graph .link { animation: none; }
+}
+#page-graph .node-core {
+  transition: opacity 0.25s, r 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+#page-graph .node-core.dim { opacity: 0.18; }
+/* Status encoding: archived / deprecated / completed / superseded / closed read
+   as "settled" — they dim back so live work stays in the foreground. */
+#page-graph .node-core.inactive { opacity: 0.38; }
+#page-graph .node-core.inactive.dim { opacity: 0.1; }
+
+/* ---- Node firing flash: a pulse just landed here (action-potential) ---- */
+#page-graph .node.firing .node-core {
+  opacity: 1;
+  /* core "pop" — eased back by the node-core transition when .firing clears.
+     Brightness comes from the boosted glow halo below (chaining url() with
+     filter-functions is unreliable across SVG renderers, so we avoid it). */
+  transform: scale(1.55);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+#page-graph .node.firing .node-glow { opacity: 1; }
+#page-graph .node-glow { transition: opacity 0.25s; }
+
+/* ---- Hub breathing: high-degree nodes throb slowly, owning the field ---- */
+#page-graph .node-glow.hub {
+  animation-name: gp-breathe;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  /* animation-duration is set per-node inline (scaled by degree) in graph.js */
+  transform-box: fill-box;
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+@keyframes gp-breathe {
+  0%, 100% { opacity: 0.42; transform: scale(0.92); }
+  50%      { opacity: 0.92; transform: scale(1.18); }
+}
+
+/* ---- Synapse pulses: travelling action-potentials along the edges ---- */
+#page-graph .gp-pulse {
+  pointer-events: none;
+  mix-blend-mode: screen; /* neon particles add light where they overlap */
+}
+
+#page-graph .label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  fill: var(--g-text-dim);
+  pointer-events: none;
+  transition: opacity 0.25s, fill 0.25s;
+}
+#page-graph .label.hot { fill: var(--g-text); font-weight: 500; }
+#page-graph .label.dim { opacity: 0.12; }
+
+/* ---- Isolated (unlinked, degree-0) nodes -----------------------------------
+   Hidden by default; the .gp-iso-toggle chip flips .iso-hidden on the SVG root.
+   When shown they are tiny, dim, glow-free dots pooled in a tidy corner cluster;
+   their label only appears on hover. Hover still highlights + opens detail. */
+#page-graph .node.is-iso .node-core {
+  opacity: 0.4;
+  stroke-width: 0;
+  transition: opacity 0.2s, r 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+#page-graph .node.is-iso:hover .node-core { opacity: 0.95; }
+#page-graph .node.is-iso .label { opacity: 0; }
+#page-graph .node.is-iso:hover .label { opacity: 1; fill: var(--g-text); }
+/* Toggle off: hide the dots and their park label together. */
+#page-graph .gp-svg.iso-hidden .node.is-iso,
+#page-graph .gp-svg.iso-hidden .gp-park-label { display: none; }
+
+/* ---- Isolated-node toggle chip (toolbar) ---- */
+#page-graph .gp-iso-toggle {
+  background: var(--g-panel);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--g-border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: var(--g-text-dim);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+  white-space: nowrap;
+  transition: border-color 0.2s, color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+#page-graph .gp-iso-toggle:hover {
+  color: var(--g-text);
+  border-color: rgba(120, 160, 220, 0.3);
+}
+#page-graph .gp-iso-toggle.on {
+  color: var(--g-reference);
+  border-color: rgba(46, 224, 208, 0.45);
+  background: rgba(46, 224, 208, 0.08);
+  box-shadow: 0 0 0 3px rgba(46, 224, 208, 0.08);
+}
+
+/* ---- Park-zone hint: faint marker over the pooled unlinked nodes ---- */
+#page-graph .gp-park-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  fill: var(--g-text-dim);
+  opacity: 0.35;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ---- Zoom-dependent label declutter (toggled on .gp-svg in graph.js) ---- */
+/* Zoomed out: only hub labels survive, keeping the field readable. */
+#page-graph .gp-svg.z-far .label { opacity: 0; }
+#page-graph .gp-svg.z-far .label.is-hub { opacity: 0.7; }
+/* .hot (hover/search) always wins over declutter. */
+#page-graph .gp-svg.z-far .label.hot { opacity: 1; }
+#page-graph .gp-svg.z-far .label.dim { opacity: 0; }
+
+/* ---- reduced-motion: no breathing; pulses are not started in JS ---- */
+@media (prefers-reduced-motion: reduce) {
+  #page-graph .node-glow.hub { animation: none; }
+  #page-graph .node.firing .node-core { transform: none; }
+}
+
+/* --- Header / brand + stats --- */
+#page-graph .gp-header {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 20px 28px;
+  pointer-events: none;
+}
+#page-graph .gp-brand { pointer-events: auto; }
+#page-graph .gp-brand h1 {
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: -0.5px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--g-text);
+}
+#page-graph .gp-brand .gp-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--g-reference);
+  box-shadow: 0 0 12px var(--g-reference), 0 0 24px var(--g-reference);
+  animation: gp-pulse 2.4s ease-in-out infinite;
+}
+@keyframes gp-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .5; transform: scale(.8); } }
+#page-graph .gp-brand p {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--g-text-dim);
+  margin-top: 3px;
+  margin-left: 19px;
+}
+#page-graph .gp-stats { display: flex; gap: 22px; pointer-events: auto; }
+#page-graph .gp-stat { text-align: right; }
+#page-graph .gp-stat .num {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 20px; font-weight: 700;
+  color: var(--g-text); line-height: 1;
+}
+#page-graph .gp-stat .lbl {
+  font-size: 10px; color: var(--g-text-dim);
+  text-transform: uppercase; letter-spacing: 1px; margin-top: 4px;
+}
+
+/* --- Toolbar (project selector + search + truncation hint) --- */
+#page-graph .gp-toolbar {
+  position: absolute;
+  top: 76px; left: 28px;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  pointer-events: auto;
+}
+#page-graph .gp-field {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+#page-graph .gp-field > .gp-field-icon {
+  position: absolute;
+  left: 12px;
+  width: 14px; height: 14px;
+  color: var(--g-text-dim);
+  pointer-events: none;
+}
+#page-graph .gp-select,
+#page-graph .gp-search {
+  background: var(--g-panel);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--g-border);
+  border-radius: 10px;
+  padding: 10px 14px 10px 34px;
+  color: var(--g-text);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  appearance: none;
+  -webkit-appearance: none;
+}
+#page-graph .gp-search { width: 240px; }
+#page-graph .gp-select {
+  cursor: pointer;
+  min-width: 190px;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7e98' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+#page-graph .gp-select option { background: var(--g-bg-soft); color: var(--g-text); }
+#page-graph .gp-select:focus,
+#page-graph .gp-search:focus {
+  border-color: rgba(74, 163, 255, 0.5);
+  box-shadow: 0 0 0 3px rgba(74, 163, 255, 0.1);
+}
+#page-graph .gp-search::placeholder { color: var(--g-text-dim); }
+
+#page-graph .gp-trunc-hint {
+  display: none;
+  align-items: center;
+  gap: 7px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--g-decision);
+  background: rgba(255, 179, 64, 0.08);
+  border: 1px solid rgba(255, 179, 64, 0.22);
+  border-radius: 8px;
+  padding: 7px 12px;
+}
+#page-graph .gp-trunc-hint.show { display: inline-flex; }
+#page-graph .gp-trunc-hint .gp-field-icon { width: 13px; height: 13px; }
+
+/* --- Loading / empty states --- */
+#page-graph .gp-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+#page-graph .gp-overlay.show { display: flex; }
+#page-graph .gp-overlay .gp-spinner {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  border: 2px solid var(--g-border);
+  border-top-color: var(--g-reference);
+  animation: gp-spin 0.8s linear infinite;
+}
+@keyframes gp-spin { to { transform: rotate(360deg); } }
+#page-graph .gp-overlay .gp-empty-icon {
+  width: 48px; height: 48px;
+  color: var(--g-text-dim);
+  opacity: 0.5;
+}
+#page-graph .gp-overlay .gp-msg {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--g-text-dim);
+  max-width: 320px;
+  line-height: 1.6;
+}
+
+/* --- Legend (clickable type filter) --- */
+#page-graph .gp-legend {
+  position: absolute;
+  left: 28px; bottom: 28px;
+  z-index: 10;
+  background: var(--g-panel);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--g-border);
+  border-radius: 14px;
+  padding: 16px;
+  pointer-events: auto;
+  max-width: 210px;
+}
+#page-graph .gp-legend h3 {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--g-text-dim);
+  margin: 0 0 12px;
+  font-weight: 600;
+}
+#page-graph .gp-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 6px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--g-text);
+  transition: background 0.15s, opacity 0.15s;
+  user-select: none;
+}
+#page-graph .gp-legend-item:hover { background: rgba(255, 255, 255, 0.04); }
+#page-graph .gp-legend-item.off { opacity: 0.35; }
+#page-graph .gp-legend-item .swatch {
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+#page-graph .gp-legend-item .cnt {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--g-text-dim);
+}
+
+/* --- Detail panel (slide-in right) --- */
+#page-graph .gp-detail {
+  position: absolute;
+  right: 28px; top: 50%;
+  transform: translateY(-50%) translateX(130%);
+  z-index: 13;
+  width: 300px;
+  background: var(--g-panel);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--g-border);
+  border-radius: 16px;
+  padding: 22px;
+  pointer-events: auto;
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+#page-graph .gp-detail.open { transform: translateY(-50%) translateX(0); }
+#page-graph .gp-detail .type-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 5px 10px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.05);
+  margin-bottom: 14px;
+  color: var(--g-text);
+}
+#page-graph .gp-detail .type-tag .swatch {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+#page-graph .gp-detail h2 {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 0 0 8px;
+  color: var(--g-text);
+}
+#page-graph .gp-detail .docid {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--g-text-dim);
+  margin-bottom: 6px;
+}
+#page-graph .gp-detail .status-line {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--g-text-dim);
+  margin-bottom: 16px;
+}
+#page-graph .gp-detail .status-line b {
+  color: var(--g-text);
+  font-weight: 500;
+}
+#page-graph .gp-detail .summary {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--g-text-dim);
+  margin-bottom: 18px;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+#page-graph .gp-detail .open-doc {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--g-spec);
+  text-decoration: none;
+  padding: 8px 12px;
+  border: 1px solid rgba(74, 163, 255, 0.3);
+  border-radius: 8px;
+  margin-bottom: 18px;
+  cursor: pointer;
+  background: rgba(74, 163, 255, 0.06);
+  transition: background 0.15s, border-color 0.15s;
+}
+#page-graph .gp-detail .open-doc:hover {
+  background: rgba(74, 163, 255, 0.14);
+  border-color: rgba(74, 163, 255, 0.55);
+}
+#page-graph .gp-detail .open-doc .gp-field-icon { width: 13px; height: 13px; }
+#page-graph .gp-detail .rel-head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--g-text-dim);
+  margin-bottom: 10px;
+}
+#page-graph .gp-detail .rel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--g-border);
+  color: var(--g-text);
+}
+#page-graph .gp-detail .rel .verb {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9px;
+  color: var(--g-text-dim);
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.04);
+  white-space: nowrap;
+}
+#page-graph .gp-detail .close {
+  position: absolute;
+  top: 16px; right: 16px;
+  width: 26px; height: 26px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  color: var(--g-text-dim);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+#page-graph .gp-detail .close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--g-text);
+}
+
+/* --- Hint (bottom-right keyboard cues) --- */
+#page-graph .gp-hint {
+  position: absolute;
+  right: 28px; bottom: 28px;
+  z-index: 10;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--g-text-dim);
+  text-align: right;
+  line-height: 1.7;
+  pointer-events: none;
+}
+#page-graph .gp-hint kbd {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--g-border);
+}
+
+/* --- Staggered fade-in of chrome elements on load --- */
+#page-graph .gp-fade {
+  opacity: 0;
+  animation: gp-fade-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+#page-graph .gp-header { animation-delay: 0.05s; }
+#page-graph .gp-toolbar { animation-delay: 0.15s; }
+#page-graph .gp-legend { animation-delay: 0.30s; }
+#page-graph .gp-hint  { animation-delay: 0.40s; }
+@keyframes gp-fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+/* --- Responsive --- */
+@media (max-width: 920px) {
+  #page-graph .gp-stats { display: none; }
+  #page-graph .gp-detail { width: 260px; right: 16px; }
+  #page-graph .gp-toolbar { left: 16px; right: 16px; top: 70px; }
+  #page-graph .gp-search { width: 160px; }
+  #page-graph .gp-legend { left: 16px; bottom: 16px; }
+}
+@media (max-width: 600px) {
+  #page-graph .gp-legend { display: none; }
+  #page-graph .gp-hint { display: none; }
+  #page-graph .gp-detail {
+    width: auto; left: 12px; right: 12px;
+    top: auto; bottom: 12px;
+    transform: translateX(0) translateY(130%);
+  }
+  #page-graph .gp-detail.open { transform: translateX(0) translateY(0); }
+}
+
+/* ============================================================
+   3D "Universe" mode — hand-rolled Three.js galaxy view.
+   All scoped under #page-graph. The .uv-mode class on #page-graph
+   toggles between the 2D graph chrome and the 3D canvas.
+   ============================================================ */
+
+/* WebGL canvas container — sits at the same layer as the 2D SVG. */
+#page-graph .gp-universe {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: none;          /* shown only in universe mode */
+  cursor: grab;
+}
+#page-graph .gp-universe canvas { display: block; }
+
+/* --- Mode visibility toggling --------------------------------- */
+/* Universe mode: show the 3D canvas, hide the 2D-only chrome. */
+#page-graph.uv-mode .gp-universe { display: block; }
+#page-graph.uv-mode .gp-svg,
+#page-graph.uv-mode .gp-legend,
+#page-graph.uv-mode .gp-detail,
+#page-graph.uv-mode .gp-trunc-hint,
+#page-graph.uv-mode .gp-hint,
+#page-graph.uv-mode .gp-search,
+#page-graph.uv-mode .gp-universe-back { display: none; }
+/* The Documents/Relations stat block is meaningless in universe view. */
+#page-graph.uv-mode .gp-stats { opacity: 0; }
+
+/* The "← universe" back button only exists in project mode. */
+#page-graph .gp-universe-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--g-panel);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--g-border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: var(--g-text);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, color 0.2s;
+}
+#page-graph .gp-universe-back:hover {
+  border-color: rgba(74, 163, 255, 0.5);
+  color: #fff;
+  box-shadow: 0 0 0 3px rgba(74, 163, 255, 0.1);
+}
+#page-graph .gp-universe-back .gp-field-icon { width: 14px; height: 14px; }
+
+/* --- HUD (clean / minimal) ------------------------------------ */
+#page-graph .uv-hud {
+  position: absolute;
+  top: 76px; right: 28px;
+  z-index: 11;
+  text-align: right;
+  pointer-events: none;
+  display: none;
+}
+#page-graph.uv-mode .uv-hud { display: block; }
+#page-graph .uv-hud .uv-title {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 13px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--g-text);
+  opacity: 0.85;
+}
+#page-graph .uv-hud .uv-count {
+  margin-top: 4px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--g-text-dim);
+}
+#page-graph .uv-hud .uv-count-n { color: var(--g-spec); }
+
+/* Hover tooltip — follows the pointer. */
+#page-graph .uv-tip {
+  position: absolute;
+  z-index: 12;
+  pointer-events: none;
+  display: none;
+  background: var(--g-panel);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--g-border);
+  border-radius: 8px;
+  padding: 7px 11px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--g-text);
+  max-width: 240px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+#page-graph .uv-tip.show { display: block; }
+#page-graph .uv-tip b {
+  display: block;
+  font-family: 'Sora', system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+#page-graph .uv-tip span { color: var(--g-text-dim); }
+
+/* Empty universe (0 galaxies). */
+#page-graph .uv-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 11;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--g-text-dim);
+  pointer-events: none;
+}
+#page-graph .uv-empty.show { display: flex; }
+
+@media (max-width: 600px) {
+  #page-graph .uv-hud { top: 70px; right: 16px; }
+}
+
+/* ============================================================
+   3D per-project Graph mode — hand-rolled Three.js (graph3d.js).
+   The .g3d-mode class on #page-graph shows the dedicated .gp-3d
+   WebGL layer and hides the 2D SVG chrome, while KEEPING the
+   toolbar + detail panel (shared, reused by graph3d.js).
+   ============================================================ */
+
+/* Dedicated WebGL layer — own DOM node, never shared with the 2D SVG. */
+#page-graph .gp-3d {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: none;          /* shown only in 3D project mode */
+  cursor: grab;
+}
+#page-graph .gp-3d canvas { display: block; }
+
+/* 3D mode: show the WebGL layer, hide the 2D-only chrome. Toolbar + detail
+   panel stay visible (graph3d.js drives them); universe-only chrome already
+   hidden because uv-mode is off in project mode. */
+#page-graph.g3d-mode .gp-3d { display: block; }
+#page-graph.g3d-mode .gp-svg,
+#page-graph.g3d-mode .gp-legend { display: none; }
+/* The keyboard hint mentions "drag nodes" (2D); soften it in 3D. */
+#page-graph.g3d-mode .gp-hint { opacity: 0.5; }
+
+/* --- 2D⇄3D toggle button (toolbar, project mode only) --- */
+#page-graph .gp-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--g-panel);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--g-border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: var(--g-text);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, color 0.2s;
+}
+#page-graph .gp-mode-toggle:hover {
+  border-color: rgba(74, 163, 255, 0.5);
+  color: #fff;
+  box-shadow: 0 0 0 3px rgba(74, 163, 255, 0.1);
+}
+
+/* --- HUD (minimal) --- */
+#page-graph .g3d-hud {
+  position: absolute;
+  top: 76px; right: 28px;
+  z-index: 11;
+  text-align: right;
+  pointer-events: none;
+  display: none;
+}
+#page-graph.g3d-mode .g3d-hud { display: block; }
+#page-graph .g3d-hud .g3d-title {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  color: var(--g-text);
+  opacity: 0.85;
+}
+#page-graph .g3d-hud .g3d-count {
+  margin-top: 4px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--g-text-dim);
+}
+#page-graph .g3d-hud .g3d-count-n { color: var(--g-spec); }
+#page-graph .g3d-hud .g3d-trunc {
+  display: none;
+  margin-top: 3px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--g-todo);
+}
+#page-graph .g3d-hud .g3d-trunc.show { display: block; }
+
+/* Hover tooltip — follows the pointer. */
+#page-graph .g3d-tip {
+  position: absolute;
+  z-index: 12;
+  pointer-events: none;
+  display: none;
+  background: var(--g-panel);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--g-border);
+  border-radius: 8px;
+  padding: 7px 11px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--g-text);
+  max-width: 260px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+#page-graph .g3d-tip.show { display: block; }
+#page-graph .g3d-tip b {
+  display: block;
+  font-family: 'Sora', system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+#page-graph .g3d-tip span { color: var(--g-text-dim); }
+
+/* Empty project (0 documents). */
+#page-graph .g3d-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 11;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--g-text-dim);
+  pointer-events: none;
+}
+#page-graph .g3d-empty.show { display: flex; }
+
+/* Back hint — bottom-centre cue shown only while a node is focused. */
+#page-graph .g3d-back {
+  position: absolute;
+  left: 50%; bottom: 26px;
+  transform: translateX(-50%) translateY(8px);
+  z-index: 12;
+  display: none;
+  opacity: 0;
+  pointer-events: none;
+  background: var(--g-panel);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--g-border);
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--g-text-dim);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+#page-graph .g3d-back.show {
+  display: block;
+  opacity: 0.92;
+  transform: translateX(-50%) translateY(0);
+}
+#page-graph .g3d-back kbd {
+  background: rgba(255, 255, 255, 0.07);
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--g-border);
+  color: var(--g-text);
+}
+#page-graph .g3d-back span { color: var(--g-spec); }
+
+@media (max-width: 600px) {
+  #page-graph .g3d-hud { top: 70px; right: 16px; }
+  #page-graph .g3d-back { bottom: 16px; }
+}

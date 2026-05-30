@@ -692,7 +692,7 @@ var App = (function () {
     // Admin-only pages: guard at entry point (hash-direct + nav click both hit here).
     if (page === 'global' || page === 'intelligence' ||
         page === 'developers' || page === 'connect' ||
-        page === 'settings') {
+        page === 'graph' || page === 'settings') {
       if (requireAdminOrRedirect()) return;
     }
 
@@ -712,6 +712,8 @@ var App = (function () {
       loadSettingsPage();
     } else if (page === 'connect') {
       loadConnectPage();
+    } else if (page === 'graph') {
+      GraphPage.loadGraphPage();
     }
   }
 
@@ -4001,6 +4003,13 @@ var App = (function () {
         var docId = parseInt(docParts[1]);
         var docTab = docParts[2] || 'content';
         if (docId) { openDoc(docId, docTab); return; }
+      }
+      // Knowledge Graph: #graph or #graph/:slug — project survives F5 / bookmark.
+      if (restoreHash === 'graph' || restoreHash.indexOf('graph/') === 0) {
+        var gSlug = restoreHash.split('/')[1] || null;
+        if (window.GraphPage && GraphPage.setPendingSlug) GraphPage.setPendingSlug(gSlug);
+        navigateTo('graph');
+        return;
       }
       // FR#3296 — Settings hash #settings/:tab restore
       if (restoreHash.indexOf('settings') === 0) {

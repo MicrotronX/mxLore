@@ -48,6 +48,7 @@ uses
   mx.Admin.Api.Keys     in 'mx.Admin.Api.Keys.pas',
   mx.Admin.Api.Projects in 'mx.Admin.Api.Projects.pas',
   mx.Admin.Api.ProjectBundle in 'mx.Admin.Api.ProjectBundle.pas',
+  mx.Admin.Api.Graph    in 'mx.Admin.Api.Graph.pas',
   mx.Admin.Api.Global   in 'mx.Admin.Api.Global.pas',
   mx.Tool.Notes         in 'mx.Tool.Notes.pas',
   mx.Tool.Env           in 'mx.Tool.Env.pas',

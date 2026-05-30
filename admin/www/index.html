@@ -7,6 +7,8 @@
   <title>mxLore — Admin</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/graph.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 </head>
 <body>
 <div class="app-shell">
@@ -35,6 +37,10 @@
       <button class="nav-link" data-nav="projects" onclick="App.navigateTo('projects')">
         <i data-lucide="folder-open" class="icon-sm"></i>
         <span>Projects</span>
+      </button>
+      <button class="nav-link" data-nav="graph" data-admin-only onclick="App.navigateTo('graph')">
+        <i data-lucide="git-fork" class="icon-sm"></i>
+        <span>Graph</span>
       </button>
       <button class="nav-link" data-nav="connect" data-admin-only onclick="App.navigateTo('connect')">
         <i data-lucide="link" class="icon-sm"></i>
@@ -1512,6 +1518,40 @@
     </div>
   </div>
 
+  <!-- ===== Knowledge Graph ===== -->
+  <div id="page-graph" class="page">
+    <div class="gp-universe"></div>
+    <div class="gp-3d"></div>
+    <svg class="gp-svg"></svg>
+    <div class="gp-header gp-fade">
+      <div class="gp-brand"><h1><span class="gp-dot"></span>mxLore</h1><p>knowledge graph · live</p></div>
+      <div class="gp-stats">
+        <div class="gp-stat"><div class="num gp-stat-nodes">0</div><div class="lbl">Documents</div></div>
+        <div class="gp-stat"><div class="num gp-stat-links">0</div><div class="lbl">Relations</div></div>
+      </div>
+    </div>
+    <div class="gp-toolbar gp-fade">
+      <button class="gp-universe-back" type="button"><i data-lucide="orbit" class="gp-field-icon"></i>universe</button>
+      <div class="gp-field"><i data-lucide="folder-open" class="gp-field-icon"></i><select class="gp-select gp-project-select"></select></div>
+      <div class="gp-field"><i data-lucide="search" class="gp-field-icon"></i><input class="gp-search" type="text" placeholder="search documents…" autocomplete="off"></div>
+      <div class="gp-trunc-hint"><i data-lucide="layers" class="gp-field-icon"></i><span class="gp-trunc-text"></span></div>
+    </div>
+    <div class="gp-overlay"><div class="gp-spinner"></div><i data-lucide="circle-off" class="gp-empty-icon"></i><div class="gp-msg"></div></div>
+    <div class="gp-legend"><h3>Document Types</h3><div class="gp-legend-items"></div></div>
+    <div class="gp-detail">
+      <button class="close" type="button">×</button>
+      <div class="type-tag"><span class="swatch"></span><span class="gp-d-type"></span></div>
+      <h2 class="gp-d-title"></h2>
+      <div class="docid gp-d-id"></div>
+      <div class="status-line gp-d-status"></div>
+      <div class="summary gp-d-summary"></div>
+      <a class="open-doc gp-d-open"><i data-lucide="external-link" class="gp-field-icon"></i>open doc</a>
+      <div class="rel-head">Relations</div>
+      <div class="gp-d-rels"></div>
+    </div>
+    <div class="gp-hint gp-fade"><div><kbd>drag</kbd> nodes · <kbd>scroll</kbd> zoom</div><div><kbd>click</kbd> for details</div></div>
+  </div>
+
 </div><!-- /app-shell -->
 
 <!-- ===== Modal: New Invite ===== -->
@@ -1850,6 +1890,11 @@
 <script src="js/acl-helper.js"></script>
 <script src="js/api.js"></script>
 <script src="js/app.js"></script>
+<script src="js/lib/three.min.js"></script>
+<script src="js/lib/OrbitControls.js"></script>
+<script src="js/universe.js"></script>
+<script src="js/graph3d.js"></script>
+<script src="js/graph.js"></script>
 <script src="js/self-update.js"></script>
   <script src="js/deep-threads.js"></script>
   <script src="js/intelligence.js"></script>
