@@ -13,7 +13,7 @@ echo "Building ${BASENAME}..."
 
 # Clean
 rm -rf "release/${BASENAME}" "${ZIPFILE}"
-mkdir -p "${OUTDIR}/sql" "${OUTDIR}/admin/www/js" "${OUTDIR}/admin/www/css" "${OUTDIR}/lib" "${OUTDIR}/claude-setup/proxy"
+mkdir -p "${OUTDIR}/sql" "${OUTDIR}/admin/www/js" "${OUTDIR}/admin/www/js/lib" "${OUTDIR}/admin/www/css" "${OUTDIR}/lib" "${OUTDIR}/claude-setup/proxy"
 
 # Server EXEs
 cp "${SRCDIR}/mxLoreMCP.exe"     "${OUTDIR}/"
@@ -38,6 +38,10 @@ cp "${SRCDIR}/admin/www/favicon.svg"       "${OUTDIR}/admin/www/"
 # drops newly added assets (e.g. acl-helper.js) and ships a broken Admin-UI.
 cp "${SRCDIR}"/admin/www/css/*.css "${OUTDIR}/admin/www/css/"
 cp "${SRCDIR}"/admin/www/js/*.js   "${OUTDIR}/admin/www/js/"
+# Vendored frontend libs (three.js, OrbitControls) live in js/lib/ — the
+# js/*.js glob above does NOT recurse, so they must be copied explicitly or
+# the 3D Knowledge Graph breaks in distributed builds (Spec#7677).
+cp "${SRCDIR}"/admin/www/js/lib/*.js "${OUTDIR}/admin/www/js/lib/"
 
 # claude-setup (skills, hooks, reference — served by mx_onboard_developer)
 cp -r "${SRCDIR}/claude-setup/skills" "${OUTDIR}/claude-setup/skills"
