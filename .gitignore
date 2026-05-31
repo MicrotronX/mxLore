@@ -28,6 +28,9 @@ logs/
 backups/
 release/
 lib/
+# ...but the vendored frontend graph libs are needed for the 3D view in a clone
+!admin/www/js/lib/
+!admin/www/js/lib/*.js
 bin/
 docs/status.md
 docs/reference/
