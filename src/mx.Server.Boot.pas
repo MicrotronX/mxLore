@@ -848,6 +848,60 @@ begin
       finally
         MigQry.Free;
       end;
+
+      // sql/050 step 1: agent_messages.sender_client_key_id INT NULL.
+      // Carries client-key identity into messages so the inbox self-echo guard
+      // distinguishes two API keys of the SAME developer in the SAME project
+      // (e.g. Claude Code vs ChatGPT under one dev account). Additive + NULL
+      // default => backward compatible: legacy rows stay NULL and are never
+      // suppressed by the NULL-guarded self-echo clause.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''agent_messages'' ' +
+        '  AND column_name = ''sender_client_key_id''');
+      try
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/050 step 1 — ADD agent_messages.sender_client_key_id + idx');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE agent_messages ' +
+            'ADD COLUMN sender_client_key_id INT DEFAULT NULL AFTER sender_developer_id');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          var IdxQry := MigCtx.CreateQuery(
+            'CREATE INDEX fk_am_sender_key ON agent_messages(sender_client_key_id)');
+          try IdxQry.ExecSQL; finally IdxQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/050 step 1 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // sql/050 step 2: ADD FK fk_am_sender_key (separate check — FK has no
+      // IF NOT EXISTS). ON DELETE SET NULL preserves message history when a
+      // client key is revoked/deleted. Reuses the same-named index from step 1.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.table_constraints ' +
+        'WHERE table_schema = :db AND table_name = ''agent_messages'' ' +
+        '  AND constraint_name = ''fk_am_sender_key''');
+      try
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/050 step 2 — ADD fk_am_sender_key');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE agent_messages ' +
+            'ADD CONSTRAINT fk_am_sender_key ' +
+            '  FOREIGN KEY (sender_client_key_id) REFERENCES client_keys(id) ' +
+            '  ON DELETE SET NULL');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/050 step 2 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
     finally
       MigCtx := nil;
     end;

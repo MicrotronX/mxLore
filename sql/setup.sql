@@ -362,6 +362,7 @@ CREATE TABLE IF NOT EXISTS `agent_messages` (
   `sender_session_id` int(11) NOT NULL,
   `sender_project_id` int(11) NOT NULL,
   `sender_developer_id` int(11) NOT NULL,
+  `sender_client_key_id` int(11) DEFAULT NULL,
   `target_project_id` int(11) NOT NULL,
   `target_developer_id` int(11) DEFAULT NULL,
   `message_type` varchar(30) NOT NULL,
@@ -376,13 +377,15 @@ CREATE TABLE IF NOT EXISTS `agent_messages` (
   PRIMARY KEY (`id`),
   KEY `fk_am_ref_doc` (`ref_doc_id`),
   KEY `fk_am_target_dev` (`target_developer_id`),
+  KEY `fk_am_sender_key` (`sender_client_key_id`),
   KEY `idx_am_inbox` (`target_project_id`,`target_developer_id`,`status`,`created_at`),
   KEY `idx_am_sender` (`sender_project_id`,`created_at`),
   KEY `idx_am_ref_msg` (`ref_message_id`),
   CONSTRAINT `fk_am_ref_doc` FOREIGN KEY (`ref_doc_id`) REFERENCES `documents` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_am_sender_project` FOREIGN KEY (`sender_project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_am_target_project` FOREIGN KEY (`target_project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_am_target_dev` FOREIGN KEY (`target_developer_id`) REFERENCES `developers` (`id`) ON DELETE SET NULL
+  CONSTRAINT `fk_am_target_dev` FOREIGN KEY (`target_developer_id`) REFERENCES `developers` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_am_sender_key` FOREIGN KEY (`sender_client_key_id`) REFERENCES `client_keys` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `notifications` (

@@ -331,15 +331,23 @@ begin
   // Insert message
   Qry := AContext.CreateQuery(
     'INSERT INTO agent_messages ' +
-    '(sender_session_id, sender_project_id, sender_developer_id, ' +
+    '(sender_session_id, sender_project_id, sender_developer_id, sender_client_key_id, ' +
     ' target_project_id, target_developer_id, message_type, payload, ref_doc_id, ' +
     ' priority, expires_at) ' +
-    'VALUES (:sid, :spid, :did, :tpid, :tdid, :mtype, :payload, :rdid, ' +
+    'VALUES (:sid, :spid, :did, :ckid, :tpid, :tdid, :mtype, :payload, :rdid, ' +
     ' :prio, DATE_ADD(NOW(), INTERVAL :ttl DAY))');
   try
     Qry.ParamByName('sid').AsInteger := SenderSessionId;
     Qry.ParamByName('spid').AsInteger := SenderProjectId;
     Qry.ParamByName('did').AsInteger := Auth.DeveloperId;
+    // Self-echo guard discriminator (sql/050): stamp the sender's client_key so
+    // the inbox can distinguish two keys of the same developer. NULL when the
+    // caller has no key identity — legacy-equivalent, never self-suppressed.
+    Qry.ParamByName('ckid').DataType := ftInteger;
+    if Auth.KeyId > 0 then
+      Qry.ParamByName('ckid').AsInteger := Auth.KeyId
+    else
+      Qry.ParamByName('ckid').Clear;
     Qry.ParamByName('tpid').AsInteger := TargetProjectId;
     Qry.ParamByName('tdid').DataType := ftInteger;
     if TargetDeveloperId > 0 then
@@ -432,6 +440,7 @@ begin
 
   Opts.ProjectId := ResolveProject(AContext, ProjectSlug, alReadOnly);
   Opts.MyDeveloperId := Auth.DeveloperId;
+  Opts.MyClientKeyId := Auth.KeyId;    // sql/050 key-granular self-echo discriminator
   Opts.FilterTargetDeveloper := True;  // Spec #1964 broadcast/direct filter
   Opts.FilterSelfEcho := True;         // Build 105 intra-project self-talk guard
 

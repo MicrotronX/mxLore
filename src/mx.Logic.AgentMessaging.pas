@@ -15,8 +15,10 @@ unit mx.Logic.AgentMessaging;
 // Invariants enforced here (not in shells):
 //  - Archive-expired UPDATE runs first on every fetch (was MCP-tool-only,
 //    CC2050 flagged as live correctness bug — REST pollers got stale rows).
-//  - Query builder preserves `:my_did2`/`:my_pid2` duplicate param-binding
-//    (FireDAC macro-expands `:foo` once; rename would break self-echo guard).
+//  - Self-echo guard is KEY-granular (`:my_key2`/`:my_pid2`): suppresses only
+//    the caller's own client-key+project, so two keys of one developer message
+//    each other. NULL-guarded for legacy rows. Distinct param names are
+//    deliberate (FireDAC macro-expands `:foo` once; reuse would break it).
 //  - Authentication identity (MyDeveloperId) passed explicitly — Logic never
 //    reaches for thread-locals (testability + cross-request leakage hygiene).
 //  - IMxDbContext passed as parameter per call; never cached (per-request
@@ -33,9 +35,13 @@ type
   TAgentInboxOptions = record
     ProjectId: Integer;            // target project (mandatory, > 0)
     MyDeveloperId: Integer;        // caller's developer id; 0 = no dev identity
+    MyClientKeyId: Integer;        // caller's client_key id; 0 = no key identity
     LimitCount: Integer;           // 1-50, caller enforces bounds
     FilterTargetDeveloper: Boolean;// true => (target_developer_id IS NULL OR = MyDeveloperId)
-    FilterSelfEcho: Boolean;       // true => NOT (sender_did = MyDeveloperId AND sender_pid = ProjectId)
+    FilterSelfEcho: Boolean;       // true => suppress caller's OWN sent msgs:
+                                   //   NOT (sender_client_key_id = MyClientKeyId AND sender_pid = ProjectId).
+                                   //   KEY-granular (not developer) so two keys of one dev see each other.
+                                   //   NULL-guarded: legacy NULL-key rows are never suppressed.
   end;
 
   TAgentInboxRow = record
@@ -120,14 +126,20 @@ begin
     Result := Result +
       '  AND (am.target_developer_id IS NULL OR am.target_developer_id = :my_did)';
 
-  // Self-echo guard: PROJECT-SCOPED — suppress only true intra-project
-  // self-talk (same dev AND same project). Cross-project same-dev traffic
-  // (e.g. mx-erp <-> mx-erp-docs under one key) must flow through. The
-  // duplicate `:my_did2`/`:my_pid2` names are DELIBERATE — FireDAC macro-
-  // expands `:foo` once per statement; renaming them breaks the guard.
+  // Self-echo guard: KEY-SCOPED + PROJECT-SCOPED — suppress only the caller's
+  // OWN sent messages (same client_key AND same project). Compares at
+  // client_key granularity (NOT developer) so two API keys of the same
+  // developer in one project (e.g. Claude Code vs ChatGPT) see each other's
+  // messages instead of being wrongly filtered as self-talk. Cross-project
+  // same-key traffic (e.g. mx-erp <-> mx-erp-docs under one key) still flows
+  // through. NULL-guard (`sender_client_key_id IS NOT NULL`) keeps legacy
+  // pre-migration rows (NULL key) visible — backward compatible. The distinct
+  // `:my_key2`/`:my_pid2` names are DELIBERATE — FireDAC macro-expands `:foo`
+  // once per statement; reusing `:my_did` would break this guard.
   if AOpts.FilterSelfEcho then
     Result := Result +
-      '  AND NOT (am.sender_developer_id = :my_did2 ' +
+      '  AND NOT (am.sender_client_key_id IS NOT NULL ' +
+      '           AND am.sender_client_key_id = :my_key2 ' +
       '           AND am.sender_project_id = :my_pid2)';
 
   Result := Result + ' ORDER BY am.created_at ASC LIMIT :lim';
@@ -152,7 +164,7 @@ begin
       Qry.ParamByName('my_did').AsInteger := AOpts.MyDeveloperId;
     if AOpts.FilterSelfEcho then
     begin
-      Qry.ParamByName('my_did2').AsInteger := AOpts.MyDeveloperId;
+      Qry.ParamByName('my_key2').AsInteger := AOpts.MyClientKeyId;
       Qry.ParamByName('my_pid2').AsInteger := AOpts.ProjectId;
     end;
     Qry.ParamByName('lim').AsInteger := AOpts.LimitCount;

@@ -467,6 +467,7 @@ begin
     // REST path left expired messages as 'pending' forever (CC2050 review).
     Opts.ProjectId := ProjectId;
     Opts.MyDeveloperId := 0;
+    Opts.MyClientKeyId := 0;  // sql/050: unused here (FilterSelfEcho=False) — init for hygiene
     Opts.LimitCount := 20;
     Opts.FilterTargetDeveloper := False;
     Opts.FilterSelfEcho := False;
