@@ -174,7 +174,9 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 116;
+  MXAI_BUILD   = 117;
+  // Build 117 (2026-06-10): proxy_sha256 in mx_ping (lazy SHA256 cache) +
+  //   shared ResolveProxyExePath (mx.Admin.Server reuses it) — Fable5 review F1.
   // Build 110 (Session 282, 2026-04-24): FR#3360 Admin-UI Dev-Login +
   //   4-level ACL-Filter. M1 Auth-Guard-Lift (lrNotAdmin → ui_login_enabled
   //   + ACL-presence, admin hard-bypass). M2 ACL-Filter server-side

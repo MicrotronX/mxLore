@@ -46,6 +46,8 @@ Downloads the zip, extracts skills into `~/.claude/skills/`, hooks into `~/.clau
 bash ~/.claude/skills/mxSetup/scripts/install-skills.sh
 ```
 
+Phase 2+3 may run in parallel (independent downloads); Phase 4+5 remain sequential.
+
 ⚡ **Scope limit:** `install-skills.sh` copies hook FILES into `~/.claude/hooks/` but does **NOT** modify `~/.claude/settings.json`. Hook **registration** (`PreToolUse` / `PostToolUse` / `Stop` / etc. entries) happens in Phase 5b below — running `install-skills.sh` standalone leaves hook files on disk but inactive until settings.json is updated.
 
 Optional: `REPO_REF=v2.4.0 bash ~/.claude/skills/mxSetup/scripts/install-skills.sh` pins a release tag instead of `main` HEAD (default remains `main` until `mxLore-skills` cuts tagged releases).
@@ -57,10 +59,11 @@ Optional: `REPO_REF=v2.4.0 bash ~/.claude/skills/mxSetup/scripts/install-skills.
 1. **Resolve Download URL** from mx_ping response:
    - Use `proxy_download_url` — always set when `admin_port > 0` (external URL if configured, otherwise localhost)
    - If `admin_port` missing in mx_ping response: warning, skip proxy install.
-2. Downloads the proxy EXE to `~/.claude/mxMCPProxy.exe` and verifies size (>100KB):
+2. Downloads the proxy EXE to `~/.claude/mxMCPProxy.exe` and verifies integrity (SHA256 if available, else size >100KB):
 ```bash
 PROXY_URL="<RESOLVED-URL>" bash ~/.claude/skills/mxSetup/scripts/install-proxy.sh
 ```
+   Pass `proxy_sha256` from the mx_ping response (if present) as `EXPECTED_SHA256="<sha>"` to install-proxy.sh.
 3. Create proxy INI (Write tool → `~/.claude/mxMCPProxy.ini`):
 ```ini
 [Server]
@@ -180,3 +183,4 @@ claude plugin install superpowers@claude-plugins-official
 - **Skills always overwritten** — GitHub = source of truth
 - **Encoding:** UTF-8 without BOM
 - **MCP scope:** ALWAYS `-s user`
+- **Interactive questions** (`?user`) → AskUserQuestion tool (structured options) !freetext

@@ -101,6 +101,7 @@ Forces `mx_session_start` ignoring cached `session_id` (see Init pre-routing ste
 6. **⚡ Context-Note Enrichment (Bug#3230 + FR#3566) — MANDATORY, NEVER SKIP, BOTH PATHS:**
    - Stack-pop path (stack >= 1): `mx_search(project, doc_type='session_note', query='<WF-ID> OR <primary_artifact_IDs> OR <outcome-keywords>', limit=4)` — ALWAYS runs, recency-ordered (`updated_at DESC`). Hit -> `mx_detail(note_id, max_content_tokens=1500)`. 0-hit is valid, NOT a reason to skip. Outcome-keywords + limit rationale (Bug#6813) → `references/resume-enrichment.md`.
    - Empty-stack path (stack = []): unconditional `mx_detail(state.last_save_session_note_doc_id)` if set + `mx_search(doc_type='session_note', limit=4)` fallback. Both paths run Step 6.
+   - ⚡ independent enrichment calls (mx_search + mx_detail on last_save_session_note_doc_id / primary_artifact) → parallel in one message !sequential
    - **Event-log marker (mandatory both paths):** resume event MUST include `context-note=<note_id>` or `context-note=none` in `detail`. Missing = rule violation. `wf=null` for empty-stack path, `wf=<WF-ID>` for stack-pop.
    - **unbacked-decision tag detect:** after primary_artifact `mx_detail`, inspect tags for `unbacked-decision`; if present, regex-scan body via shared regex (Read `~/.claude/skills/_shared/decision-marker.md`). Store `{tag_present, marker_count, spec_id}` for Step 8 rendering.
    - Full prose / rationale / unbacked-decision render-rules -> `references/resume-enrichment.md`.

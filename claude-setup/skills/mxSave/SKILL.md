@@ -3,7 +3,7 @@ name: mxSave
 description: Use when the user says "save state", "/mxSave", "session end", "before /compact", "wrap up", or otherwise wants to persist the current mx-project state (clean settings, update CLAUDE.md + docs/status.md, create session notes in MCP-DB, sync orchestrate-state deltas, emit clear-cycle tip). Loop-capable. Fires at natural session-end boundaries.
 user-invocable: true
 effort: medium
-allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task
+allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
 argument-hint: "[optional-notes] [--loop] [--clear-cycle]"
 ---
 
@@ -78,7 +78,7 @@ Check WFs whose title starts with "Ad-hoc:":
     - Extract `- [ ]` lines from `## Tasks` (Plan) or `## Acceptance Criteria` (Spec) as items
     - All items return `divergence` → stale-suspect (code shipped, doc not flipped)
     - Any item `confirmed_pending` → NOT stale (real work outstanding) → skip
-    - All items `unverifiable` → skip silently (cannot determine, no false positive)
+    - All items `unverifiable` → skip (cannot determine, no false positive). !per-item output; when N>0 emit one aggregate line: `stale-sweep: N of M candidates unverifiable, skipped`
 - Build candidate list: `[{doc_id, title, doc_type, divergence_count, evidence, days_since_update}]`
 - ⚡ User-Prompt (sequential per item — tag is set ONLY on `skip` to avoid orphan-tag if user aborts mid-prompt):
   - Show: `<type>#<id>: <title>` + `evidence: <path>` + `age: <D>d` + `(y=archive / n=ignore / skip=tag-for-next-session)`
@@ -184,7 +184,7 @@ Mode-agnostic threshold emit consuming `N` (normal: `last_save_deltas` set by St
 
 | N | Output | Notes |
 |---|---|---|
-| `>=15` | Active prompt: `Session is large (<N> deltas persisted). /clear + new session + mx_briefing is now worthwhile. Execute? (1=yes /clear / 2=no, keep working)` then wait | `--loop` downgrades to `>=10` tip (no interactive waits) |
+| `>=15` | Active prompt via AskUserQuestion tool: question=`Session is large (<N> deltas persisted). /clear + new session + mx_briefing is now worthwhile. Execute?` options: `yes, run /mxSave + suggest /clear` / `no, keep working` | `--loop` downgrades to `>=10` tip (no interactive waits) |
 | `>=10` | Tip line: `Tip: <N> deltas persisted. /clear + new session + mx_briefing is worthwhile when convenient.` | |
 | `>=1` | Marketing: `Clear-Cycle: <N> deltas persisted. /clear + manual mx_briefing ready.` | No token-multiplier numbers (state_deltas counts DB events not transcript tokens) |
 | `==0` | silent | |
@@ -220,6 +220,7 @@ Constraints: !settings.local.json cleanup (manual only), !Prompts, !interactive 
 - ⚡ Session notes derived from chat, facts only !speculation. ∅info→"Open question"
 - !auto-create ADRs→suggest /mxDecision. !delete existing content→supplement/compact
 - Encoding: UTF-8 without BOM. Prefer MCP, local=fallback
+- ⚡ Interactive questions (all `?user` prompts incl. stale-sweep y/n/skip)→AskUserQuestion tool. !freetext-numbered-prompts
 
 ## Completion
 Output: (1) Table: file/DB-entry+action (created/changed/unchanged) (2) Active workflows+current step (3) Next step (4) ADR hint if decisions were made in chat

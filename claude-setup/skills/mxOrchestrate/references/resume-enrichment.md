@@ -53,6 +53,7 @@ STACK-INDEPENDENT and STILL RUN.
   recent). 0-hit is valid, NOT a reason to skip. `limit=4` raised from 2
   (Bug#6813) for consistency with the stack-pop path; the empty-stack path is
   already recency-ordered, so no outcome-keyword query is needed here.
+- ⚡ Independent enrichment calls (`mx_detail` + `mx_search`) → parallel in one message !sequential.
 - **Unconditional resume-event:** write `events_log` entry `{type: 'resume',
   wf: null, detail: '...context-note=<id|none>...'}`. `wf=null` explicitly
   signals the empty-stack path and keeps the audit-grep catchable.

@@ -48,6 +48,7 @@ This skill fires on:
 4. ⚡ **MCP down → continue with CLAUDE.md + status.md + local files only; never abort Phase 1.**
 
 ## Phase 2: Analysis (max 5 categories from rules files)
+>5 categories hit → rank by finding-count desc, tie-break by highest severity, take top 5; remaining findings keep their rule_id but are grouped under 'other'.
 
 ### Mode 1: Design-Check
 Read design completely(DB/local)→identify affected source files→read relevant sections(ONLY affected methods !entire files)→check rules: change safe? Code examples=codebase?
@@ -57,6 +58,9 @@ Read code→search related design(MCP: mx_search doc_type='spec'/'plan' | local:
 
 ### Mode 3: Spec-Review
 Read spec completely→apply spec-review.md rules→check technical feasibility
+
+## Adversarial Verify (optional, on request or `--adversarial`)
+Each finding above INFO → 1 independent refuter-agent (parallel, prompt: 'Try to refute this finding with code proof'). Refuted → discard; partially refuted → downgrade severity. Output notes refuted-count. Costs ~1 agent/finding — use for release-gates or low-confidence runs.
 
 ## Phase 3: Report
 
@@ -79,6 +83,7 @@ X CRITICAL | Y WARNING | Z INFO | **Not checked:** <irrelevant cats>
 ## Phase 3b: Persist findings (Skill Evolution)
 MCP available (Phase 1 mx_ping OK) AND Findings > 0:
 For each finding: `mx_skill_manage(action='record_finding', skill='mxDesignChecker', rule_id='<cat-lowercase>', project='<slug>', severity='<sev-lowercase>', title='<finding summary>', file_path='<file>', line_number=<line>, context_hash='<file>:<line>', details='<code-proof + finding>')`
+⚡ Issue record_finding calls in parallel (independent writes, single message multi-tool-call) !sequential one-by-one.
 
 ⚡ **Canonical rule_id slugs (English, lowercase with dashes):** `ownership-lifecycle`, `error-handling`, `api-design`, `threading`, `spec-feasibility`, `architecture`, `naming`, `testability`, `security-design`, `data-flow`. Derived from `references/delphi-rules.md`, `references/web-rules.md`, `references/general-rules.md`, `references/spec-review.md`. Do NOT use ad-hoc German / mixed slugs.
 

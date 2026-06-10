@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Download mxMCPProxy.exe from the resolved URL and verify minimum size.
+# Download mxMCPProxy.exe from the resolved URL and verify integrity
+# (SHA256 via EXPECTED_SHA256 env if set, else minimum-size fallback).
 set -euo pipefail
 
 : "${PROXY_URL:?PROXY_URL must be set (resolved from mx_ping proxy_download_url)}"
@@ -28,14 +29,26 @@ mkdir -p "$CLAUDE_HOME"
 curl -fL --proto '=https' --proto-redir '=https' --retry 3 --max-time 300 --connect-timeout 10 -o "$DEST_NEW" "$PROXY_URL" \
   || { rm -f "$DEST_NEW"; echo "ERROR: proxy download failed from $PROXY_URL" >&2; exit 1; }
 
-# TODO: replace 100KB size check with SHA256 verification once mx_ping
-# response includes proxy_sha256 field. See memory: project_mx_skill_optimization_initiative.
-# Size check (portable: wc -c works on Windows Git-Bash + Linux + macOS)
+# Integrity check: SHA256 when EXPECTED_SHA256 is provided (caller passes
+# proxy_sha256 from the mx_ping response, if the server exposes it).
+# Fallback: weak 100KB size check until every server ships proxy_sha256.
 SIZE=$(wc -c < "$DEST_NEW")
-if [ "$SIZE" -lt "$MIN_SIZE" ]; then
-  echo "ERROR: $DEST_NEW is $SIZE bytes (<$MIN_SIZE). Proxy download failed." >&2
-  rm -f "$DEST_NEW"
-  exit 1
+if [ -n "${EXPECTED_SHA256:-}" ]; then
+  ACTUAL_SHA256=$(sha256sum "$DEST_NEW" | awk '{print $1}')
+  if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+    rm -f "$DEST_NEW"
+    echo "ERROR: SHA256 mismatch for downloaded proxy (expected $EXPECTED_SHA256, got $ACTUAL_SHA256). Download deleted, aborting." >&2
+    exit 1
+  fi
+  echo "SHA256 verified: $ACTUAL_SHA256"
+else
+  echo "WARN: sha256 unavailable, weak size-check only" >&2
+  # Size check (portable: wc -c works on Windows Git-Bash + Linux + macOS)
+  if [ "$SIZE" -lt "$MIN_SIZE" ]; then
+    echo "ERROR: $DEST_NEW is $SIZE bytes (<$MIN_SIZE). Proxy download failed." >&2
+    rm -f "$DEST_NEW"
+    exit 1
+  fi
 fi
 
 mv -f "$DEST_NEW" "$DEST" || { echo "ERROR: mv $DEST_NEW → $DEST failed (file locked? proxy still running?)" >&2; rm -f "$DEST_NEW"; exit 1; }

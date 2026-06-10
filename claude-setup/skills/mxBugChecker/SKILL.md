@@ -47,10 +47,12 @@ Category catalog (pick max 5 most relevant to the focus files): full description
 8. **Performance** (only when bug-relevant) — N+1 queries, unbounded data, blocking UI calls
 
 Technology-specific rules live under `mxDesignChecker/references/` (delphi-rules.md, web-rules.md, general-rules.md) — mxBugChecker inherits the same taxonomy but does not duplicate the files. If detailed Delphi/web patterns are needed during analysis, cross-read from `~/.claude/skills/mxDesignChecker/references/`.
+Fallback: mxDesignChecker/references missing → proceed without Delphi taxonomy, note 'delphi-rules unavailable' in output header !abort.
 
 **Subagent verification:** if the Agent tool is used for large files:
 - Copy the Golden Rule into the subagent prompt
 - EVERY subagent finding must be self-verified (Read → File:Line check)
+- Verification reads of independent findings → parallel tool-calls in one message !sequential
 - !verifiable → discard. Document discarded/verified counters.
 
 ## Phase 4: Report
@@ -138,6 +140,9 @@ Before tagging any finding above INFO, answer in the finding body (Root Cause or
 - "Function X could divide by zero IF called with 0" — but no caller passes 0, and no external input reaches it.
 - "Variable Y could be nil" — but every call site guards it with an `if Assigned` check.
 - "SQL string could be injected" — but the query is built from a hardcoded const, not user input.
+
+## Adversarial Verify (optional, on request or `--adversarial`)
+Each finding above INFO → 1 independent refuter-agent (parallel, prompt: 'Try to refute this finding with code proof'). Refuted → discard; partially refuted → downgrade severity. Output notes refuted-count. Costs ~1 agent/finding — use for release-gates or low-confidence runs.
 
 ## Language Semantics ⚡
 

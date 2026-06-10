@@ -93,7 +93,8 @@ uses
   mx.Admin.Api.Settings, mx.Admin.Api.Invite,
   mx.Admin.Api.SelfUpdate, mx.Admin.Api.Notes,
   mx.Admin.Api.Intelligence, mx.Admin.Api.IniEditor,
-  mx.Admin.Api.ProjectBundle, mx.Admin.Api.Graph;
+  mx.Admin.Api.ProjectBundle, mx.Admin.Api.Graph,
+  mx.Tool.Read;  // ResolveProxyExePath — single source for proxy search order
 
 { Shared helpers }
 
@@ -249,16 +250,8 @@ var
   Bytes: TBytes;
 begin
   // Search for proxy exe: exe dir, proxy/, claude-setup/proxy/
-  ExePath := '';
-  for var SearchPath in [
-    ExtractFilePath(ParamStr(0)) + 'mxMCPProxy.exe',
-    ExtractFilePath(ParamStr(0)) + 'proxy' + PathDelim + 'mxMCPProxy.exe',
-    ExtractFilePath(ParamStr(0)) + 'claude-setup' + PathDelim + 'proxy' + PathDelim + 'mxMCPProxy.exe'] do
-    if FileExists(SearchPath) then
-    begin
-      ExePath := SearchPath;
-      Break;
-    end;
+  // (shared resolver in mx.Tool.Read — keep single source)
+  ExePath := ResolveProxyExePath;
   if ExePath = '' then
   begin
     MxSendError(C, 404, 'proxy_not_found');

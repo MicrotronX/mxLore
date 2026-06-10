@@ -4,7 +4,7 @@ interface
 
 uses
   System.SysUtils, System.StrUtils, System.JSON, System.DateUtils, System.Variants,
-  System.Generics.Collections,
+  System.Generics.Collections, System.Hash,
   Data.DB,
   FireDAC.Comp.Client,
   mx.Types, mx.Errors, mx.Data.Pool, mx.Logic.AccessControl,
@@ -25,7 +25,68 @@ function HandleDocRevisions(const AParams: TJSONObject;
 function HandleGetRevision(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
 
+// Resolves the shipped mxMCPProxy.exe (exe dir -> proxy/ -> claude-setup/proxy/).
+// Shared with Admin proxy download (mx.Admin.Server.HandleProxyDownload) —
+// keep single source for the search order.
+function ResolveProxyExePath: string;
+
 implementation
+
+// ---------------------------------------------------------------------------
+// proxy_sha256 helper: lazy SHA-256 of the shipped mxMCPProxy.exe, cached
+// per (path, file timestamp). ResolveProxyExePath is exported and reused by
+// Admin HandleProxyDownload (mx.Admin.Server.pas) so the hash always matches
+// the actually delivered file.
+// ---------------------------------------------------------------------------
+var
+  GProxyHashLock: TObject;
+  GProxyHashPath: string;
+  GProxyHashAge: TDateTime;
+  GProxyHash: string;
+
+function ResolveProxyExePath: string;
+begin
+  Result := '';
+  for var SearchPath in [
+    ExtractFilePath(ParamStr(0)) + 'mxMCPProxy.exe',
+    ExtractFilePath(ParamStr(0)) + 'proxy' + PathDelim + 'mxMCPProxy.exe',
+    ExtractFilePath(ParamStr(0)) + 'claude-setup' + PathDelim + 'proxy' + PathDelim + 'mxMCPProxy.exe'] do
+    if FileExists(SearchPath) then
+      Exit(SearchPath);
+end;
+
+// Returns lowercase hex SHA-256 of the proxy exe, '' if no file found or
+// unreadable (caller omits the field then — never fails mx_ping).
+function GetProxySha256: string;
+var
+  ExePath: string;
+  FileTime: TDateTime;
+begin
+  Result := '';
+  ExePath := ResolveProxyExePath;
+  if ExePath = '' then
+    Exit;
+  TMonitor.Enter(GProxyHashLock);
+  try
+    // FileAge inside the lock so cached mtime and hash stay consistent (TOCTOU)
+    if not FileAge(ExePath, FileTime) then
+      Exit;
+    if (GProxyHash <> '') and (GProxyHashPath = ExePath) and
+       (GProxyHashAge = FileTime) then
+      Exit(GProxyHash);
+    try
+      GProxyHash := LowerCase(THashSHA2.GetHashStringFromFile(ExePath));
+      GProxyHashPath := ExePath;
+      GProxyHashAge := FileTime;
+      Result := GProxyHash;
+    except
+      // File locked or unreadable: omit field, retry on next ping
+      GProxyHash := '';
+    end;
+  finally
+    TMonitor.Exit(GProxyHashLock);
+  end;
+end;
 
 // ---------------------------------------------------------------------------
 // mx_ping — Health-Check
@@ -96,6 +157,11 @@ begin
       end
       else
         Data.AddPair('proxy_download_url', InternalUrl);
+      // SHA-256 of the delivered proxy exe so install-proxy.sh can verify
+      // the download (EXPECTED_SHA256). Omitted when no proxy file exists.
+      var ProxySha := GetProxySha256;
+      if ProxySha <> '' then
+        Data.AddPair('proxy_sha256', ProxySha);
     end;
     Data.AddPair('timestamp', FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', Now));
 
@@ -1443,5 +1509,11 @@ begin
     Qry.Free;
   end;
 end;
+
+initialization
+  GProxyHashLock := TObject.Create;
+
+finalization
+  GProxyHashLock.Free;
 
 end.

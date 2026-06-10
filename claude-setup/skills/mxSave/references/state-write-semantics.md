@@ -8,13 +8,11 @@ Plain `Write` tool against `.claude/orchestrate-state.json` is NOT OS-atomic on 
 
 **For resilience:** Write to `.claude/orchestrate-state.json.tmp` first, then `Bash mv` (rename is atomic on most filesystems). If the Write tool cannot do temp-file-plus-rename, the risk is documented and accepted (mxSave at session-end is rarely interrupted).
 
-## Concurrent state_deltas race (accepted trade-off)
+## Concurrent state_deltas race (mitigated via mandatory RMW)
 
 Between the in-memory Snapshot in Step 4a and the deferred Write at end of Step 4b, an external mxOrchestrate auto-invoke (same session, different tool-call) can increment `state_deltas` on disk. The deferred Write overwrites those concurrent increments with `state_deltas=0` (lost).
 
-Accepted because mxSave runs at session-end boundaries where concurrent writes are rare.
-
-**Stronger mitigation (if needed):** Read-Modify-Write pre-Write — re-read state.json immediately before Write, preserve `(on_disk_state_deltas - pre_snapshot_value)` as the new baseline after reset.
+**⚡ RMW is MANDATORY before every state.json Write:** re-read state.json immediately before Write, preserve `(on_disk_state_deltas - pre_snapshot_value)` as the new baseline after reset. Concurrent writers exist on Windows; a stale in-memory copy = silent data loss.
 
 ## Single deferred Write principle (Bug#3229 fix mechanism)
 
