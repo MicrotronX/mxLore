@@ -8,7 +8,7 @@ argument-hint: "start <type> | track <note> | park [reason] | resume [id] | stat
 
 # /mxOrchestrate — Persistent Session Orchestrator (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
-> **Context:** ALWAYS run as subagent(Agent-Tool) !main-context. Result: max 20 lines.
+> **Context:** ALWAYS run as subagent(Agent-Tool, `model` per Model Tiering ⚡) !main-context. Result: max 20 lines.
 > **Tokens ⚡:** mx_create_doc/mx_update_doc body >300 words → assemble in this subagent, !echo to parent. mx_detail server default = 600 tokens.
 
 Central session manager. Manages workflow stack, ad-hoc tasks, team agents.
@@ -53,6 +53,21 @@ Runs in pre-routing after session setup. 0 extra MCP calls — uses `mx_session_
 ## Tool Budget per Mode
 
 ⚡ Stay surgical: 0-2 MCP calls per mode, 1 Edit per state write, NEVER full-rewrite state from main ctx.
+
+## Model Tiering ⚡ (Cost Discipline)
+
+Main loop on premium model (Fable/Opus) → every subagent spawn (Agent-Tool, team agents, checker runs) sets the `model` param to the cheapest tier that satisfies the task. Match model to task floor, !ceiling:
+
+| Tier | `model` | Task profile |
+|------|---------|--------------|
+| haiku | `haiku` | mechanical: state-file rewrites, file copy/sync, log tails, doc-body assembly from given content, simple greps |
+| sonnet | `sonnet` | **DEFAULT** for subagents: mxOrchestrate runs, MCP CRUD flows, mxBugChecker/mxDesignChecker standard scope, Explore/codebase-search, standard implementation steps |
+| inherit | omit param | top-tier reasoning genuinely required: architecture decisions, security-critical analysis, cross-cutting refactors, ambiguous specs |
+
+- ⚡ Orchestration *intelligence* (skill routing, escalation judgment, interpreting results) lives in the MAIN loop (premium model) — the /mxOrchestrate subagent executes a fully specified procedure (state CRUD, fixed decision trees), so `sonnet` suffices. Ambiguity safety net: diverged state / code-vs-doc conflict → STOP + ?user regardless of model.
+- Main model ∈ {fable, opus*} → subagent default = `sonnet`. Omitting `model` (inherit=premium) requires 1-line justification in the spawn rationale.
+- Main model already sonnet/haiku → omit `model` (inherit, no tiering gain).
+- !premium subagents for mechanical work — token+cost efficiency over convenience.
 
 ## State File (.claude/orchestrate-state.json)
 
@@ -150,7 +165,7 @@ Full overview:
 
 ## Auto-Invoke (all workflow modes)
 - Non-optional auto-execute -> step `done` + state update + log event. Optional -> ?user (`skip` -> `skipped`). Conditional -> check, no match -> `skipped`.
-- Analysis skills (mxDesignChecker, mxBugChecker) -> Agent-Tool. Other mx*/superpowers:*/frontend-design -> Skill-Tool. Independent steps -> parallel via Agent-Tool.
+- Analysis skills (mxDesignChecker, mxBugChecker) -> Agent-Tool (`model` per Model Tiering ⚡). Other mx*/superpowers:*/frontend-design -> Skill-Tool. Independent steps -> parallel via Agent-Tool.
 - ⚡ **MCP-First Step-Update (Spec#1161):**
   1. `mx_update_doc(doc_id, content with Step=done+Timestamp+Result, change_reason='Step N→done')` → MCP first
   2. Derive state file from MCP response: current_step++, push event to events_log (synced=true)
