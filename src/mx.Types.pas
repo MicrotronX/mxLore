@@ -174,7 +174,10 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 117;
+  MXAI_BUILD   = 118;
+  // Build 118 (2026-06-11): Bugfix AI-Batch skill-precision uq_doc duplicate —
+  //   dedupe check now matches uq_doc (project_id+slug, status-agnostic)
+  //   instead of dynamic title; archived note = user dismiss, no boot re-create.
   // Build 117 (2026-06-10): proxy_sha256 in mx_ping (lazy SHA256 cache) +
   //   shared ResolveProxyExePath (mx.Admin.Server reuses it) — Fable5 review F1.
   // Build 110 (Session 282, 2026-04-24): FR#3360 Admin-UI Dev-Login +

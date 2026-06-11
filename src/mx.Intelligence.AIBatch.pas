@@ -1294,7 +1294,7 @@ procedure TMxAIBatchRunner.RunSkillPrecisionJob;
     RuleId: string;
     Total, Confirmed, NewDocId: Integer;
     ConfirmPct: Double;
-    NoteTitle, NoteContent, PctStr: string;
+    NoteTitle, NoteContent, PctStr, NoteSlug: string;
   begin
     // Find rules with enough findings (>=5) older than 30 days
     // and confirmation rate below threshold
@@ -1324,13 +1324,18 @@ procedure TMxAIBatchRunner.RunSkillPrecisionJob;
         NoteTitle := Format('[Precision] %s rule %s: %s%% confirmation after 30d',
           [ASkillName, RuleId, PctStr]);
 
-        // Idempotent: check if note already exists
+        NoteSlug := Format('skill-precision-%s-%s', [ASkillName, RuleId]);
+
+        // Idempotent: check must match uq_doc (project_id, doc_type, slug) and ignore
+        // status — archived/deleted rows still occupy the unique key, and an archived
+        // precision note means the user dismissed it (no re-create on every boot)
         ChkQry := ACtx.CreateQuery(
           'SELECT 1 FROM documents ' +
-          'WHERE doc_type = ''note'' AND title = :title ' +
-          '  AND status NOT IN (''deleted'', ''archived'') LIMIT 1');
+          'WHERE project_id = :proj_id AND doc_type = ''note'' ' +
+          '  AND slug = :slug LIMIT 1');
         try
-          ChkQry.ParamByName('title').AsWideString :=NoteTitle;
+          ChkQry.ParamByName('proj_id').AsInteger := AProjectId;
+          ChkQry.ParamByName('slug').AsWideString :=NoteSlug;
           ChkQry.Open;
           if not ChkQry.Eof then
           begin
@@ -1357,8 +1362,7 @@ procedure TMxAIBatchRunner.RunSkillPrecisionJob;
           'VALUES (:proj_id, ''note'', :slug, :title, :content, ''active'', NOW(), NOW(), 1.0)');
         try
           InsQry.ParamByName('proj_id').AsInteger := AProjectId;
-          InsQry.ParamByName('slug').AsWideString :=
-            Format('skill-precision-%s-%s', [ASkillName, RuleId]);
+          InsQry.ParamByName('slug').AsWideString :=NoteSlug;
           InsQry.ParamByName('title').AsWideString :=NoteTitle;
           InsQry.ParamByName('content').AsWideString :=NoteContent;
           InsQry.ExecSQL;
