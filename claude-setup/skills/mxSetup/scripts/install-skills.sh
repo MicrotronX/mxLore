@@ -86,5 +86,15 @@ cp -r "${mx_dirs[@]}" "$CLAUDE_HOME/skills/"
 # Phase 5c doesn't merge against an outdated snapshot.
 cp "$SRC/CLAUDE.md" "$CLAUDE_MD_STAGE" 2>/dev/null || { echo "WARN: CLAUDE.md missing in repo — clearing stale stage"; rm -f "$CLAUDE_MD_STAGE"; }
 
+# Setup-version client stamp: copy the bundle's setup-version.json so
+# mx_session_start reports the actually-installed bundle version (admin-side
+# session tracking). Missing in bundle → keep whatever is already installed.
+if [ -f "$SRC/setup-version.json" ]; then
+  cp "$SRC/setup-version.json" "$CLAUDE_HOME/setup-version.json"
+  echo "setup-version.json stamped: $(cat "$CLAUDE_HOME/setup-version.json")"
+else
+  echo "WARN: setup-version.json missing in bundle — keeping existing $CLAUDE_HOME/setup-version.json"
+fi
+
 echo "Done. Skills/hooks/reference installed from $REPO_URL; CLAUDE.md staged at $CLAUDE_MD_STAGE."
 echo "NOTE: hook FILES copied to $CLAUDE_HOME/hooks/, but settings.json hook REGISTRATION must be done by Claude Code (Phase 5b in /mxSetup) — install-skills.sh does NOT modify settings.json."

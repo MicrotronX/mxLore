@@ -41,7 +41,7 @@ claude mcp add -s user --transport http mxai-knowledge "<SERVER-URL>" --header "
 
 ⚡ **EXACT URL — DO NOT invent!** Source: `MicrotronX/mxLore-skills` (GitHub). !mxai-org !mxai-tech !other repos.
 
-Downloads the zip, extracts skills into `~/.claude/skills/`, hooks into `~/.claude/hooks/`, reference into `~/.claude/reference/`, and stages `CLAUDE.md` as `/tmp/mxLore-skills-CLAUDE.md` for Phase 5c:
+Downloads the zip, extracts skills into `~/.claude/skills/`, hooks into `~/.claude/hooks/`, reference into `~/.claude/reference/`, stamps the bundle's `setup-version.json` into `~/.claude/setup-version.json` (client-side version tracking — `mx_session_start` reports it for the admin session view), and stages `CLAUDE.md` as `/tmp/mxLore-skills-CLAUDE.md` for Phase 5c:
 ```bash
 bash ~/.claude/skills/mxSetup/scripts/install-skills.sh
 ```
