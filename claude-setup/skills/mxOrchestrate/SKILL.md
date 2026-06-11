@@ -141,7 +141,7 @@ Forces `mx_session_start` ignoring cached `session_id` (see Init pre-routing ste
 4. status.md: "Known open items"→all bullets. "Next steps"→only `- [ ]`
    - ⚡ Deduplicate against MCP: item in status.md already archived in MCP→remove from display
 5. Result: **Open-items list** (deduplicated, Bug→TODO→Feature→Opt→Other, max 30)
-6. ⚡ FR-aging marker: items older 7d (per `updated_at`) get suffix `(>7d — re-audit claims before build)` — stale FRs frequently describe already-shipped work
+6. ⚡ FR-aging marker: items older 7d (per `updated_at`) get suffix `(>7d — re-audit claims before build)` — apply BEFORE the max-30 truncation so low-ranked stale items stay visible; stale FRs frequently describe already-shipped work
 
 ## Mode 6: Status
 Full overview:
