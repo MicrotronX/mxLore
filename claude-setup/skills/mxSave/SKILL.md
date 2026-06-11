@@ -17,8 +17,8 @@ Save agent. Persists project state for seamless session continuation.
 ## Execution Mode ⚡
 **Phased sequential-with-parallel** (do NOT collapse into a single fan-out; race + data-dependency hazards):
 
-1. **Main:** Init → Steps 1, 2 (settings + CLAUDE.md/status.md + zombie check).
-2. **Parallel phase A:** Step 3 (background subagent, MCP-only) + Step 4a (Main, in-memory mutations). Pass `mcp_available` to Step 3 explicitly; Step 4a sends `expected_updated_at` and skips WFs already archived by Step 3. Stale-sweep: subagent returns candidates ONLY — prompts happen in Main after phase A (see Step 3).
+1. **Main:** Init → Steps 1, 1b, 2 (settings + artifact sweep + CLAUDE.md/status.md + zombie check).
+2. **Parallel phase A:** Step 3 (background subagent, `model=sonnet` per mxOrchestrate Model Tiering — MCP CRUD needs no premium; MCP-only) + Step 4a (Main, in-memory mutations). Pass `mcp_available` to Step 3 explicitly; Step 4a sends `expected_updated_at` and skips WFs already archived by Step 3. Stale-sweep: subagent returns candidates ONLY — prompts happen in Main after phase A (see Step 3).
 3. **Main (synchronous):** Step 5 — `mx_create_doc(session_note)` issued from Main; subagent may build the body string but Main issues the call and captures the doc_id (skill runtime has no await-subagent primitive — running Step 5 in background would regress Bug#3229).
 4. **Main:** Step 4b — single deferred Write applying ALL 4a + 4b mutations (incl. `last_save_summary` + `last_save_session_note_doc_id` from Step 5's return).
 5. **Parallel phase B (fire-and-forget):** Step 6 Peer Notify — no join, errors logged not aborted.
@@ -30,7 +30,7 @@ Degraded path: Step 5 MCP call fails → Step 4b writes `last_save_summary` (loc
 2. mx_ping()→check MCP availability. Set `mcp_available = (ping == ok)`. Steps 3, 5, 6 reference this flag for fallback decisions instead of repeating "MCP error→fallback" inline.
 3. ⚡ State file safety: If `.claude/orchestrate-state.json` is missing or unparseable, treat as empty state per the mxOrchestrate `loadState()` contract: `state_deltas=0`, `last_save_deltas=0`, `workflow_stack=[]`, `mcp_available` still set from ping result. Warn user inline ("orchestrate-state.json missing/corrupt — proceeding with empty state"). The `--clear-cycle` mode in this case emits nothing (N==0 silent path).
 
-## 6 Steps (sequential)
+## Steps (sequential)
 
 ### 1) Clean settings.local.json (LOCAL)
 Read+clean `.claude/settings.local.json`:
@@ -46,7 +46,7 @@ Scan workspace for stale local artifacts — REPORT only; any delete/refresh str
 - Superseded build/release artifacts: keep the newest ZIP + extracted-dir pair, list older ones (count+size)
 - `logs/` entries older than 14d (aggregate count+size only, no per-file listing)
 - `*.new` / `*.old-*` / `*.bak` leftovers from install/update scripts (repo root + bin dirs)
-- Mirrored-file timestamp drift: files maintained as copies in 2+ repo locations where the designated SOURCE is older than its mirror → report (downgrade risk on next copy; caught a stale proxy binary 2026-06-11)
+- Mirrored-file timestamp drift: files maintained as copies in 2+ repo locations where the designated SOURCE is older than its mirror → report (downgrade risk on next copy)
 - Output: `Artifacts: <N> stale candidates (report-only)` — silent if 0. Missing dirs → skip silently. `--loop` mode: skip entire step.
 
 ### 2) Update CLAUDE.md + status.md (HYBRID — local + MCP for zombie check)
@@ -229,7 +229,7 @@ Constraints: !settings.local.json cleanup (manual only), !Prompts, !interactive 
 - ⚡ Session notes derived from chat, facts only !speculation. ∅info→"Open question"
 - !auto-create ADRs→suggest /mxDecision. !delete existing content→supplement/compact
 - Encoding: UTF-8 without BOM. Prefer MCP, local=fallback
-- ⚡ events_log append (Step 4a/4b): skip the append if identical to the current LAST entry (same type+wf+detail) — consecutive-duplicate guard (duplicate step_done observed 2026-06-10)
+- ⚡ events_log append (Step 4a/4b): skip the append if identical to the current LAST entry (same type+wf+detail) — consecutive-duplicate guard (duplicate step_done observed 2026-06-10; mirrors the mxOrchestrate dedupe-guard rule — keep in sync)
 - ⚡ Interactive questions (all `?user` prompts incl. stale-sweep y/n/skip)→AskUserQuestion tool. !freetext-numbered-prompts
 
 ## Completion
