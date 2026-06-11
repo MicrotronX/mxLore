@@ -27,6 +27,21 @@ Because the knowledge is shared and Claude recalls it automatically, **handoffs 
 
 ---
 
+## One Server, Many Projects and People
+
+mxLore is a **shared server**. It usually hosts **several projects** and **several team members** at once — the webshop, the mobile app, the internal ERP — each with its own specs, plans, decisions and history. And each member only sees the projects their access key grants them.
+
+Because of that, **every piece of work is scoped to a project**. You still just talk — you only name the project once. Two practical consequences:
+
+- **In Claude Code (developers):** the project is set **automatically** from the folder you're working in (its `CLAUDE.md` carries the project name). The session already knows it's the *webshop* project — you don't have to say it.
+- **In Claude chat (PM, QA, Doc):** there is no folder, so **tell Claude which project you mean the first time** — *"In the webshop project, write a feature for…"*. Claude keeps that project in mind for the rest of the conversation. Not sure what you have access to? Just ask *"which projects can I access?"*.
+
+This is also how a PM keeps different products apart: a feature request created *"in the webshop project"* lands in the webshop's knowledge, is recalled for webshop developers, and never bleeds into the ERP project. One server, many clearly separated workspaces.
+
+> **Rule of thumb:** in a browser chat, start with the project — *"In project X, …"*. In Claude Code, the folder already answers that for you.
+
+---
+
 ## The Roles at a Glance
 
 These four roles are **conventions**, not something mxLore enforces. Use them as-is, rename them, or add your own (Design, Security, Support…). They simply describe *who tends to produce what*.
