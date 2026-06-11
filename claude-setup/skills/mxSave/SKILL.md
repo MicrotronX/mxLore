@@ -191,6 +191,8 @@ Mode-agnostic threshold emit consuming `N` (normal: `last_save_deltas` set by St
 
 **Skip:** state file missing OR mode-relevant deltas field unset. Do NOT skip on empty workflow_stack — doc-only sessions can have meaningful deltas.
 
+⚡ **Tracker-gap guard:** `N_eff = max(N, total_changes)` where `total_changes` comes from the `mx_session_delta` call Step 6 already made (reuse, do not re-query; `!mcp_available` → `N_eff = N`). Subagent MCP-writes bypass the `state_deltas` counter — the band must not fall back to silent when real writes happened.
+
 | N | Output | Notes |
 |---|---|---|
 | `>=15` | Active prompt via AskUserQuestion tool: question=`Session is large (<N> deltas persisted). /clear + new session + mx_briefing is now worthwhile. Execute?` options: `yes, run /mxSave + suggest /clear` / `no, keep working` | `--loop` downgrades to `>=10` tip (no interactive waits) |
