@@ -10,7 +10,7 @@ Self-hosted MCP server for AI-assisted software development. Stores architectura
 - **Multi-Project** — one server, many codebases, cross-project search
 - **Skill Evolution** — tracks which AI checker rules actually help, auto-tunes
 - **Institutional Memory** — lessons learned with recall, gate levels, graph-based knowledge links
-- **Multi-Agent** — agents communicate across projects via message bus
+- **Multi-Agent** — agents exchange messages across projects via polled inboxes
 - **Admin UI** — web dashboard for team members, keys, projects, intelligence metrics
 - **Team Connect** — invite links with rate-limited landing page, one-click setup for Claude Code, claude.ai, Cursor, and more
 - **Semantic Search** — hybrid vector + full-text search (MariaDB 11.6+ with VECTOR support)
