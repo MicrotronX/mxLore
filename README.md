@@ -56,6 +56,7 @@ The console should show `Admin server listening on 127.0.0.1:8081`. **You're hal
 |-------|-------------|
 | **[Installation Guide](docs/installation.md)** | Step-by-step setup with MariaDB, configuration, first boot |
 | **[Team Onboarding](docs/team-onboarding.md)** | Connect Claude Code, claude.ai, Cursor + invite team members |
+| **[Team Collaboration](docs/team-collaboration.md)** | How PM, Dev, QA & Doc work together through mxLore — idea to shipped, friction-free handoffs |
 | **[Troubleshooting](docs/troubleshooting.md)** | Common issues and solutions |
 | **[mxlore.dev](https://www.mxlore.dev)** | Product overview, feature comparison, pricing |
 

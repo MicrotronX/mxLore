@@ -2,6 +2,8 @@
 
 How to connect AI clients to your mxLore server and onboard team members.
 
+> **Already connected?** Once your team is set up, see **[Team Collaboration](./team-collaboration.md)** for how PM, Dev, QA, and Documentation actually work together through mxLore — from idea to shipped and documented.
+
 ## Which client should I pick?
 
 | You are… | Use… | Why |
