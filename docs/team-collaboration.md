@@ -90,7 +90,7 @@ Behind the scenes, Claude notifies the developers. *(Capability: spec creation +
 
 > `/mxDecision` → *"Use TOTP (RFC 6238), not SMS, because SMS is phishable and adds carrier cost."*
 
-The decision is stored and **linked to the spec automatically**.
+The decision is stored and **linked to the spec** as part of the workflow.
 
 ### 3. PM pushes a change mid-flight
 Partway through, **Paula** learns from compliance that users also need **backup recovery codes**. From claude.ai:
@@ -134,7 +134,7 @@ Three months on, someone asks *"why did we choose TOTP over SMS again?"* Anyone 
 Three mechanisms make the choreography above smooth. None of them require a human to manage them — they're just *there*:
 
 1. **Shared knowledge.** Specs, plans, decisions, bugs and findings live in one database. Every role sees the same source of truth. When the spec changes, it changes for everyone — no stale copies.
-2. **Agent messaging.** When you say *"hand this to the devs"* or *"this is ready for QA"*, Claude notifies the next role's AI directly inside mxLore. The next person's session starts already knowing what's waiting for them.
+2. **Agent messaging.** When you say *"hand this to the devs"* or *"this is ready for QA"*, Claude leaves the handoff in mxLore's inbox. The next person's AI checks that inbox when it starts a session — automatically in Claude Code (a hook does it for you), on demand in a browser chat — so nothing falls through the cracks. (Delivery is inbox-based, not a live push: the recipient is reached when their AI next looks.)
 3. **Automatic recall.** Open a topic next week or next quarter and Claude pulls back the relevant history — the original spec, the decision behind a design, the bug that was found and fixed — without anyone searching for it.
 
 The net effect: **no copy-paste between tools, no lost context, no "who has the latest version?"** The work moves; the context moves with it.
