@@ -101,7 +101,7 @@ Install all at once: run `/mxSetup` in Claude Code.
 **Server:** BSL 1.1 (Business Source License) — [LICENSE.txt](LICENSE.txt)
 - Source available: read, review, modify, build
 - Non-commercial use: free (personal projects, open source, students, evaluation)
-- Commercial use: **EUR 149 one-time** — any size team, unlimited everything. Contact info@microtronx.com
+- Commercial use: **EUR 399 one-time** (regular EUR 599) — any size team, unlimited everything. Contact info@microtronx.com
 - After the change date (4 years): converts to Apache 2.0
 
 **Skills:** MIT — fully open source, no restrictions.
