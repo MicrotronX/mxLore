@@ -22,6 +22,16 @@ During installation:
 3. Check **"Enable access from remote machines"** only if mxLore will run on a different machine
 4. Leave everything else at defaults
 
+> **Required — add MariaDB `bin\` to the system PATH.** mxLore loads the MariaDB
+> client library `libmariadb.dll` from your installation. On a fresh server that
+> DLL fails to load unless its OpenSSL dependencies (which live in MariaDB's
+> `bin\` folder, **not** in `lib\`) can be resolved — otherwise the server aborts
+> on boot with `FireDAC ... -314 ... The specified module could not be found`.
+> Add e.g. `C:\Program Files\MariaDB 12.3\bin` to the **system** PATH
+> (System Properties → Environment Variables → System variables → Path), then
+> restart the machine or the server process. See
+> [Troubleshooting](troubleshooting.md#server-wont-start) if the error persists.
+
 ### Create the database
 
 After installation, open a command prompt (or PowerShell) and run:
