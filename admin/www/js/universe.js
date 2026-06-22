@@ -53,10 +53,10 @@ var Universe = (function () {
       tween: null,         // active camera fly-to
       hovered: null,
       coreTexture: null,
-      dragging: false,
-      // Gentle hover-dolly: ease the camera a touch toward a hovered galaxy.
-      dolly: { amt: 0, gal: null, lastGal: null, restP: null, restT: null },
-      _t1: new THREE.Vector3(), _t2: new THREE.Vector3(), _t3: new THREE.Vector3()
+      ringTexture: null,
+      ring: null,          // shared selection-halo sprite, parked on the hovered galaxy
+      arcs: [],            // { line, baseOpacity, baseColor } for relation-highlight
+      dragging: false
     };
 
     var W = container.clientWidth || window.innerWidth;
@@ -69,7 +69,10 @@ var Universe = (function () {
     var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(W, H);
-    renderer.setClearColor(0x000000, 0);   // transparent; CSS nebula shows through
+    // Opaque clear matching the page --g-bg so the seam is invisible. The
+    // bloom composer can't preserve a transparent backdrop, so the scene
+    // carries its own starfield + nebula instead of the CSS wash.
+    renderer.setClearColor(0x0a0e14, 1);
     container.appendChild(renderer.domElement);
 
     var controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -79,21 +82,16 @@ var Universe = (function () {
     controls.zoomSpeed = 0.9;
     controls.minDistance = 40;
     controls.maxDistance = 1600;
-    // Ambient idle motion is intentional and runs regardless of
-    // prefers-reduced-motion (reduced-motion only tames very aggressive
-    // effects, not the gentle base drift the user explicitly wants).
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = 0.35;
-    // Pause autoRotate while the user is interacting; resume after idle.
+    // No camera auto-orbit: the layout is a window-filling board, not a globe,
+    // so a continuous spin would tilt it edge-on and read oddly. Ambient life
+    // comes from each galaxy's own rotation + the arc flow motes instead.
+    controls.autoRotate = false;
     var idleTimer = null;
     controls.addEventListener('start', function () {
-      controls.autoRotate = false;
       if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
-      if (S) { S.dragging = true; S.dolly.gal = null; }   // let the user orbit freely
+      if (S) S.dragging = true;   // let the user orbit freely
     });
     controls.addEventListener('end', function () {
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(function () { if (S) controls.autoRotate = true; }, 2500);
       if (S) S.dragging = false;
     });
 
@@ -104,6 +102,18 @@ var Universe = (function () {
     S.idleTimer = idleTimer;
     S.coreTexture = makeGlowTexture();
     S.disposables.push(S.coreTexture);
+    S.ringTexture = makeRingTexture();
+    S.disposables.push(S.ringTexture);
+    S.ring = makeSelectionRing(S.ringTexture);
+    scene.add(S.ring);
+
+    // Backdrop: distant starfield + a few faint nebula clouds (replaces the
+    // CSS wash now that the canvas is opaque). Data-independent, built once.
+    buildBackdrop(scene);
+
+    // Optional bloom post-processing. Degrades gracefully to a plain render
+    // if the example/js postproc files didn't load (no black-screen risk).
+    setupComposer(W, H);
 
     // HUD (built once, lives inside container).
     buildHud(container);
@@ -139,6 +149,7 @@ var Universe = (function () {
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
+      if (S.composer) S.composer.setSize(w, h);
     }
     function onVisibility() { /* loop checks document.hidden each frame */ }
     function onPointerMove(e) {
@@ -192,14 +203,33 @@ var Universe = (function () {
     if (galaxies.length === 0) { showEmpty(true); return; }
     showEmpty(false);
 
-    // 1) Deterministic Fibonacci-sphere layout, radius scales with count.
     var n = galaxies.length;
-    var spread = 80 + Math.sqrt(n) * 44;   // tighter cluster -> default view fills more
-    var pos = galaxies.map(function (g, i) {
-      return fibonacciPoint(i, n, spread);
+
+    // 1) Build every galaxy first (at the origin) so each one's radius is
+    //    known before we lay them out.
+    var totalDocs = galaxies.reduce(function (a, g) { return a + (g.doc_count || 1); }, 0) || 1;
+    var built = galaxies.map(function (g) {
+      var b = buildGalaxy(g, totalDocs);
+      b.slug = g.slug;
+      b.name = g.name || g.slug;
+      b.docCount = g.doc_count || 0;
+      return b;
     });
 
-    // 2) A few relation-attraction iterations: pull related galaxies closer.
+    // 2) Lay them out across the full viewport as an aspect-matched box volume,
+    //    evenly spaced via a jittered grid -> guaranteed minimum distance, no
+    //    clumping, and the silhouette fills the window rather than a circle.
+    var maxR = built.reduce(function (m, b) { return Math.max(m, b.radius); }, 1);
+    var pos = layoutBox(n, maxR, S.camera.aspect || 1);
+
+    built.forEach(function (b, i) {
+      b.group.position.copy(pos[i]);
+      b.center = pos[i].clone();
+      S.scene.add(b.group);
+      S.galaxies.push(b);
+    });
+
+    // 3) Relation edges (index pairs) -> arcs + flow motes.
     var idIndex = {};
     galaxies.forEach(function (g, i) { idIndex[g.id] = i; });
     var edges = [];
@@ -208,68 +238,77 @@ var Universe = (function () {
       if (a == null || b == null || a === b) return;
       edges.push([a, b, l.rel]);
     });
-    for (var iter = 0; iter < 24; iter++) {
-      edges.forEach(function (e) {
-        var pa = pos[e[0]], pb = pos[e[1]];
-        var mx = (pa.x + pb.x) / 2, my = (pa.y + pb.y) / 2, mz = (pa.z + pb.z) / 2;
-        var k = 0.04;
-        pa.x += (mx - pa.x) * k; pa.y += (my - pa.y) * k; pa.z += (mz - pa.z) * k;
-        pb.x += (mx - pb.x) * k; pb.y += (my - pb.y) * k; pb.z += (mz - pb.z) * k;
-      });
-    }
-
-    // 3) Compute global particle budget allocation.
-    var totalDocs = galaxies.reduce(function (a, g) { return a + (g.doc_count || 1); }, 0) || 1;
-
-    galaxies.forEach(function (g, i) {
-      var p = pos[i];
-      var built = buildGalaxy(g, totalDocs);
-      built.group.position.set(p.x, p.y, p.z);
-      built.slug = g.slug;
-      built.name = g.name || g.slug;
-      built.docCount = g.doc_count || 0;
-      built.center = new THREE.Vector3(p.x, p.y, p.z);
-      S.scene.add(built.group);
-      S.galaxies.push(built);
-    });
-
-    // 4) Relation arcs between galaxy centres (additive, low opacity).
     buildArcs(edges, pos);
 
-    // 5) Fit-to-view: frame the WHOLE universe with margin so the user opens
-    //    onto every galaxy, not zoomed into one. Bounding sphere = max
-    //    (centre distance + galaxy radius) around the universe centroid.
+    // 4) Frame the whole board so it fills the viewport.
     fitToView();
   }
 
-  // Compute the bounding sphere of all galaxies (centre + radius) and place
-  // the start camera so everything fits the frame with a margin.
+  // Even, screen-filling layout: an aspect-matched box volume sampled on a
+  // jittered 3D grid. Cell size > 2*maxR so no two galaxies crowd each other;
+  // empty cells are shuffled in so any gaps scatter instead of leaving a hole
+  // in one corner. Depth (Z) is shallower than width/height so the board reads
+  // as a window-filling wall that still has parallax when orbited.
+  function layoutBox(n, maxR, aspect) {
+    var nz = Math.max(1, Math.round(Math.cbrt(n) * 0.6));
+    var perLayer = Math.ceil(n / nz);
+    var nx = Math.max(1, Math.round(Math.sqrt(perLayer * Math.max(0.2, aspect))));
+    var ny = Math.max(1, Math.ceil(perLayer / nx));
+    var cell = maxR * 2.9 + 24;
+    var depthCell = cell * 0.8;
+    var jit = cell * 0.16;
+    var cells = [];
+    for (var z = 0; z < nz; z++)
+      for (var y = 0; y < ny; y++)
+        for (var x = 0; x < nx; x++) cells.push([x, y, z]);
+    for (var k = cells.length - 1; k > 0; k--) {   // Fisher-Yates shuffle
+      var j = Math.floor(Math.random() * (k + 1));
+      var t = cells[k]; cells[k] = cells[j]; cells[j] = t;
+    }
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      var c = cells[i];
+      // Stagger odd layers by half a cell in X+Y so back-layer galaxies land in
+      // the gaps of the front layer -> head-on, none hides directly behind another.
+      var stag = (c[2] % 2) ? cell * 0.5 : 0;
+      out.push(new THREE.Vector3(
+        (c[0] - (nx - 1) / 2) * cell + stag + (Math.random() - 0.5) * 2 * jit,
+        ((ny - 1) / 2 - c[1]) * cell + stag + (Math.random() - 0.5) * 2 * jit,
+        (c[2] - (nz - 1) / 2) * depthCell + (Math.random() - 0.5) * 2 * jit
+      ));
+    }
+    return out;
+  }
+
+  // Frame the whole board so it fills the viewport: fit BOTH the horizontal
+  // and vertical extents to the camera frustum and take the tighter distance.
   function fitToView() {
     if (!S || !S.galaxies.length) return;
-    var center = new THREE.Vector3();
-    S.galaxies.forEach(function (g) { center.add(g.center); });
-    center.multiplyScalar(1 / S.galaxies.length);
-
-    var boundingRadius = 1;
+    var box = new THREE.Box3();
+    var v = new THREE.Vector3();
     S.galaxies.forEach(function (g) {
-      // core sprite stretches a bit past the particle radius -> use coreScale
-      var reach = center.distanceTo(g.center) +
-        Math.max(g.radius, (g.core && g.core.userData.baseScale) || g.radius);
-      if (reach > boundingRadius) boundingRadius = reach;
+      var r = Math.max(g.radius, (g.core && g.core.userData.baseScale) || g.radius);
+      box.expandByPoint(v.copy(g.center).addScalar(r));
+      box.expandByPoint(v.copy(g.center).addScalar(-r));
     });
+    var center = box.getCenter(new THREE.Vector3());
+    var size = box.getSize(new THREE.Vector3());
 
     var fov = S.camera.fov * Math.PI / 180;
-    var margin = 1.05;   // start a touch more zoomed-in by default
-    var dist = (boundingRadius / Math.sin(fov / 2)) * margin;
+    var aspect = S.camera.aspect || 1;
+    var margin = 1.08;
+    var distV = (size.y / 2) / Math.tan(fov / 2);
+    var distH = (size.x / 2 / aspect) / Math.tan(fov / 2);
+    var dist = Math.max(distV, distH) * margin + size.z / 2;
 
-    // Pleasant oblique axis (slightly above + offset), looking at centre.
-    var dir = new THREE.Vector3(0.35, 0.28, 1).normalize();
+    // Mostly head-on so the board fills the frame, with a slight tilt for depth.
+    var dir = new THREE.Vector3(0.12, 0.10, 1).normalize();
     S.camera.position.copy(center.clone().add(dir.multiplyScalar(dist)));
     S.controls.target.copy(center);
     S.camera.lookAt(center);
 
     // Make sure nothing clips: far plane past the far edge, allow zoom-out.
-    S.camera.far = Math.max(S.camera.far, (dist + boundingRadius) * 2.2);
+    S.camera.far = Math.max(S.camera.far, (dist + size.length()) * 2.2);
     S.camera.updateProjectionMatrix();
     S.controls.maxDistance = Math.max(S.controls.maxDistance, dist * 1.8);
     S.controls.update();
@@ -282,50 +321,113 @@ var Universe = (function () {
     var share = (docCount / totalDocs) * CAP_TOTAL;
     var count = Math.max(120, Math.min(CAP_PER_GALAXY, Math.round(share + docCount * 8)));
 
-    var spiral = docCount > GLOBULAR_MAX;
-    var radius = spiral ? (26 + Math.min(36, Math.sqrt(docCount) * 3.4))
-                        : (12 + Math.min(18, Math.sqrt(docCount) * 2.4));
+    // Pick a morphology so no two galaxies read the same. Tiny ones stay
+    // compact globular clusters; larger ones draw from a varied catalogue.
+    var kind;
+    if (docCount <= GLOBULAR_MAX) {
+      kind = 'globular';
+    } else {
+      var roll = Math.random();
+      kind = roll < 0.38 ? 'spiral'
+           : roll < 0.60 ? 'barred'
+           : roll < 0.78 ? 'elliptical'
+           : roll < 0.91 ? 'ring'
+                         : 'irregular';
+    }
+    var disky = (kind === 'spiral' || kind === 'barred' || kind === 'ring');
+    var radius = disky ? (26 + Math.min(36, Math.sqrt(docCount) * 3.4))
+                       : (16 + Math.min(28, Math.sqrt(docCount) * 2.9));
+
+    // Per-galaxy shape parameters (randomised once -> every galaxy differs).
+    var arms = 2 + Math.floor(Math.random() * 4);          // 2..5 spiral arms
+    var wind = 2.4 + Math.random() * 3.2;                  // arm winding tightness
+    var spinSign = Math.random() < 0.5 ? 1 : -1;           // arm chirality
+    var barLen = radius * (0.32 + Math.random() * 0.22);   // central bar half-length
+    var ellY = 0.42 + Math.random() * 0.5;                 // elliptical squash
+    var ellZ = 0.6 + Math.random() * 0.4;
+    var ringR = radius * (0.55 + Math.random() * 0.15);    // ring radius
+    var clumps = [];
+    if (kind === 'irregular') {
+      var nc = 3 + Math.floor(Math.random() * 4);
+      for (var ci = 0; ci < nc; ci++) {
+        clumps.push({
+          cx: (Math.random() - 0.5) * radius * 1.3,
+          cy: (Math.random() - 0.5) * radius * 0.5,
+          cz: (Math.random() - 0.5) * radius * 1.3,
+          r: radius * (0.2 + Math.random() * 0.32)
+        });
+      }
+    }
 
     // Color blend from the galaxy's dominant doc_types (top 3, weighted).
     var palette = topColors(g.types);
 
     var positions = new Float32Array(count * 3);
     var colors = new Float32Array(count * 3);
-    var arms = docCount > 60 ? 3 : 2;
     var tmp = new THREE.Color();
 
     for (var i = 0; i < count; i++) {
-      var x, y, z;
-      if (spiral) {
-        // Spiral disk + bulge. Logarithmic arms with scatter.
-        var bulge = Math.random() < 0.22;
-        if (bulge) {
-          var br = Math.pow(Math.random(), 1.8) * radius * 0.35;
-          var ba = Math.random() * Math.PI * 2;
-          var bp = Math.acos(2 * Math.random() - 1);
-          x = br * Math.sin(bp) * Math.cos(ba);
-          y = br * Math.cos(bp) * 0.7;
-          z = br * Math.sin(bp) * Math.sin(ba);
-        } else {
+      var x = 0, y = 0, z = 0;
+      if (kind === 'globular') {
+        // Dense centre, smooth falloff (Plummer-ish sphere).
+        var gr = Math.pow(Math.random(), 1.6) * radius;
+        var ga = Math.random() * Math.PI * 2, gp = Math.acos(2 * Math.random() - 1);
+        x = gr * Math.sin(gp) * Math.cos(ga); y = gr * Math.cos(gp); z = gr * Math.sin(gp) * Math.sin(ga);
+      } else if (kind === 'elliptical') {
+        // Smooth ellipsoid with random axis ratios (E0..E7-ish).
+        var er = Math.pow(Math.random(), 1.7) * radius;
+        var ea = Math.random() * Math.PI * 2, ep = Math.acos(2 * Math.random() - 1);
+        x = er * Math.sin(ep) * Math.cos(ea);
+        y = er * Math.cos(ep) * ellY;
+        z = er * Math.sin(ep) * Math.sin(ea) * ellZ;
+      } else if (kind === 'ring') {
+        if (Math.random() < 0.18) {            // small central nucleus
+          var br = Math.pow(Math.random(), 1.8) * radius * 0.22;
+          var ba = Math.random() * Math.PI * 2, bp = Math.acos(2 * Math.random() - 1);
+          x = br * Math.sin(bp) * Math.cos(ba); y = br * Math.cos(bp) * 0.7; z = br * Math.sin(bp) * Math.sin(ba);
+        } else {                               // the ring itself
+          var ra = Math.random() * Math.PI * 2;
+          var rr0 = ringR + (Math.random() - 0.5) * radius * 0.26;
+          x = Math.cos(ra) * rr0; z = Math.sin(ra) * rr0; y = (Math.random() - 0.5) * 4;
+        }
+      } else if (kind === 'irregular') {
+        // A handful of offset clumps, no symmetry.
+        var cl = clumps[Math.floor(Math.random() * clumps.length)];
+        var ir = Math.pow(Math.random(), 1.4) * cl.r;
+        var ia = Math.random() * Math.PI * 2, ip = Math.acos(2 * Math.random() - 1);
+        x = cl.cx + ir * Math.sin(ip) * Math.cos(ia);
+        y = cl.cy + ir * Math.cos(ip) * 0.7;
+        z = cl.cz + ir * Math.sin(ip) * Math.sin(ia);
+      } else if (kind === 'barred') {
+        if (Math.random() < 0.30) {            // central bar
+          x = (Math.random() - 0.5) * 2 * barLen + (Math.random() - 0.5) * 4;
+          z = (Math.random() - 0.5) * 6;
+          y = (Math.random() - 0.5) * 5;
+        } else {                               // two arms off the bar ends
+          var tb = Math.pow(Math.random(), 0.6);
+          var rb = barLen + tb * (radius - barLen);
+          var endSide = Math.random() < 0.5 ? 0 : Math.PI;
+          var angB = spinSign * tb * wind + endSide;
+          x = Math.cos(angB) * rb + (Math.random() - 0.5) * 4;
+          z = Math.sin(angB) * rb + (Math.random() - 0.5) * 4;
+          y = (Math.random() - 0.5) * (3 + (1 - tb) * 6);
+        }
+      } else {                                 // 'spiral'
+        if (Math.random() < 0.22) {            // bulge
+          var br2 = Math.pow(Math.random(), 1.8) * radius * 0.32;
+          var ba2 = Math.random() * Math.PI * 2, bp2 = Math.acos(2 * Math.random() - 1);
+          x = br2 * Math.sin(bp2) * Math.cos(ba2); y = br2 * Math.cos(bp2) * 0.7; z = br2 * Math.sin(bp2) * Math.sin(ba2);
+        } else {                               // logarithmic arms with scatter
           var t = Math.pow(Math.random(), 0.6);
           var rr = t * radius;
           var arm = Math.floor(Math.random() * arms);
-          var baseAng = (arm / arms) * Math.PI * 2;
-          var ang = baseAng + t * 3.4;                 // winding
+          var ang = (arm / arms) * Math.PI * 2 + spinSign * t * wind;
           var scatter = (1 - t) * 0.5 + 0.12;
           ang += (Math.random() - 0.5) * scatter;
           x = Math.cos(ang) * rr + (Math.random() - 0.5) * 4;
           z = Math.sin(ang) * rr + (Math.random() - 0.5) * 4;
-          y = (Math.random() - 0.5) * (3.5 + (1 - t) * 7);  // thin disk, thick core
+          y = (Math.random() - 0.5) * (3.5 + (1 - t) * 7);   // thin disk, thicker core
         }
-      } else {
-        // Globular cluster: dense centre, smooth falloff (Plummer-ish).
-        var gr = Math.pow(Math.random(), 1.6) * radius;
-        var ga = Math.random() * Math.PI * 2;
-        var gp = Math.acos(2 * Math.random() - 1);
-        x = gr * Math.sin(gp) * Math.cos(ga);
-        y = gr * Math.cos(gp);
-        z = gr * Math.sin(gp) * Math.sin(ga);
       }
       positions[i * 3] = x;
       positions[i * 3 + 1] = y;
@@ -345,7 +447,7 @@ var Universe = (function () {
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     var mat = new THREE.PointsMaterial({
-      size: spiral ? 1.6 : 1.9,
+      size: disky ? 1.6 : 1.9,
       sizeAttenuation: true,
       vertexColors: true,
       transparent: true,
@@ -357,14 +459,14 @@ var Universe = (function () {
     var points = new THREE.Points(geo, mat);
     S.disposables.push(geo, mat);
 
-    // Bright core glow sprite (also the raycast target via a small hit point).
+    // Bright core glow sprite (also the raycast target).
     var coreColor = new THREE.Color(palette[0]);
     var spriteMat = new THREE.SpriteMaterial({
       map: S.coreTexture, color: coreColor, transparent: true,
       opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending
     });
     var core = new THREE.Sprite(spriteMat);
-    var coreScale = radius * (spiral ? 1.0 : 1.35);   // tighter nucleus -> less flat outer-glow disc
+    var coreScale = radius * (disky ? 1.0 : 1.35);   // tighter nucleus -> less flat outer-glow disc
     core.scale.set(coreScale, coreScale, 1);
     core.userData.baseScale = coreScale;
     S.disposables.push(spriteMat);
@@ -373,9 +475,16 @@ var Universe = (function () {
     group.add(points);
     group.add(core);
     group.userData.isGalaxy = true;
+    // Random 3D orientation so disks don't all lie in the same plane. Self-spin
+    // in the loop uses group.rotateY (local axis) to preserve this tilt.
+    group.rotation.set(
+      Math.random() * Math.PI * 2,
+      Math.random() * Math.PI * 2,
+      Math.random() * Math.PI * 2
+    );
 
     return {
-      group: group, points: points, core: core, coreColor: coreColor,
+      group: group, points: points, core: core, coreColor: coreColor, kind: kind,
       // Visible self-rotation, varied per galaxy: ~5..18 deg/s (rad/s).
       // Always animated (decoupled from prefers-reduced-motion) and
       // randomly signed so neighbours don't all spin in lockstep.
@@ -411,7 +520,40 @@ var Universe = (function () {
       var line = new THREE.Line(geo, mat);
       S.scene.add(line);
       S.disposables.push(geo, mat);
+
+      // Link this arc to both galaxies so hovering one can light up its relations.
+      var entry = { line: line, curve: curve, baseOpacity: mat.opacity, baseColor: mat.color.clone() };
+      S.arcs.push(entry);
+      var ga = S.galaxies[e[0]], gb = S.galaxies[e[1]];
+      if (ga) (ga.arcs = ga.arcs || []).push(entry);
+      if (gb) (gb.arcs = gb.arcs || []).push(entry);
     });
+
+    // Flowing light motes travelling along each arc -> knowledge visibly
+    // "flows" between related projects. One shared Points system, advanced
+    // per frame in the loop (positions sampled along the stored bezier curves).
+    var DOTS_PER_ARC = 3;
+    var maxDots = Math.min(1800, S.arcs.length * DOTS_PER_ARC);
+    if (maxDots > 0) {
+      var fpos = new Float32Array(maxDots * 3);
+      var dots = [];
+      for (var di = 0; di < maxDots; di++) {
+        var arc = S.arcs[di % S.arcs.length];
+        dots.push({ curve: arc.curve, phase: Math.random(), speed: 0.05 + Math.random() * 0.06 });
+      }
+      var fgeo = new THREE.BufferGeometry();
+      fgeo.setAttribute('position', new THREE.BufferAttribute(fpos, 3));
+      var fmat = new THREE.PointsMaterial({
+        size: 3.4, sizeAttenuation: true, map: S.coreTexture,
+        color: 0xbfe3ff, transparent: true, opacity: 0.9,
+        depthWrite: false, blending: THREE.AdditiveBlending
+      });
+      var fpoints = new THREE.Points(fgeo, fmat);
+      fpoints.frustumCulled = false;
+      S.scene.add(fpoints);
+      S.disposables.push(fgeo, fmat);
+      S.flow = { attr: fgeo.getAttribute('position'), dots: dots, scratch: new THREE.Vector3() };
+    }
   }
 
   // ============================================================
@@ -431,40 +573,45 @@ var Universe = (function () {
       // Galaxy self-rotation + subtle core twinkle. Always runs: the ambient
       // motion is intentional and decoupled from prefers-reduced-motion.
       S.clockT = (S.clockT || 0) + dt;
+      var dimOthers = S.hovered ? 0.5 : 1;   // recede unfocused galaxies on hover
       for (var i = 0; i < S.galaxies.length; i++) {
         var gx = S.galaxies[i];
-        if (!S.hovered) gx.group.rotation.y += gx.baseSpin * dt;   // hover pauses the spin
+        // Every galaxy keeps spinning around its OWN (tilted) disk axis; the
+        // hovered one energises (spins up). rotateY = local Y, preserves tilt.
+        gx.group.rotateY(gx.baseSpin * (gx === S.hovered ? 2.4 : 1) * dt);
         if (gx !== S.hovered && gx.core) {
-          // gentle per-galaxy out-of-phase opacity breath (dimmed core glow)
-          var tw = 0.32 + Math.sin(S.clockT * 0.9 + gx.twPhase) * 0.06;
+          // gentle per-galaxy out-of-phase opacity breath, dimmed while another
+          // galaxy is focused so the hovered one clearly stands out.
+          var tw = (0.32 + Math.sin(S.clockT * 0.9 + gx.twPhase) * 0.06) * dimOthers;
           gx.core.material.opacity = tw;
         }
       }
 
-      // Hover dolly: ease the camera a touch toward the hovered galaxy, and
-      // back out on leave. Suspended while dragging (free orbit) or flying.
-      var d = S.dolly;
-      if (d.lastGal && d.restP && !S.tween && !S.dragging) {
-        var goal = d.gal ? 1 : 0;
-        d.amt += (goal - d.amt) * Math.min(1, dt * 5);
-        if (goal === 0 && d.amt < 0.003) {
-          d.amt = 0; d.lastGal = null; S.controls.autoRotate = true;
-        } else {
-          var gc = d.lastGal.center;
-          var off = S._t1.copy(d.restP).sub(gc);
-          var rest = off.length() || 1;
-          var near = Math.max(d.lastGal.radius * 3.0, rest * 0.86);
-          off.multiplyScalar(near / rest);
-          S.camera.position.lerpVectors(d.restP, S._t2.copy(gc).add(off), d.amt);
-          S.controls.target.lerpVectors(d.restT, S._t3.copy(d.restT).lerp(gc, 0.30), d.amt);
+      // Selection halo: gentle breathing pulse around the hovered galaxy.
+      if (S.ring && S.ring.visible && S.hovered) {
+        var pulse = Math.sin(S.clockT * 3.2);
+        var rs = S.hovered.radius * (2.4 + pulse * 0.12);
+        S.ring.scale.set(rs, rs, 1);
+        S.ring.material.opacity = 0.55 + pulse * 0.12;
+      }
+
+      // Advance the motes flowing along relation arcs.
+      if (S.flow) {
+        var fa = S.flow.attr, fd = S.flow.dots, sc = S.flow.scratch;
+        for (var fi = 0; fi < fd.length; fi++) {
+          var dot = fd[fi];
+          dot.curve.getPoint((S.clockT * dot.speed + dot.phase) % 1, sc);
+          fa.setXYZ(fi, sc.x, sc.y, sc.z);
         }
+        fa.needsUpdate = true;
       }
 
       updateTween(dt);
       if (S.pointerInside && !S.tween) updateHover();
 
       S.controls.update();
-      S.renderer.render(S.scene, S.camera);
+      if (S.composer) S.composer.render();
+      else S.renderer.render(S.scene, S.camera);
     }
     S.raf = requestAnimationFrame(loop);
   }
@@ -491,11 +638,12 @@ var Universe = (function () {
       if (gal) positionTooltip();
       return;
     }
-    // restore previous
+    // restore previously hovered galaxy + its relation arcs
     if (S.hovered) {
       var bs = S.hovered.core.userData.baseScale;
       S.hovered.core.scale.set(bs, bs, 1);
       S.hovered.core.material.opacity = 0.9;
+      setArcHighlight(S.hovered, false);
     }
     S.hovered = gal;
     var canvas = S.renderer.domElement;
@@ -505,17 +653,34 @@ var Universe = (function () {
       gal.core.material.opacity = 1.0;
       canvas.style.cursor = 'pointer';
       showTooltip(gal);
-      // Start a gentle dolly toward this galaxy (skipped during a fly-to).
-      if (!S.tween) {
-        var d = S.dolly;
-        if (d.amt < 0.05) { d.restP = S.camera.position.clone(); d.restT = S.controls.target.clone(); }
-        d.gal = gal; d.lastGal = gal;
-        S.controls.autoRotate = false;
+      setArcHighlight(gal, true);
+      // Park the selection halo on this galaxy, tinted in its own colour.
+      if (S.ring) {
+        S.ring.position.copy(gal.center);
+        S.ring.material.color.copy(gal.coreColor);
+        S.ring.visible = true;
       }
     } else {
       canvas.style.cursor = 'grab';
       hideTooltip();
-      S.dolly.gal = null;   // release -> eases back to the pre-hover pose
+      if (S.ring) S.ring.visible = false;
+    }
+  }
+
+  // Light up (or restore) every relation arc touching a galaxy — hovering a
+  // project reveals which other projects it links to.
+  function setArcHighlight(gal, on) {
+    var list = gal && gal.arcs;
+    if (!list) return;
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i];
+      if (on) {
+        a.line.material.opacity = Math.min(0.85, a.baseOpacity * 4 + 0.4);
+        a.line.material.color.setHex(0x9fd0ff);
+      } else {
+        a.line.material.opacity = a.baseOpacity;
+        a.line.material.color.copy(a.baseColor);
+      }
     }
   }
 
@@ -602,15 +767,6 @@ var Universe = (function () {
   // ============================================================
   //  Helpers
   // ============================================================
-  // Even point distribution on a sphere (Fibonacci spiral).
-  function fibonacciPoint(i, n, r) {
-    var ga = Math.PI * (3 - Math.sqrt(5));     // golden angle
-    var y = 1 - (i / Math.max(1, n - 1)) * 2;  // -1..1
-    var rad = Math.sqrt(Math.max(0, 1 - y * y));
-    var theta = ga * i;
-    return new THREE.Vector3(Math.cos(theta) * rad * r, y * r, Math.sin(theta) * rad * r);
-  }
-
   // Top doc_type colors (by count), at least one. Returns array of hex strings.
   function topColors(types) {
     var entries = [];
@@ -646,6 +802,122 @@ var Universe = (function () {
     return tex;
   }
 
+  // Luminous annulus texture for the hover selection halo (soft glow + crisp line).
+  function makeRingTexture() {
+    var size = 128;
+    var c = document.createElement('canvas');
+    c.width = c.height = size;
+    var ctx = c.getContext('2d');
+    var cx = size / 2;
+    var rad = size * 0.40;
+    // soft outer glow
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.shadowColor = 'rgba(255,255,255,0.9)';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(cx, cx, rad, 0, Math.PI * 2);
+    ctx.stroke();
+    // crisp bright inner line
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+    ctx.beginPath();
+    ctx.arc(cx, cx, rad, 0, Math.PI * 2);
+    ctx.stroke();
+    var tex = new THREE.CanvasTexture(c);
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  // Shared, always-camera-facing selection halo sprite (one instance, reused).
+  function makeSelectionRing(tex) {
+    var mat = new THREE.SpriteMaterial({
+      map: tex, color: 0xffffff, transparent: true,
+      opacity: 0, depthWrite: false, depthTest: false,
+      blending: THREE.AdditiveBlending
+    });
+    var sprite = new THREE.Sprite(mat);
+    sprite.visible = false;
+    sprite.renderOrder = 999;   // always drawn over the particle clouds
+    S.disposables.push(mat);
+    return sprite;
+  }
+
+  // Wire an EffectComposer with a bloom pass — but only if the postproc libs
+  // actually loaded. Any absence/error falls back to a plain renderer.render.
+  function setupComposer(w, h) {
+    if (typeof THREE.EffectComposer !== 'function' ||
+        typeof THREE.RenderPass !== 'function' ||
+        typeof THREE.UnrealBloomPass !== 'function') {
+      return;
+    }
+    try {
+      var composer = new THREE.EffectComposer(S.renderer);
+      composer.setPixelRatio(S.renderer.getPixelRatio());
+      composer.setSize(w, h);
+      composer.addPass(new THREE.RenderPass(S.scene, S.camera));
+      // (resolution, strength, radius, threshold) — bright cores/motes glow.
+      var bloom = new THREE.UnrealBloomPass(new THREE.Vector2(w, h), 0.85, 0.55, 0.18);
+      composer.addPass(bloom);
+      S.composer = composer;
+      S.bloom = bloom;
+    } catch (e) {
+      S.composer = null;
+    }
+  }
+
+  // Distant starfield (constant-size pinpoints) + a few faint nebula clouds.
+  // Gives the now-opaque canvas its own depth, replacing the CSS wash.
+  function buildBackdrop(scene) {
+    var STAR_COUNT = 2600;
+    var sp = new Float32Array(STAR_COUNT * 3);
+    var scol = new Float32Array(STAR_COUNT * 3);
+    var col = new THREE.Color();
+    for (var i = 0; i < STAR_COUNT; i++) {
+      var r = 1400 + Math.random() * 1100;            // shell well inside camera.far
+      var a = Math.random() * Math.PI * 2;
+      var p = Math.acos(2 * Math.random() - 1);
+      sp[i * 3]     = r * Math.sin(p) * Math.cos(a);
+      sp[i * 3 + 1] = r * Math.cos(p);
+      sp[i * 3 + 2] = r * Math.sin(p) * Math.sin(a);
+      var tint = Math.random();
+      if (tint < 0.12) col.setHSL(0.58, 0.5, 0.8);            // cool blue
+      else if (tint < 0.20) col.setHSL(0.08, 0.5, 0.8);       // warm
+      else col.setHSL(0, 0, 0.7 + Math.random() * 0.3);       // white-ish
+      var br = 0.5 + Math.random() * 0.5;
+      scol[i * 3] = col.r * br; scol[i * 3 + 1] = col.g * br; scol[i * 3 + 2] = col.b * br;
+    }
+    var sgeo = new THREE.BufferGeometry();
+    sgeo.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+    sgeo.setAttribute('color', new THREE.BufferAttribute(scol, 3));
+    var smat = new THREE.PointsMaterial({
+      size: 1.7, sizeAttenuation: false, vertexColors: true,
+      transparent: true, opacity: 0.9, depthWrite: false, map: S.coreTexture
+    });
+    var stars = new THREE.Points(sgeo, smat);
+    stars.frustumCulled = false;
+    scene.add(stars);
+    S.disposables.push(sgeo, smat);
+
+    // Huge, very faint additive nebula blobs for colour + depth.
+    [{ c: 0x4aa3ff, x: -700, y: 250, z: -600 },
+     { c: 0xb07cff, x: 650, y: -300, z: -500 },
+     { c: 0x2fe0d0, x: 200, y: 400, z: -900 }].forEach(function (nb) {
+      var m = new THREE.SpriteMaterial({
+        map: S.coreTexture, color: new THREE.Color(nb.c), transparent: true,
+        opacity: 0.06, depthWrite: false, depthTest: false,
+        blending: THREE.AdditiveBlending
+      });
+      var s = new THREE.Sprite(m);
+      s.scale.set(1500, 1500, 1);
+      s.position.set(nb.x, nb.y, nb.z);
+      s.renderOrder = -1;
+      scene.add(s);
+      S.disposables.push(m);
+    });
+  }
+
   function escHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (ch) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
@@ -669,6 +941,8 @@ var Universe = (function () {
     document.removeEventListener('visibilitychange', s.onVisibility);
 
     if (s.controls && s.controls.dispose) s.controls.dispose();
+    if (s.composer && s.composer.dispose) s.composer.dispose();
+    if (s.bloom && s.bloom.dispose) s.bloom.dispose();
 
     // Dispose all tracked geometries/materials/textures.
     (s.disposables || []).forEach(function (o) {
