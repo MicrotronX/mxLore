@@ -40,6 +40,7 @@ uses
   mx.Logic.ProjectImport in 'mx.Logic.ProjectImport.pas',
   mx.Logic.Projects      in 'mx.Logic.Projects.pas',
   mx.Logic.SelfUpdate    in 'mx.Logic.SelfUpdate.pas',
+  mx.Logic.AdminRecovery in 'mx.Logic.AdminRecovery.pas',
   mx.Admin.Api.SelfUpdate in 'mx.Admin.Api.SelfUpdate.pas',
   mx.Admin.Auth         in 'mx.Admin.Auth.pas',
   mx.Admin.Server       in 'mx.Admin.Server.pas',
@@ -81,6 +82,21 @@ begin
     if (ParamCount >= 1) and SameText(ParamStr(1), '--self-test') then
     begin
       ExitCode := MxSelfUpdate_RunSelfTests;
+      Exit;
+    end;
+
+    // --issue-admin-key [<id>|<name>]: break-glass recovery. Issues a fresh
+    // admin client_key for an existing developer when the plaintext key was
+    // lost. With no argument it lists developers and exits without mutating.
+    // Authorization = host access (operator holds the INI DB credentials, same
+    // trust level as --encrypt). INI is read from the exe directory.
+    if (ParamCount >= 1) and SameText(ParamStr(1), '--issue-admin-key') then
+    begin
+      var IakTarget := '';
+      if ParamCount >= 2 then
+        IakTarget := ParamStr(2);
+      ExitCode := MxRunIssueAdminKeyCli(
+        ExtractFilePath(ParamStr(0)) + 'mxLoreMCP.ini', IakTarget);
       Exit;
     end;
 

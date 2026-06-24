@@ -3,6 +3,7 @@
 uses
   Winapi.Windows,
   System.SysUtils,
+  System.Classes,
   System.IOUtils,
   Vcl.Forms,
   // FireDAC drivers (must be in .dpr for static linking)
@@ -38,6 +39,7 @@ uses
   mx.Logic.ProjectImport in 'mx.Logic.ProjectImport.pas',
   mx.Logic.Projects      in 'mx.Logic.Projects.pas',
   mx.Logic.SelfUpdate    in 'mx.Logic.SelfUpdate.pas',
+  mx.Logic.AdminRecovery in 'mx.Logic.AdminRecovery.pas',
   mx.Admin.Api.SelfUpdate in 'mx.Admin.Api.SelfUpdate.pas',
   mx.Admin.Auth         in 'mx.Admin.Auth.pas',
   mx.Admin.Server       in 'mx.Admin.Server.pas',
@@ -79,6 +81,32 @@ var
   MutexBackoffMs: Cardinal;
   MutexStartTick: Cardinal;
 begin
+  // --issue-admin-key [<id>|<name>]: break-glass recovery (see
+  // mx.Logic.AdminRecovery). This GUI build has no console, so the output is
+  // collected and shown in a modal dialog -- which also guarantees the one-time
+  // plaintext key stays on screen until the operator dismisses it. Runs before
+  // the single-instance mutex so recovery works even while a server is up.
+  if (ParamCount >= 1) and SameText(ParamStr(1), '--issue-admin-key') then
+  begin
+    var IakTarget := '';
+    if ParamCount >= 2 then
+      IakTarget := ParamStr(2);
+    var IakOut := TStringList.Create;
+    try
+      ExitCode := MxIssueAdminKey(
+        ExtractFilePath(ParamStr(0)) + 'mxLoreMCP.ini', IakTarget,
+        procedure(const ALine: string)
+        begin
+          IakOut.Add(ALine);
+        end);
+      MessageBox(0, PChar(IakOut.Text), 'mxLore - Issue Admin Key',
+        MB_OK or MB_ICONINFORMATION);
+    finally
+      IakOut.Free;
+    end;
+    Exit;
+  end;
+
   // --finish-update=<zip>: child spawned by MxSelfUpdate_InstallAndRestart.
   // Runs the extraction BEFORE the mutex check (parent still holds it).
   // After FinishUpdate the child falls through to the normal mutex retry
