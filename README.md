@@ -7,6 +7,7 @@ Self-hosted MCP server for AI-assisted software development. Stores architectura
 ## Features
 
 - **45 MCP Tools** — search, create, update, recall knowledge across projects
+- **Private by design** — coding AIs (Claude Code, Cursor, Windsurf) reach all 45 tools through a local proxy: no third-party connector cloud in the path, no public endpoint, server stays on localhost or your LAN ([details](#private-by-design))
 - **Multi-Project** — one server, many codebases, cross-project search
 - **Skill Evolution** — tracks which AI checker rules actually help, auto-tunes
 - **Institutional Memory** — lessons learned with recall, gate levels, graph-based knowledge links
