@@ -174,7 +174,11 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 118;
+  MXAI_BUILD   = 119;
+  // Build 119 (2026-06-24): Cross-platform proxy - Go-port (src/proxy-go) for
+  //   macOS arm64/Intel + Windows; mx_ping exposes proxy_download_url_darwin_*
+  //   from a dedicated "proxy-bin" release tag; install-proxy.sh OS/arch-aware.
+  //   Plus --issue-admin-key break-glass admin recovery (mx.Logic.AdminRecovery).
   // Build 118 (2026-06-11): Bugfix AI-Batch skill-precision uq_doc duplicate —
   //   dedupe check now matches uq_doc (project_id+slug, status-agnostic)
   //   instead of dynamic title; archived note = user dismiss, no boot re-create.
