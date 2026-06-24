@@ -68,6 +68,20 @@ The console should show `Admin server listening on 127.0.0.1:8081`. **You're hal
 | **LAN** (team) | Set `BindAddress=0.0.0.0` in INI. HTTP OK on trusted networks. |
 | **WAN / Cloud** | **HTTPS required.** Use a reverse proxy (IIS, nginx, Apache) with TLS. |
 
+## Private by Design
+
+Your coding AI connects **directly** to your server — no third-party MCP connector cloud sits in the path:
+
+| Client | Path | Notes |
+|--------|------|-------|
+| **Claude Code, Cursor, Windsurf** | AI -> local `mxMCPProxy` -> your server | Direct. Server can stay on `localhost`/LAN — no public endpoint needed. |
+| **claude.ai chat** | chat -> MCP connector -> your server | Chat windows can't run a local proxy, so they use the standard connector (routes through the chat provider). |
+
+- **No public endpoint** for coding clients — the proxy bridges stdio <-> HTTP locally, so the server never has to face the internet.
+- **No connector rate limits or broker outages** between you and your data.
+- **You own the transport** — Bearer-auth API keys, your own TLS/firewall. The proxy is a single dependency-free binary (Windows + macOS).
+- Your knowledge base is stored only on your server. (As with any AI tool, whatever the model reads to answer you is processed by that model.)
+
 ## Architecture
 
 - **Stack:** Delphi (RAD Studio) + TMS Sparkle + FireDAC + MariaDB
