@@ -14,7 +14,7 @@ argument-hint: "<api-key> | --update | --update-rules | --update-proxy | --with-
 
 ## When to trigger this skill
 - `claude mcp list` returns empty or lacks `mxai-knowledge`
-- `mxMCPProxy.exe` missing or version mismatch vs server
+- `mxMCPProxy` binary (`.exe` on Windows) missing or version mismatch vs server
 - mx-rules marker block in `~/.claude/CLAUDE.md` outdated or missing
 - New PC / fresh Claude Code install
 - User says "/mxSetup", "onboard me", or "neuer PC"
@@ -54,16 +54,21 @@ Optional: `REPO_REF=v2.4.0 bash ~/.claude/skills/mxSetup/scripts/install-skills.
 
 ⚡ !PowerShell !Invoke-WebRequest — always use curl+unzip in Bash (works everywhere).
 
-### Phase 3: Install Proxy
+### Phase 3: Install Proxy (cross-platform: Windows / macOS arm64 / macOS Intel)
 
-1. **Resolve Download URL** from mx_ping response:
-   - Use `proxy_download_url` — always set when `admin_port > 0` (external URL if configured, otherwise localhost)
-   - If `admin_port` missing in mx_ping response: warning, skip proxy install.
-2. Downloads the proxy EXE to `~/.claude/mxMCPProxy.exe` and verifies integrity (SHA256 if available, else size >100KB):
+1. **Collect download URLs** from the mx_ping response (the install script picks the right one by `uname` — you just forward all candidates):
+   - `proxy_download_url` (+ `proxy_sha256`) — Windows, server-hosted Delphi proxy. Set when `admin_port > 0`.
+   - `proxy_download_url_darwin_arm64` — macOS Apple Silicon (GitHub release asset, size-checked).
+   - `proxy_download_url_darwin_amd64` — macOS Intel.
+   - If none of these are present in mx_ping: warning, skip proxy install.
+2. Run the installer once with the candidates as env vars. It detects the platform via `uname`, installs to `~/.claude/mxMCPProxy.exe` (Windows) or `~/.claude/mxMCPProxy` (macOS, executable bit set), and verifies integrity (Windows: SHA256 if available; macOS: size >100KB — release assets carry no server-side sha256):
 ```bash
-PROXY_URL="<RESOLVED-URL>" bash ~/.claude/skills/mxSetup/scripts/install-proxy.sh
+PROXY_URL="<proxy_download_url>" \
+EXPECTED_SHA256="<proxy_sha256 or omit>" \
+PROXY_URL_DARWIN_ARM64="<proxy_download_url_darwin_arm64 or omit>" \
+PROXY_URL_DARWIN_AMD64="<proxy_download_url_darwin_amd64 or omit>" \
+bash ~/.claude/skills/mxSetup/scripts/install-proxy.sh
 ```
-   Pass `proxy_sha256` from the mx_ping response (if present) as `EXPECTED_SHA256="<sha>"` to install-proxy.sh.
 3. Create proxy INI (Write tool → `~/.claude/mxMCPProxy.ini`):
 ```ini
 [Server]
@@ -79,9 +84,13 @@ PollInterval=15
 
 ### Phase 4: Switch MCP to Proxy
 
+The installed binary is `~/.claude/mxMCPProxy.exe` (Windows) or `~/.claude/mxMCPProxy` (macOS) — use the matching path:
 ```bash
 claude mcp remove mxai-knowledge -s user
+# Windows:
 claude mcp add -s user mxai-knowledge -- "<HOME>/.claude/mxMCPProxy.exe"
+# macOS:
+claude mcp add -s user mxai-knowledge -- "$HOME/.claude/mxMCPProxy"
 ```
 `mx_ping()` → Success? Continue. Error? Offer HTTP fallback.
 
@@ -160,8 +169,8 @@ Optional: `CLEAN=1 ~/.claude/skills/mxSetup/scripts/install-skills.sh` removes s
 ### `--update-rules` (mx-rules marker only — fast path)
 - `--update-rules` — Re-runs Phase 2 (which downloads the full skills bundle) and Phase 5c (CLAUDE.md mx-rules marker merge). Skills + hooks get refreshed as collateral; if you want only the marker block updated without skill refresh, edit `~/.claude/CLAUDE.md` manually between the markers.
 
-### `--update-proxy` (proxy EXE swap only)
-Only re-runs Phase 3: `mx_ping()` → resolve URL → `install-proxy.sh` → replace `~/.claude/mxMCPProxy.exe`. INI left untouched. Use when the server build moved ahead of the local proxy.
+### `--update-proxy` (proxy binary swap only)
+Only re-runs Phase 3: `mx_ping()` → forward per-platform URLs → `install-proxy.sh` → replace `~/.claude/mxMCPProxy[.exe]` (the script picks Windows/macOS by `uname`). INI left untouched. Use when the server build moved ahead of the local proxy.
 
 ⚡ Stop the running proxy first (`taskkill /IM mxMCPProxy.exe /F` on Windows) — staging+mv mitigates file lock but a clean swap is more reliable.
 
