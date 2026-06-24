@@ -251,14 +251,14 @@ const
 
   // Cross-platform proxy binaries (Go-Port src/proxy-go). macOS binaries are
   // distributed as GitHub release assets, NOT served by this server, so we
-  // expose stable "latest/download" URLs (auto-track the newest release) in
+  // expose URLs from a dedicated "proxy-bin" release (kept off "Latest") in
   // mx_ping. install-proxy.sh picks the right one by uname; no per-mac sha256
   // because the server does not host these files (size-check fallback applies).
   // Windows keeps the server-hosted proxy_download_url (Delphi proxy).
   MXAI_PROXY_URL_DARWIN_ARM64 =
-    'https://github.com/MicrotronX/mxLore/releases/latest/download/mxMCPProxy-darwin-arm64';
+    'https://github.com/MicrotronX/mxLore/releases/download/proxy-bin/mxMCPProxy-darwin-arm64';
   MXAI_PROXY_URL_DARWIN_AMD64 =
-    'https://github.com/MicrotronX/mxLore/releases/latest/download/mxMCPProxy-darwin-amd64';
+    'https://github.com/MicrotronX/mxLore/releases/download/proxy-bin/mxMCPProxy-darwin-amd64';
 
   // FR#2936/Plan#3266 M3.11 — reason codes for tool_call_log.auth_reason
   // VARCHAR(32) NULL (sql/049 step 5). Realigned with Spec#3194 v3 §I9
