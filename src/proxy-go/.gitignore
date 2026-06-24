@@ -1,0 +1,9 @@
+# build output
+/bin/
+mxMCPProxy
+mxMCPProxy.exe
+*.log
+# runtime config / inbox (machine-local)
+mxMCPProxy.ini
+agent_inbox/
+known_ids_*.txt
