@@ -163,6 +163,11 @@ begin
       if ProxySha <> '' then
         Data.AddPair('proxy_sha256', ProxySha);
     end;
+    // Cross-platform proxy: macOS binaries (Go-Port) via GitHub release assets.
+    // Static "latest/download" URLs, always available (independent of admin_port).
+    // install-proxy.sh selects by uname -s/-m; Windows uses proxy_download_url above.
+    Data.AddPair('proxy_download_url_darwin_arm64', MXAI_PROXY_URL_DARWIN_ARM64);
+    Data.AddPair('proxy_download_url_darwin_amd64', MXAI_PROXY_URL_DARWIN_AMD64);
     Data.AddPair('timestamp', FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', Now));
 
     Result := MxSuccessResponse(Data);
