@@ -9,7 +9,7 @@ The subagent-returned body string MAY be empty/truncated/error-prose when the su
 Validate the body string against ALL THREE criteria:
 
 1. **Length:** `len(body) >= 500` chars.
-2. **Structure:** contains at least 3 of the template section headers (`## What was done`, `## Changed files`, `## Commits`, `## Docs created this session`, `## Next step`).
+2. **Structure:** BOTH ⚡ALWAYS sections MUST be present as headers — `## Quickstart after /clear` AND `## Tooling gotchas + verify` (their body may be the literal `keine`, but the header is never absent; this enforces the "never omitted" Resume-Quality contract from FR#11636) — AND at least 3 of the content headers (`## What was done`, `## Changed files`, `## Commits`, `## Docs created this session`, `## Next step`). Missing either ALWAYS header = structure-fail.
 3. **Archive-Fidelity (Bug#3239 hardening):** if the chat history contains structured decision artefacts — markdown tables with ≥5 rows, `## Step N`, `## Substep`, `## Konsens`, `## Brainstorm`, `## Review` headings, or Q/A-resolution blocks — the returned body MUST contain at least one matching `## Appendix:` heading per detected artefact-class. Regex: detect artefacts via `^\|[^\n]+\|$` ×≥5 consecutive lines OR `^## (Step \d+|Substep|Konsens|Brainstorm|Review)` in chat; body must carry `^## Appendix:` followed by the verbatim block. Missing appendix for a detected artefact = fidelity-fail.
 
 If ANY criterion fails: DO NOT pass the subagent body to `mx_create_doc`. Instead, Main builds a fallback body directly in the current context (no subagent) using the same template, reading from chat history / tool-call returns / git state — and MUST include all detected decision artefacts verbatim under `## Appendix:` sections. Then log once:

@@ -55,6 +55,8 @@ Scan workspace for stale local artifacts — REPORT only; any delete/refresh str
 - Exceeded→offload domain details to `docs/reference/`, keep only reference in CLAUDE.md.
 - AI-Start-Here links current. Arch changes high-level (1-3 lines/feature). !long backlogs→DB(/mxPlan). Compact: links+rules+architecture.
 
+**⚡ Resume-pointer discipline (REPLACE, never prepend):** the single "AI-Start-Here" line in CLAUDE.md and the current-status line in status.md each point at the NEWEST session note — overwrite the existing pointer in place, do NOT prepend a new line and leave the stale one. Pointers accumulating into a changelog is a defect: one current pointer, always.
+
 **status.md:**
 - Add new features (+date). Update open items.
 - Active workflows: use active_workflows from mx_session_start(include_briefing=true), ∅separate mx_search needed
@@ -166,12 +168,14 @@ Enforce in Step 5 BEFORE `mx_create_doc`: validate length≥500 / ≥3 template 
 ```
 mx_create_doc(project, doc_type='session_note', title='Session Notes YYYY-MM-DD[-N]', content, status='active')
 ```
-**Template (all sections required — omit only if truly ∅, do NOT paraphrase absence):**
+**Template (all sections required — omit only if truly ∅, do NOT paraphrase absence). ⚡ Resume-Quality is the DEFAULT, not a mode: EVERY save (incl. `--loop`, incl. doc-only sessions) MUST produce a note from which a fresh `/clear` context is fully reconstructable in ONE read. The two ⚡ALWAYS sections below are never omitted — empty → literal `keine`, never dropped:**
+- `## Quickstart after /clear` — ⚡ALWAYS (∅→`keine`, never omit). FIRST section. 1-sentence situation ("where we are") + `mx_briefing(project=<slug>)` hint + the single most-actionable NEXT action (file/function/task). A save you cannot resume from in one read is worthless.
 - `## What was done` — numbered per work stream
 - `## Changed files` — git-status / file-touch list verbatim
 - `## Commits` — `<hash> — <subject>` + explicit push status (`pushed` / `NOT pushed`)
 - `## Docs created this session` — enumerate ALL doc_ids created this session (notes, lessons, references, ADRs, plans, specs, bugreports, feature_requests). Format: `<type>#<id> — <title>`. Source: `mx_create_doc` tool-call returns from THIS session, NOT prose-guessed. Purpose: a fresh `/clear` session reads this block + `mx_detail` each ID to fully reconstruct the work.
 - `## Next step` — if the active Plan has pending next-phase tasks (M2/M3/next milestone), enumerate them **verbatim** from the Plan body (copy `- [ ]` lines 1:1, do NOT paraphrase). Pointer-only (`see Plan#NNNN M2`) is insufficient because resume-enrichment may not fetch the Plan body.
+- `## Tooling gotchas + verify` — ⚡ALWAYS (∅→`keine`, never omit). Verify commands to re-confirm state after resume (build/test/run one-liners) + non-obvious pitfalls this session hit (local-binary-vs-npx, build prerequisites, encoding traps, env quirks). Purpose: the next session re-verifies instead of re-discovering.
 - `## Open bugs / TODOs` — inline code-TODOs, pending MCP findings, version-bumps pending, push-pending
 - `## User notes` — explicit user corrections, feedback, near-misses
 **Numbering:** mx_search(project=<slug>, doc_type='session_note', query='YYYY-MM-DD')→exists→append number
@@ -204,6 +208,8 @@ Mode-agnostic threshold emit consuming `N` (normal: `last_save_deltas` set by St
 
 ## Clear-Cycle Mode (`--clear-cycle`)
 
+⚡ **Name disambiguation — do NOT confuse with a full save:** `--clear-cycle` runs ONLY the Final Block (the "/clear worthwhile?" deltas recommendation). It is NOT a resume-capable save and writes no session note. The full resume-capable save is the DEFAULT `/mxSave` (Steps 1-6, incl. the ⚡ALWAYS Quickstart + Tooling-gotchas sections in Step 5). Difference between save modes is Cleanup-DEPTH (loop = light, full = pre-clear), never "resume-capable or not" — every real save is resume-capable.
+
 ⚡ Manual replacement for dormant PreCompact/PostCompact hooks (Spec#2152 + Lesson#2161). Skips Steps 1-6 and runs ONLY the Final Block, using **`N = state.state_deltas`** (in-flight, NOT the stale `last_save_deltas` — Step 4 snapshot is skipped in this mode). Flag precedence: `--clear-cycle` wins over `--loop`.
 
 Sequence:
@@ -224,7 +230,7 @@ Sequence:
 | `total_changes==0` AND `any(N,K,W,unsynced)>0` | `mxSave: No session-delta; local-sync: <X> unsynced pushed, <N> step-syncs (<K> failed, <W> MCP-ahead)` |
 | `total_changes>0` | normal save, compact 1-line-per-step output |
 
-Constraints: !settings.local.json cleanup (manual only), !Prompts, !interactive steps, shorter session note (changes since last save). Final Block downgrades N>=15 active prompt to >=10 tip line (no interactive waits).
+Constraints: !settings.local.json cleanup (manual only), !Prompts, !interactive steps, shorter session note (changes since last save). ⚡ Whenever a loop note IS written (the `total_changes>0` branch — the idempotent `total_changes==0` branch writes no note and this does not apply), that shorter note STILL carries the two ⚡ALWAYS Step-5 sections (`## Quickstart after /clear` ≥1 line + `## Tooling gotchas + verify`) — loop is the light CLEANUP stage, not a resume-less save. Final Block downgrades N>=15 active prompt to >=10 tip line (no interactive waits).
 
 ## Rules
 - ⚡ Only record confirmed-implemented as "done" !assumptions. **Exception:** Step 4a Step-State Delta Check (intent signal — see `references/step-state-sync.md`).
