@@ -55,7 +55,7 @@ Scan workspace for stale local artifacts — REPORT only; any delete/refresh str
 - Exceeded→offload domain details to `docs/reference/`, keep only reference in CLAUDE.md.
 - AI-Start-Here links current. Arch changes high-level (1-3 lines/feature). !long backlogs→DB(/mxPlan). Compact: links+rules+architecture.
 
-**⚡ Resume-pointer discipline (REPLACE, never prepend):** the single "AI-Start-Here" line in CLAUDE.md and the current-status line in status.md each point at the NEWEST session note — overwrite the existing pointer in place, do NOT prepend a new line and leave the stale one. Pointers accumulating into a changelog is a defect: one current pointer, always.
+**⚡ Resume-pointer discipline (REPLACE, never prepend):** the single "AI-Start-Here" line in CLAUDE.md and the current-status line in status.md each point at the NEWEST session note — overwrite the existing pointer in place, do NOT prepend a new line and leave the stale one. Pointers accumulating into a changelog is a defect: one current pointer, always. ⚡ **Verify after write (local-stale guard):** grep each file for the pointer marker — it MUST appear exactly ONCE. >1 → an older pointer survived the replace; remove all but the newest. The MCP note is gated (Step 5); the local pointer must be equally stale-proof, or resume reads the wrong note.
 
 **status.md:**
 - Add new features (+date). Update open items.
@@ -142,6 +142,7 @@ Read `.claude/orchestrate-state.json`. ⚡ ∅file → skip entire Step 4 (no st
     - **Counters (for 4b output):** `N = WFs updated`, `K = failed`, `W = MCP-ahead warnings`. Inline summary silent if all zero.
 - **Snapshot (Spec#2152, Clear-Cycle pre-reset, UNCONDITIONAL):** `last_save_deltas = state_deltas` (in-memory) — MUST be set BEFORE reset below. Single Source of Truth for this field. ⚡ Runs even when `workflow_stack` is empty — Final Block consumes this regardless of stack depth.
 - **Finalize (UNCONDITIONAL):** `state_deltas` → 0, `last_save` → now, `last_reconciliation` → now (all in-memory). ⚡ Doc-only sessions REQUIRE this — otherwise `state_deltas` accumulates forever and Final Block emits the Active prompt on every subsequent save (regression of Spec#2152).
+- **⚡ Auto-memory stale-WF guard (read-only, Main-only, UNCONDITIONAL):** If the session-loaded auto-memory index (`MEMORY.md`) is in context, cross-check it against `workflow_stack`: any entry marked ACTIVE / in-progress / DEFERRED for a workflow that is NOT present in the active stack (i.e. completed or archived) → flag inline: `Auto-memory still lists <WF-ID> as ACTIVE but it is not in the active stack — correct the memory entry.` Flag ONLY, NEVER auto-edit (free-text index, correction is a judgement call). Runs even when `workflow_stack` is empty — an empty stack + an ACTIVE auto-memory entry is exactly the stale-resume trap this guards. ∅auto-memory in context OR no match → silent.
 - ⚡ Do NOT archive workflows in this step. Only sync+reset.
 
 #### 4b — After Step 5 returns (Main context, sequential)
