@@ -174,7 +174,13 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 119;
+  MXAI_BUILD   = 120;
+  // Build 120 (2026-07-06): Bug#11815 — content_changed_at staleness signal via
+  //   doc_revisions.MAX(changed_at) in mx_detail/batch/search (updated_at was
+  //   bumped by every read incl. access_count, so unusable as freshness proxy)
+  //   + mxSave FR/BR Closure-Sweep. Bug#11844 — Hybrid-Search visibility parity:
+  //   vector-only hits now pass the same status/doc_type/tag/draft/deleted/ACL
+  //   gates as keyword hits (was: cross-project ACL leak under scope=all).
   // Build 119 (2026-06-24): Cross-platform proxy - Go-port (src/proxy-go) for
   //   macOS arm64/Intel + Windows; mx_ping exposes proxy_download_url_darwin_*
   //   from a dedicated "proxy-bin" release tag; install-proxy.sh OS/arch-aware.

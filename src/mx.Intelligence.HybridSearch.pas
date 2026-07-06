@@ -145,6 +145,8 @@ begin
       QuotedStr(VecLiteral) + ')) AS distance ' +
       'FROM documents ' +
       'WHERE embedding IS NOT NULL' +
+      // Bug#11844: never surface soft-deleted docs via the vector path
+      ' AND status <> ''deleted''' +
       ' AND doc_type IN (''' +
         StringReplace(FConfig.EmbeddingDocTypes, ',', ''',''', [rfReplaceAll]) + ''')';
     if AProjectFilter <> '' then

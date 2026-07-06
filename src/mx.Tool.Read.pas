@@ -645,7 +645,9 @@ begin
         'd.summary_l1, d.summary_l2, ' +
         'ROUND(MATCH(d.title, d.summary_l2, d.content) ' +
         'AGAINST(:query IN NATURAL LANGUAGE MODE), 2) AS relevance_score, ' +
-        'd.token_estimate ' +
+        'd.token_estimate, ' +
+        // days_since_content_change: staleness signal for FR/BR aging (Bug#11815 Defekt 2)
+        'DATEDIFF(NOW(), COALESCE((SELECT MAX(dr2.changed_at) FROM doc_revisions dr2 WHERE dr2.doc_id = d.id), d.created_at)) AS days_since_content_change ' +
         'FROM documents d ' +
         'JOIN projects p ON d.project_id = p.id ' +
         'WHERE d.status != ''deleted'' ' +
@@ -675,7 +677,9 @@ begin
       // Browse-all: no FTS, order by most recently updated
       SQL := 'SELECT d.id, p.slug AS project, d.doc_type, d.title, d.status, ' +
         'd.summary_l1, d.summary_l2, ' +
-        '0.0 AS relevance_score, d.token_estimate ' +
+        '0.0 AS relevance_score, d.token_estimate, ' +
+        // days_since_content_change: staleness signal for FR/BR aging (Bug#11815 Defekt 2)
+        'DATEDIFF(NOW(), COALESCE((SELECT MAX(dr2.changed_at) FROM doc_revisions dr2 WHERE dr2.doc_id = d.id), d.created_at)) AS days_since_content_change ' +
         'FROM documents d ' +
         'JOIN projects p ON d.project_id = p.id ' +
         'WHERE d.status != ''deleted'' ' +
@@ -765,6 +769,8 @@ begin
             TJSONNumber.Create(Qry.FieldByName('relevance_score').AsFloat));
           Row.AddPair('token_estimate',
             TJSONNumber.Create(Qry.FieldByName('token_estimate').AsInteger));
+          Row.AddPair('days_since_content_change',
+            TJSONNumber.Create(Qry.FieldByName('days_since_content_change').AsInteger));
           Data.Add(Row);
           Qry.Next;
         end;
@@ -794,28 +800,74 @@ begin
               if Data.Count >= MaxLimit then Break;
               if not ExistingIds.ContainsKey(HybridResults[I].DocId) then
               begin
-                SubQry := AContext.CreateQuery(
-                  'SELECT d.id, p.slug AS project, d.doc_type, d.title, ' +
-                  'd.summary_l1, d.summary_l2, d.token_estimate ' +
+                // Bug#11844: vector-only hits previously bypassed EVERY visibility
+                // filter the keyword query applies. Mirror them here (status /
+                // user-doc_type / tag / draft / deleted / active-project / since)
+                // plus the main-loop ACL + draft post-check below. This duplicates
+                // the keyword WHERE by design — folding the two proven keyword
+                // branches into a shared builder is deferred tech-debt, not done
+                // here to avoid destabilizing the vetted ACL path.
+                var HybSql: string :=
+                  'SELECT d.id, p.id AS project_id, p.slug AS project, d.doc_type, d.title, ' +
+                  'd.summary_l1, d.summary_l2, d.token_estimate, d.status, ' +
+                  'DATEDIFF(NOW(), COALESCE((SELECT MAX(dr2.changed_at) FROM doc_revisions dr2 WHERE dr2.doc_id = d.id), d.created_at)) AS days_since_content_change ' +
                   'FROM documents d JOIN projects p ON d.project_id = p.id ' +
-                  'WHERE d.id = :did');
+                  'WHERE d.id = :did AND d.status <> ''deleted'' AND p.is_active = TRUE';
+                if DocType <> '' then
+                  HybSql := HybSql + ' AND FIND_IN_SET(d.doc_type, :dt) > 0';
+                if Tag <> '' then
+                  HybSql := HybSql + ' AND EXISTS (SELECT 1 FROM doc_tags dtg WHERE dtg.doc_id = d.id AND FIND_IN_SET(dtg.tag, :tg) > 0)';
+                if StatusFilter <> '' then
+                  HybSql := HybSql + ' AND d.status = :st';
+                if FilterDraftsHere then
+                  HybSql := HybSql + ' AND d.status <> ''draft''';
+                if SinceStr <> '' then
+                  HybSql := HybSql + ' AND d.updated_at >= :since';
+                SubQry := AContext.CreateQuery(HybSql);
                 try
                   SubQry.ParamByName('did').AsInteger := HybridResults[I].DocId;
+                  if DocType <> '' then
+                    SubQry.ParamByName('dt').AsWideString := DocType;
+                  if Tag <> '' then
+                    SubQry.ParamByName('tg').AsWideString := LowerCase(Trim(Tag));
+                  if StatusFilter <> '' then
+                    SubQry.ParamByName('st').AsWideString := StatusFilter;
+                  if SinceStr <> '' then
+                    SubQry.ParamByName('since').AsDateTime := SinceDT;
                   SubQry.Open;
                   if not SubQry.IsEmpty then
                   begin
-                    Row := TJSONObject.Create;
-                    Row.AddPair('id', TJSONNumber.Create(SubQry.FieldByName('id').AsInteger));
-                    Row.AddPair('project', SubQry.FieldByName('project').AsString);
-                    Row.AddPair('doc_type', SubQry.FieldByName('doc_type').AsString);
-                    Row.AddPair('title', SubQry.FieldByName('title').AsString);
-                    Row.AddPair('summary_l1', SubQry.FieldByName('summary_l1').AsString);
-                    Row.AddPair('summary_l2', SubQry.FieldByName('summary_l2').AsString);
-                    Row.AddPair('relevance_score',
-                      TJSONNumber.Create(HybridResults[I].FinalScore));
-                    Row.AddPair('token_estimate',
-                      TJSONNumber.Create(SubQry.FieldByName('token_estimate').AsInteger));
-                    Data.Add(Row);
+                    // mirror the main-loop "ACL post-filter for scope=all" + per-row
+                    // draft skip so cross-project vector hits cannot leak under scope=all.
+                    // project_id comes straight from the SubQuery's JOIN, so no extra
+                    // lookup/cache is needed (the keyword loop lacks p.id, hence its cache).
+                    var HybVisible: Boolean := True;
+                    if NeedFilter then
+                    begin
+                      ProjId := SubQry.FieldByName('project_id').AsInteger;
+                      if not ACL.CheckProject(ProjId, alReadOnly) then
+                        HybVisible := False
+                      else if SameText(SubQry.FieldByName('status').AsString, 'draft')
+                              and ShouldFilterDrafts(AContext, ProjId) then
+                        HybVisible := False;
+                    end;
+                    if HybVisible then
+                    begin
+                      Row := TJSONObject.Create;
+                      Row.AddPair('id', TJSONNumber.Create(SubQry.FieldByName('id').AsInteger));
+                      Row.AddPair('project', SubQry.FieldByName('project').AsString);
+                      Row.AddPair('doc_type', SubQry.FieldByName('doc_type').AsString);
+                      Row.AddPair('title', SubQry.FieldByName('title').AsString);
+                      Row.AddPair('summary_l1', SubQry.FieldByName('summary_l1').AsString);
+                      Row.AddPair('summary_l2', SubQry.FieldByName('summary_l2').AsString);
+                      Row.AddPair('relevance_score',
+                        TJSONNumber.Create(HybridResults[I].FinalScore));
+                      Row.AddPair('token_estimate',
+                        TJSONNumber.Create(SubQry.FieldByName('token_estimate').AsInteger));
+                      Row.AddPair('days_since_content_change',
+                        TJSONNumber.Create(SubQry.FieldByName('days_since_content_change').AsInteger));
+                      Data.Add(Row);
+                    end;
                   end;
                 finally
                   SubQry.Free;
@@ -1022,6 +1074,11 @@ begin
     'SELECT d.id, d.project_id, p.slug AS project, d.doc_type, d.slug, d.title, ' +
     '  d.status, d.summary_l1, d.summary_l2, d.content, d.token_estimate, ' +
     '  d.confidence, d.created_by, DATEDIFF(NOW(), d.updated_at) AS days_since_update, ' +
+    // content_changed_at: last real body revision, NOT every touch (Bug#11815 Defekt 2).
+    // updated_at is bumped by any UPDATE incl. access_count-on-read, so it is unusable
+    // as a staleness proxy. doc_revisions is only written on body change (Write.pas:1087).
+    '  COALESCE((SELECT MAX(dr2.changed_at) FROM doc_revisions dr2 WHERE dr2.doc_id = d.id), d.created_at) AS content_changed_at, ' +
+    '  DATEDIFF(NOW(), COALESCE((SELECT MAX(dr2.changed_at) FROM doc_revisions dr2 WHERE dr2.doc_id = d.id), d.created_at)) AS days_since_content_change, ' +
     '  d.created_at, d.updated_at ' +
     'FROM documents d ' +
     'JOIN projects p ON d.project_id = p.id ' +
@@ -1074,6 +1131,9 @@ begin
       Data.AddPair('confidence', TJSONNumber.Create(Round(BaseConf * 100) / 100));
       Data.AddPair('effective_confidence', TJSONNumber.Create(Round(EffConf * 100) / 100));
       Data.AddPair('days_since_update', TJSONNumber.Create(DaysSince));
+      Data.AddPair('content_changed_at', Qry.FieldByName('content_changed_at').AsString);
+      Data.AddPair('days_since_content_change',
+        TJSONNumber.Create(Qry.FieldByName('days_since_content_change').AsInteger));
       Data.AddPair('created_by', Qry.FieldByName('created_by').AsString);
       Data.AddPair('created_at', Qry.FieldByName('created_at').AsString);
       Data.AddPair('updated_at', Qry.FieldByName('updated_at').AsString);
@@ -1228,6 +1288,9 @@ begin
     'SELECT d.id, d.project_id, p.slug AS project, d.doc_type, d.slug, d.title, ' +
     'd.status, d.summary_l1, d.summary_l2, d.content, d.token_estimate, ' +
     'd.confidence, DATEDIFF(NOW(), d.updated_at) AS days_since_update, ' +
+    // content_changed_at: last real body revision, not every touch (Bug#11815 Defekt 2)
+    'COALESCE((SELECT MAX(dr2.changed_at) FROM doc_revisions dr2 WHERE dr2.doc_id = d.id), d.created_at) AS content_changed_at, ' +
+    'DATEDIFF(NOW(), COALESCE((SELECT MAX(dr2.changed_at) FROM doc_revisions dr2 WHERE dr2.doc_id = d.id), d.created_at)) AS days_since_content_change, ' +
     'd.created_at, d.updated_at ' +
     'FROM documents d ' +
     'JOIN projects p ON d.project_id = p.id ' +
@@ -1267,6 +1330,9 @@ begin
           TJSONNumber.Create(Qry.FieldByName('confidence').AsFloat));
         Row.AddPair('days_since_update',
           TJSONNumber.Create(Qry.FieldByName('days_since_update').AsInteger));
+        Row.AddPair('content_changed_at', Qry.FieldByName('content_changed_at').AsString);
+        Row.AddPair('days_since_content_change',
+          TJSONNumber.Create(Qry.FieldByName('days_since_content_change').AsInteger));
         Row.AddPair('created_at', Qry.FieldByName('created_at').AsString);
         Row.AddPair('updated_at', Qry.FieldByName('updated_at').AsString);
 
