@@ -18,7 +18,7 @@ Save agent. Persists project state for seamless session continuation.
 **Phased sequential-with-parallel** (do NOT collapse into a single fan-out; race + data-dependency hazards):
 
 1. **Main:** Init → Steps 1, 1b, 2 (settings + artifact sweep + CLAUDE.md/status.md + zombie check).
-2. **Parallel phase A:** Step 3 (background subagent, `model=sonnet` per mxOrchestrate Model Tiering — MCP CRUD needs no premium; MCP-only) + Step 4a (Main, in-memory mutations). Pass `mcp_available` to Step 3 explicitly; Step 4a sends `expected_updated_at` and skips WFs already archived by Step 3. Stale-sweep: subagent returns candidates ONLY — prompts happen in Main after phase A (see Step 3).
+2. **Parallel phase A:** Step 3 (background subagent, `model=sonnet` per mxOrchestrate Model Tiering — MCP CRUD needs no premium; MCP-only) + Step 4a (Main, in-memory mutations). Pass `mcp_available` to Step 3 explicitly; Step 4a sends `expected_updated_at` and skips WFs already archived by Step 3. Stale-sweep: subagent returns candidates ONLY — prompts happen in Main after phase A (see Step 3). ⚡ The **FR/BR Closure-Sweep** (Step 3) runs in **Main**, not the subagent — its candidate source is this session's chat context, which the MCP-only subagent lacks.
 3. **Main (synchronous):** Step 5 — `mx_create_doc(session_note)` issued from Main; subagent may build the body string but Main issues the call and captures the doc_id (skill runtime has no await-subagent primitive — running Step 5 in background would regress Bug#3229).
 4. **Main:** Step 4b — single deferred Write applying ALL 4a + 4b mutations (incl. `last_save_summary` + `last_save_session_note_doc_id` from Step 5's return).
 5. **Parallel phase B (fire-and-forget):** Step 6 Peer Notify — no join, errors logged not aborted.
@@ -84,7 +84,7 @@ Check WFs whose title starts with "Ad-hoc:":
 - Threshold read: `r = mx_get_env(project, key='MXSAVE_STALE_THRESHOLD_DAYS')` → `T = int(r.value) if r.found else 14` (env tool returns `{found, value}` object, no `default=` param)
 - `mx_search(project, doc_type='plan,spec', status='active', limit=50)` — `plan,spec` only (FS-anchor doc_type matrix per `~/.claude/skills/_shared/fs-anchor.md`); limit=50 aligns with Plan#7071 T2.2 (catches deeper backlog)
 - For each candidate: `mx_detail(doc_id, max_content_tokens=0)` →
-  - **Age filter (post-detail, since `mx_search` does not return last-modified):** compute `days_since_update` from the detail response's last-modified timestamp; `days_since_update < T` → skip this candidate (NOT stale yet)
+  - **Age filter (post-detail):** use `days_since_content_change` from the detail response — the age of the last real body revision, NOT `days_since_update` (a known staleness defect: `updated_at` is bumped by any touch incl. access_count-on-read, so it falsely rejuvenates stales). `days_since_content_change < T` → skip this candidate (NOT stale yet). Server-side field via `doc_revisions.MAX(changed_at)`; older servers without it → fall back to `days_since_update` + note the weaker signal.
   - Run FS-Anchor algorithm per `~/.claude/skills/_shared/fs-anchor.md`:
     - Extract `- [ ]` lines from `## Tasks` (Plan) or `## Acceptance Criteria` (Spec) as items
     - All items return `divergence` → stale-suspect (code shipped, doc not flipped)
@@ -108,6 +108,17 @@ Check WFs whose title starts with "Ad-hoc:":
 - Collect→`mx_batch_update(items='[{"doc_id":X,"status":"archived","change_reason":"auto-cleanup: all tasks/ACs completed"}, ...]')`
 - ⚡ Only for clearly completed docs. Mixed checkboxes→leave open.
 - Output: `Archived: <N> Plans, <M> Specs. <K> stale Decisions (warning).`
+
+**FR/BR Closure-Sweep (content-reference-driven, Main-context):**
+FR/BR are NOT FS-anchor-capable (no checkbox / impl-target — see `~/.claude/skills/_shared/fs-anchor.md` doc_type table), so the plan/spec Stale-Sweep above cannot touch them. Without a closure trigger, fixed FR/BR stay `status=active` forever and re-surface as open backlog (re-investigation token waste). Signal instead: **the session that fixed them already knows the ID** — no svn blame, no code-scan.
+- ⚡ Skip entire block if `!mcp_available` OR `--loop` mode (interactive prompt).
+- Collect `#IDs` this session explicitly discussed as **fixed / shipped / committed / closed / done** — sources: chat decisions of THIS session + the Step-2 status.md/CLAUDE.md edits (both available before Step 3). Do NOT infer from code; only IDs the session actually named.
+- ∅collected IDs → skip silently (do not scan the whole backlog).
+- `mx_batch_detail(doc_ids=[...])` (max 10/call, iterate) → keep only `doc_type ∈ {feature_request, bugreport}` AND `status='active'` (already-archived → drop silently, no re-archive).
+- Bundle up to 4 per `AskUserQuestion`: `<type>#<id>: <title>` + `evidence: <session-reference>` + `(y=archive / n=keep-open)`. NEVER auto-archive without confirm (an ID named in passing may not be truly closed).
+  - `y` → `mx_update_doc(doc_id, status='archived', change_reason='mxSave FR/BR closure-sweep: fixed/shipped this session')`
+  - `n` → no-op (keep open this session).
+- Output: `FR/BR-Closure: <Y> archived (of <C> session-referenced candidates)`. Silent if ∅candidates.
 
 **Extract lesson candidates (Spec#1198, Auto-Learn, AnsatzC-compliant):**
 Derive lesson candidates from chat history:

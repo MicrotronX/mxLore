@@ -68,12 +68,14 @@ Per-item: `{label, verdict, evidence}` where:
 - mxOrchestrate Mode 5: `divergence` → STOP + ?user (same halt semantics as the
   doc-vs-doc "Both diverged" branch — never silently overwrite).
 - mxSave Step 3: all items `divergence` AND no `confirmed_pending` AND doc
-  `updated_at` older than `MXSAVE_STALE_THRESHOLD_DAYS` env (default 14) →
-  tag `stale-suspect` + prompt user y/n/skip (Spec#7070 AC2/AC3).
+  `days_since_content_change` older than `MXSAVE_STALE_THRESHOLD_DAYS` env
+  (default 14) → tag `stale-suspect` + prompt user y/n/skip (internal spec
+  AC2/AC3). Use `days_since_content_change`, NOT `updated_at` (which any touch
+  incl. access_count-on-read bumps).
 
 ## doc_type applicability
 
-| doc_type | FS-anchor-fähig? | Reason |
+| doc_type | FS-anchor-capable? | Reason |
 |---|---|---|
 | `plan` | yes | Task lines `- [ ] <action>` carry implementation targets |
 | `spec` | yes | Acceptance Criteria `- [ ] <ac>` + Interfaces/Data section |
@@ -83,5 +85,5 @@ Per-item: `{label, verdict, evidence}` where:
 | `feature_request` | no | User-direktive, not impl-target |
 | `decision` | no | Records choice, not impl-target |
 
-Callers MUST filter to fähig doc_types before invoking the helper. Excluded
+Callers MUST filter to capable doc_types before invoking the helper. Excluded
 doc_types just keep their MCP status as-is.
