@@ -115,7 +115,9 @@ entirely from output).
   `"based on"->assumes`, `"replaces"->supersedes`, `"leads to"->leads_to`,
   `"caused by"->caused_by`, `"depends on"->depends_on`,
   `"rejected in favor of"->rejected_in_favor_of`, default -> `references`.
-  Duplicate-check before `mx_add_relation`. Reference: doc_id=620 conventions.
+  Duplicate-check before `mx_add_relation`. Follow the relation-type
+  conventions already established in the target project — do NOT resolve a
+  doc_id cited in this skill against the reader's DB; IDs here are not portable.
 - **Severity:** `INFO`.
 - **Persistence:** None (INFO); creates relations directly.
 
