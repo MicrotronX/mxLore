@@ -26,12 +26,14 @@ This skill fires on:
 1. CLAUDE.md parse: if file missing OR no `**Slug:**` line is present → ?user. If `**Slug:**` line is present → use that value as project slug.
 2. Load state: `.claude/orchestrate-state.json`→parse. ∅file or corrupt→mode `init`
 3. **Ensure session:**
-   - **Staleness check (ADR-0016):** compute `age = now() - max(state.last_save, state.last_reconciliation)`. Both fields missing → treat as stale. Threshold: **12h**.
+   - ⚡ **Context-reset FACT (primary signal):** `state.context_cleared_at` is set by the SessionStart hook (`orchestrate-reconcile.js`) whenever `source ∈ {startup, clear, compact}` — the three cases where the model has no prior conversation. `source=resume` restores context and does NOT set it. **Field present → context is empty → `mx_session_start` unconditionally**, then delete `context_cleared_at` + `context_cleared_source` in the same state write (the briefing has now happened; leaving it set re-briefs on every later call).
+   - **Staleness check (ADR-0016) — FALLBACK ONLY, for installs whose hook predates the fact:** `age = now() - max(state.last_save, state.last_reconciliation)`. Both fields missing → treat as stale. Threshold: **12h**. ⚡ This heuristic answers "is my STATE old", never "is my CONTEXT empty" — a save one minute before `/clear` leaves a fresh state and an empty context, and any same-day restart falls under 12h. Use it only when `context_cleared_at` is absent.
    - ⚡ **Explicit-trigger fail-OPEN:** input contains `<command-name>` OR `<command-message>` tag OR detection ambiguous → `mx_session_start` regardless of age (slash invocations need fresh briefing in fresh Claude process; live-confirmed tag injection at prompt position 0). Fresh briefing > stale ping.
-   - hook-triggered (no command-tag) AND state.session_id present AND mode≠`init` AND age < 12h → mx_ping()→OK=MCP-mode | Error=Local
-   - ∅session_id OR mode=`init` OR age ≥ 12h (STALE) → **Setup version:** `~/.claude/setup-version.json`→parse→`version`. ∅file→`''`
-     → `mx_session_start(project, include_briefing=true, setup_version=<version>)`→session_id (overwrite cached)+Response into state, `state.last_reconciliation ← now()`
+   - hook-triggered (no command-tag) AND ∅`context_cleared_at` AND state.session_id present AND mode≠`init` AND age < 12h → mx_ping()→OK=MCP-mode | Error=Local
+   - `context_cleared_at` present OR ∅session_id OR mode=`init` OR age ≥ 12h (STALE) → **Setup version:** `~/.claude/setup-version.json`→parse→`version`. ∅file→`''`
+     → `mx_session_start(project, include_briefing=true, setup_version=<version>)`→session_id (overwrite cached)+Response into state, `state.last_reconciliation ← now()`, clear `context_cleared_at`/`context_cleared_source`
      → Error=Local(`docs/ops/workflow-log.md`+warning)
+   - ⚡ The hook must NEVER stamp `last_reconciliation` — that field means "reconciled against MCP", and JS hooks cannot reach MCP. Stamping it there resets the very signal the fallback reads.
 4. **Auto-Detect: Project Setup** (see below)
 5. → Mode routing by argument
 
@@ -81,6 +83,7 @@ Forces `mx_session_start` ignoring cached `session_id` (see Init pre-routing ste
 2. ID: `WF-YYYY-MM-DD-NNN`
 3. `mx_create_doc(project, doc_type='workflow_log', title='WF-...: <Title>', content)`
 4. Push WF object onto stack (becomes [0] = active). Previous [0]→parked (if present)
+   - ⚡ **Canonical keys** (`references/state-schema.md`): `id`, `name`, `doc_id`, `doc_revision`, `status`, `current_step`, `total_steps`, `started`, `unsynced`. **NOT `wf_id` / `title`.** The SessionStart hook normalizes those two, but a workflow missing `id` after normalization is DROPPED from the stack — writers must not rely on the repair.
 5. Save state + log event (type='start')
 6. Output: `Workflow "<Name>" started (WF-xxx, doc_id=<id>). Stack: <N> WFs.`
 7. Auto-invoke first step

@@ -31,6 +31,9 @@ state.json is single-writer per /mxSave or /mxOrchestrate invocation. Concurrent
 | `schema_version` | int | `3` | mxSave Step 4b.3 | bumped commit-style after 4b.1+4b.2 succeed |
 | `last_pruned` | ISO 8601 OR null | `null` | mxSave Step 4b.3 | `null` = never pruned (legacy v2 file) |
 | `adhoc_tasks[*].status` | string OR null | `null` | mxOrchestrate Mode 3 + caller | structured token (prefix ∈ `{fixed,done,archived,later,active,in-progress}` + opt `-<suffix>`); used by mxSave Step 4b.1 for migration triage |
+| `context_cleared_at` | ISO 8601 OR absent | absent | SessionStart hook (`orchestrate-reconcile.js`) writes, mxOrchestrate Init deletes | Set when SessionStart fires with `source ∈ {startup, clear, compact}` — the model has no prior conversation. `source=resume` does NOT set it. Init reads it as the PRIMARY staleness signal and deletes it after `mx_session_start`. The `age`-based check is only the fallback for hooks that predate this field. |
+| `context_cleared_source` | string OR absent | absent | same as above | The raw `source` value, kept for diagnosis. |
+| `last_schema_repair` | ISO 8601 OR absent | absent | SessionStart hook | When the hook last normalized fields. ⚡ Deliberately NOT `last_reconciliation`: JS hooks cannot reach MCP, so they must not stamp a field that asserts an MCP reconciliation happened. |
 
 ### Migration
 
