@@ -14,6 +14,26 @@ mirror locations. Edit canonical first, then cp to mirrors, then md5-verify.
 `<project-root>` is the mxLore project checkout. `<mxLore-skills-root>` is
 the public skills repo checkout (`MicrotronX/mxLore-skills`).
 
+`~/.claude/hooks/` and `~/.claude/reference/` mirror the same way, into
+`<mirror>/hooks/` and `<mirror>/reference/`.
+
+## What must NOT be mirrored
+
+- **Private skills.** Only the skills that exist in mirror2 are public. Copying a
+  whole `~/.claude/skills/` tree drags private ones along.
+- **German-language reference files** (e.g. `reference/auto-adr.md`). Both mirrors
+  are English-only. A file absent from a mirror's VCS history is absent on purpose —
+  `cp -r <dir>/.` adds it back silently. Copy named files, not directories.
+
+## Why plain `cp` is safe now
+
+Canonical carried internal MCP doc IDs while the mirrors had been hand-scrubbed,
+so every `cp` re-introduced them and every commit needed a scrub. Canonical was
+swept clean on 2026-07-09; the sources are now byte-identical to the mirrors, and
+`check-public.sh --all` must report zero. Keep it that way: scrub at the source,
+never at the mirror — otherwise this protocol quietly re-creates the divergence
+it was written to prevent.
+
 ## Protocol
 
 1. Edit the file under canonical only.

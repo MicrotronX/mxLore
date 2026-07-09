@@ -20,7 +20,10 @@ try {
   const state = JSON.parse(raw);
 
   const stack = Array.isArray(state.workflow_stack) ? state.workflow_stack : [];
-  if (stack.length === 0) process.exit(0);
+  if (stack.length === 0) {
+    console.log('[Orchestrate] No active workflow. If you just performed substantive work (edits, commits, fixes), create one NOW: /mxOrchestrate start ad-hoc "<summary of what you did>".');
+    process.exit(0);
+  }
 
   const active = stack[0];
   if (!active || active.status !== 'active') process.exit(0);

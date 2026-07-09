@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Institutional Memory PreToolUse Gate (Spec#1198, B3 Plan#1231)
+// Institutional Memory PreToolUse Gate
 // Fires before Edit/Write on source files.
 // Cooldown: max 1 recall per file:intent per session.
 // Gate-Level interpretation: INFO/WARN/BLOCK.

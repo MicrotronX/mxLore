@@ -119,7 +119,7 @@ Every finding that is fixed+accepted by user→immediately execute `mx_skill_fee
 - Respect context(CLAUDE.md/status.md), VCS-agnostic, ANSI encoding for Delphi
 - Read ~/.claude/skills/_shared/mirror-sync.md.
 
-## Severity Calibration ⚡ (Bug#2989 F8 — Inflation Fix)
+## Severity Calibration ⚡ (Inflation Fix)
 
 Existing report severities (Phase 4) stay `CRITICAL / WARNING / INFO`. This section tightens what each level MEANS and introduces a reachability gate. `INFO` is now explicitly the bucket for defensive-only / unreachable findings — do NOT promote them to `WARNING` or `CRITICAL`.
 
@@ -134,7 +134,7 @@ Before tagging any finding above INFO, answer in the finding body (Root Cause or
 2. If yes → cite the entry point as `File:Line` in the Root Cause.
 3. If no → downgrade to `INFO` with a `reachability: unverified` or `reachability: dead-code` note. Do NOT omit — the finding still exists in the record, just at the honest severity.
 
-**Rationale:** Live-Test Session 2026-04-15 (doc#3017 §4.3, Bug#2989 F8) documented Severity-Inflation where defensive-only edge cases were reported as WARNING, diluting finding-density and training the user to ignore the output. A finding that is unreachable in the current code is a hardening opportunity, not a bug. Report it as INFO so the record is honest without inflating the severity histogram.
+**Rationale:** Live-Test Session 2026-04-15 documented Severity-Inflation where defensive-only edge cases were reported as WARNING, diluting finding-density and training the user to ignore the output. A finding that is unreachable in the current code is a hardening opportunity, not a bug. Report it as INFO so the record is honest without inflating the severity histogram.
 
 **Anti-pattern examples (all → INFO, not WARNING):**
 - "Function X could divide by zero IF called with 0" — but no caller passes 0, and no external input reaches it.

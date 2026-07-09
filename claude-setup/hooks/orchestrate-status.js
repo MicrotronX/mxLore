@@ -23,7 +23,7 @@ try {
   // Auto-Track: NO_WORKFLOW or JUST_COMPLETED signal when stack is empty
   if (stack.length === 0) {
     const events = state.events_log || [];
-    // Bug#3229 fix: events_log may be reverse-chrono (newest at [0]) or chrono (newest at end).
+    // Fix: events_log may be reverse-chrono (newest at [0]) or chrono (newest at end).
     // Sort defensively by ts desc so we always get the truly most-recent event.
     const sortedDesc = events.slice().sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0));
     const last = sortedDesc.length > 0 ? sortedDesc[0] : null;
@@ -44,7 +44,7 @@ try {
   const parkedCount = stack.length - 1;
   const adhocCount = (state.adhoc_tasks || []).length;
   const deltas = state.state_deltas || 0;
-  // Bug#3229 proper fix: prefer explicit last_save_summary field (written by mxSave Step 4,
+  // Proper fix: prefer explicit last_save_summary field (written by mxSave Step 4,
   // max 200 chars, narrative pointer). Fallback to events_log ts-desc sort for backward-compat
   // with pre-fix state files.
   const events = state.events_log || [];

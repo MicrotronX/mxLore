@@ -76,7 +76,7 @@ X ERROR | Y WARNING | Z INFO | Checked: N DB docs, M local files
 ```
 ∅problems→`/mxHealth: All checks passed. DB+docs/ consistent.`
 
-### Phase 3b: Persist Findings→MCP Notes (Spec#1139)
+### Phase 3b: Persist Findings→MCP Notes
 For each finding with severity ERROR or WARNING:
 1. Deduplication: mx_search(project, doc_type='note', query='[Health] <title>', limit=1)
    - Match with same title→skip
@@ -86,8 +86,8 @@ For each finding with severity ERROR or WARNING:
 ∅findings or INFO only→skip
 
 ## Phase 4: Auto-Bugreport + Persist Findings (ERROR/WARNING)
-**Project routing:** Store findings in target project, NOT blanket in mxHannesMCP.
-- Skill/Setup/Tool findings (affect mx* infrastructure)→`project='mxHannesMCP'`
+**Project routing:** Store findings in the target project, NOT blanket in the mx-infrastructure project.
+- Skill/Setup/Tool findings (affect mx* infrastructure)→`project='mxLore'`
 - Project-specific findings (stubs, local docs, missing relations)→`project=<target-project>`
 `mx_create_doc(project=<see routing>, doc_type='bugreport', title='mxHealth: N Findings...', tags=["mxhealth-auto"], status='reported')`
 Deduplication: mx_search before creating. ∅ERROR/WARNING→no report.

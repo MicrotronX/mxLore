@@ -18,7 +18,7 @@ ADR-Agent. Creates decisions as ADR in Knowledge-DB via MCP.
 ## Input
 Title from command argument. ∅arg→?user.
 
-⚡ **Title clamp:** server ClampTitle=255 (Bug#2889). The final title will be `ADR-NNNN: <Title>` — the `ADR-NNNN: ` prefix eats ~12 chars, so keep the title content under ~240 chars. Truncate locally and warn if longer.
+⚡ **Title clamp:** server ClampTitle=255. The final title will be `ADR-NNNN: <Title>` — the `ADR-NNNN: ` prefix eats ~12 chars, so keep the title content under ~240 chars. Truncate locally and warn if longer.
 
 ⚡ **Slug derivation + normalization** (slug is derived from title for the local file path; MCP path uses auto-numbering): Read ~/.claude/skills/_shared/slug-normalization.md.
 
@@ -36,7 +36,7 @@ Status values: `accepted`=decided in chat | `proposed`=still to be confirmed | `
 
 ⚡ **ADR numbering contract:** the `NNNN` placeholder in the template title is resolved AFTER `mx_create_doc` returns the new `doc_id` — the server auto-assigns the number. Workflow: (a) create with placeholder title `ADR-NNNN: <Title>`; (b) read returned `doc_id`; (c) immediately `mx_update_doc(doc_id, content-with-resolved-title, change_reason='Assign ADR number')`. Never compute the number locally — that would race with parallel creates. ⚡ **Visibility window:** between (a) and (c) there is a brief window (<1s typical) where a concurrent `mx_search` reader sees the literal placeholder title `ADR-NNNN:`. This is acceptable — the window is short, the doc is correctly tagged `doc_type='decision'`, and the `mx_update_doc` in (c) finalizes the title atomically.
 
-**MCP:** `mx_create_doc(project, doc_type='decision', title='ADR-NNNN: <Title>', content)` — ⚡ Slug is auto-generated server-side from the title via `GenerateSlug(Title)` at `mx.Tool.Write.pas:541-542`, then the ADR-number prefix is prepended at `mx.Tool.Write.pas:579-585`. The server param `slug=` does not exist on `mx_create_doc` and is silently ignored. Ensure the title is canonical and unique; the server handles dedup via `ClampSlug` + retry-with-suffix (Bug#2262, `mx.Tool.Write.pas:588-599`).
+**MCP:** `mx_create_doc(project, doc_type='decision', title='ADR-NNNN: <Title>', content)` — ⚡ Slug is auto-generated server-side from the title via `GenerateSlug(Title)` at `mx.Tool.Write.pas:541-542`, then the ADR-number prefix is prepended at `mx.Tool.Write.pas:579-585`. The server param `slug=` does not exist on `mx_create_doc` and is silently ignored. Ensure the title is canonical and unique; the server handles dedup via `ClampSlug` + retry-with-suffix (`mx.Tool.Write.pas:588-599`).
 
 **Local (Fallback):** ensure `docs/decisions/` exists (`mkdir -p docs/decisions`); if `index.md` absent create it with a minimal header, otherwise APPEND the new entry. Write `docs/decisions/ADR-NNNN-<slug>.md` + warning. ⚡ This fallback violates ADR-0004 "local docs/ = only CLAUDE.md+status.md" — only used when MCP is down; re-sync via `/mxMigrateToDb` once MCP is back.
 

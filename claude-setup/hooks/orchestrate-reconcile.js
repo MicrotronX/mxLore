@@ -123,6 +123,53 @@ try {
     );
   }
 
+  // --- Timestamp-base guard (state-schema.md → Timestamp base) ---
+  // Model-written fields must be TRUE UTC. Local time carrying a `Z` lands in the
+  // future; mx_session_delta(since=…) then converts it past every real change and
+  // answers total_changes=0, so the tracker-gap guard reports "nothing unsaved".
+  // Warn only — a genuinely skewed clock is indistinguishable from a mislabel, and
+  // guessing an offset here would corrupt the field this guard exists to protect.
+  // Two distinct defect shapes, two distinct checks:
+  //   (a) local time WITH a `Z`  -> parses as UTC, lands in the future. Only detectable
+  //       on fields whose value must be in the past. Scoped to the two guard-feeding
+  //       fields; `started`/`created` feed no guard, so a future value there is noise.
+  //   (b) NO `Z` at all          -> parses as local per ECMA-262, so it never looks like
+  //       the future. Undetectable by (a); caught by format, on every ISO field.
+  const skewCutoff = Date.now() + 120000; // tolerate clock jitter; a TZ error is >= 1h
+  const futureFields = ['last_save', 'last_reconciliation'].filter(f => {
+    const t = Date.parse(state[f]);
+    return Number.isFinite(t) && t > skewCutoff;
+  });
+  if (futureFields.length > 0) {
+    const verb = futureFields.length === 1 ? 'lies' : 'lie';
+    console.log(
+      `[Orchestrate] WARNING: ${futureFields.join(', ')} ${verb} in the future — not true UTC. ` +
+      `The tracker-gap guard will report a false "nothing unsaved". ` +
+      `Stamp with \`date -u +%Y-%m-%dT%H:%MZ\`; the next /mxSave rewrites the field(s).`
+    );
+  }
+
+  const unlabelled = [];
+  const checkIso = (val, label) => {
+    if (typeof val === 'string' && val && !val.endsWith('Z')) unlabelled.push(label);
+  };
+  for (const f of ['last_save', 'last_reconciliation', 'last_pruned', 'context_cleared_at', 'last_schema_repair']) {
+    checkIso(state[f], f);
+  }
+  (state.workflow_stack || []).forEach((wf, i) => checkIso(wf.started, `workflow_stack[${i}].started`));
+  (state.adhoc_tasks || []).forEach((t, i) => checkIso(t.created, `adhoc_tasks[${i}].created`));
+  (state.team_agents || []).forEach((a, i) => checkIso(a.spawned, `team_agents[${i}].spawned`));
+  (state.events_log || []).forEach((ev, i) => checkIso(ev.ts, `events_log[${i}].ts`));
+  if (unlabelled.length > 0) {
+    const shown = unlabelled.slice(0, 5).join(', ');
+    const more = unlabelled.length > 5 ? ` (+${unlabelled.length - 5} more)` : '';
+    console.log(
+      `[Orchestrate] WARNING: ${unlabelled.length} timestamp(s) without a \`Z\` suffix: ${shown}${more}. ` +
+      `Unlabelled ISO strings parse as LOCAL time, so the future-check above cannot see them. ` +
+      `Stamp with \`date -u +%Y-%m-%dT%H:%MZ\`.`
+    );
+  }
+
   // --- Check for unsynced entries and warn ---
   const unsyncedWFs = (state.workflow_stack || []).filter(wf => wf.unsynced);
   const unsyncedEvents = (state.events_log || []).filter(ev => !ev.synced);

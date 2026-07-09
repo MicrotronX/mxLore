@@ -1,11 +1,11 @@
-# Bug#2989 — Output-Discipline Findings
+# Output-Discipline Findings
 
 Rationale + per-finding detail behind the collapsed 4-line "Output
 discipline" rule in `SKILL.md` Rules section.
 
 ## Origin
 
-Live propagation confirmed in mxTicketSystem Session #255: a subagent on the
+Live propagation confirmed in a sibling project: a subagent on the
 next call reads the state file and echoes any hallucinated adverb as if it
 were ground truth. The fix is not stylistic — it stops hallucination chains.
 
@@ -28,7 +28,7 @@ without introducing hallucinations.
 - **Forbidden inside `detail`:** relative temporal natural language
   (`gestern`, `heute`, `vorhin`, `yesterday`, `today`, `earlier`, `just now`).
 - **Allowed:** doc_ids, WF-IDs, short factual summaries
-  (e.g. `Step 2 -> done, spec doc#2988 created, 8 AC + 4 OQ`), ISO timestamps
+  (e.g. `Step 2 -> done, spec doc#12 created, 8 AC + 4 OQ`), ISO timestamps
   when a time must be referenced.
 - Schema + examples -> `references/state-schema.md`.
 
@@ -37,7 +37,7 @@ without introducing hallucinations.
 Every Mode 5 (Resume), Mode 6 (Status), and Auto-Invoke step-done output
 MUST emit a deltas-band line based on `state.state_deltas` (live counter
 since last `/mxSave` reset — NOT `state.last_save_deltas`, which is a
-pre-reset snapshot owned by mxSave Step 4 per Spec#2152 and MUST NOT be
+pre-reset snapshot owned by mxSave Step 4 per the single-writer rule and MUST NOT be
 written from here).
 
 Bands:
@@ -52,7 +52,7 @@ Bands:
 
 mxOrchestrate reads `state_deltas` (live counter) and `last_save_deltas`
 (historical snapshot for the previous save cycle, informational only); it
-NEVER writes either field — mxSave is the sole writer of both per Spec#2152.
+NEVER writes either field — mxSave is the sole writer of both per the single-writer rule.
 
 ## Finding 4 — Counts-from-tool-calls
 

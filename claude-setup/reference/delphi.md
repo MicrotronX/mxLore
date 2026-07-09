@@ -252,6 +252,7 @@ end;
 - Never build SQL via string concatenation — always use parameters
 - `TFDTransaction` explicitly for multi-statement operations
 - `FetchOptions.Mode := fmAll` only if the dataset is known to be small
+- **Case-insensitive value comparison:** never compare a DB field value case-sensitively with `=` (`Field.AsString = 'marker'`) when the column's collation/storage does not guarantee case — many DBs/columns upper-case values on write. Use `SameText` / `AnsiSameText(Trim(Field.AsString), 'marker')`. A case-sensitive `=` against an upper-cased stored value **fails silently** — no error, just the wrong branch. (Note: the DB engine's own SQL `=`/`<>`/`LIKE` may be case-insensitive by collation while Pascal `=` stays case-sensitive — so the bug hides in the Pascal side only.)
 
 ---
 

@@ -14,6 +14,6 @@ Between the in-memory Snapshot in Step 4a and the deferred Write at end of Step 
 
 **⚡ RMW is MANDATORY before every state.json Write:** re-read state.json immediately before Write, preserve `(on_disk_state_deltas - pre_snapshot_value)` as the new baseline after reset. Concurrent writers exist on Windows; a stale in-memory copy = silent data loss.
 
-## Single deferred Write principle (Bug#3229 fix mechanism)
+## Single deferred Write principle
 
-All 4a + 4b mutations are buffered in-memory. The state.json Write happens ONCE at the end of 4b. This is the Bug#3229 fix mechanism — Step 4a stages mutations, Step 5 returns its doc_id synchronously, Step 4b adds `last_save_summary` + `last_save_session_note_doc_id`, then a single Write applies everything. Do NOT split into multiple Writes.
+All 4a + 4b mutations are buffered in-memory. The state.json Write happens ONCE at the end of 4b. This is the deferred-write fix mechanism — Step 4a stages mutations, Step 5 returns its doc_id synchronously, Step 4b adds `last_save_summary` + `last_save_session_note_doc_id`, then a single Write applies everything. Do NOT split into multiple Writes.

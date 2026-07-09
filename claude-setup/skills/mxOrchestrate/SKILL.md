@@ -13,7 +13,6 @@ argument-hint: "start <type> | track <note> | park [reason] | resume [id] | stat
 
 Central session manager. Manages workflow stack, ad-hoc tasks, team agents.
 Skills **auto-execute fully**. Only ask user for **optional steps**.
-**Spec:** #1089 | **Plan:** #1090
 
 ## Trigger phrases
 
@@ -27,11 +26,11 @@ This skill fires on:
 2. Load state: `.claude/orchestrate-state.json`→parse. ∅file or corrupt→mode `init`
 3. **Ensure session:**
    - ⚡ **Context-reset FACT (primary signal):** `state.context_cleared_at` is set by the SessionStart hook (`orchestrate-reconcile.js`) whenever `source ∈ {startup, clear, compact}` — the three cases where the model has no prior conversation. `source=resume` restores context and does NOT set it. **Field present → context is empty → `mx_session_start` unconditionally**, then delete `context_cleared_at` + `context_cleared_source` in the same state write (the briefing has now happened; leaving it set re-briefs on every later call).
-   - **Staleness check (ADR-0016) — FALLBACK ONLY, for installs whose hook predates the fact:** `age = now() - max(state.last_save, state.last_reconciliation)`. Both fields missing → treat as stale. Threshold: **12h**. ⚡ This heuristic answers "is my STATE old", never "is my CONTEXT empty" — a save one minute before `/clear` leaves a fresh state and an empty context, and any same-day restart falls under 12h. Use it only when `context_cleared_at` is absent.
+   - **Staleness check (ADR-0016) — FALLBACK ONLY, for installs whose hook predates the fact:** `age = now_utc - max(state.last_save, state.last_reconciliation)` — ⚡ all three in true UTC (`date -u`), see `references/state-schema.md` → Timestamp base; mixing a local `now` with a UTC field (or the reverse) shifts `age` by the UTC offset and can make it negative. Both fields missing → treat as stale. Threshold: **12h**. ⚡ This heuristic answers "is my STATE old", never "is my CONTEXT empty" — a save one minute before `/clear` leaves a fresh state and an empty context, and any same-day restart falls under 12h. Use it only when `context_cleared_at` is absent.
    - ⚡ **Explicit-trigger fail-OPEN:** input contains `<command-name>` OR `<command-message>` tag OR detection ambiguous → `mx_session_start` regardless of age (slash invocations need fresh briefing in fresh Claude process; live-confirmed tag injection at prompt position 0). Fresh briefing > stale ping.
    - hook-triggered (no command-tag) AND ∅`context_cleared_at` AND state.session_id present AND mode≠`init` AND age < 12h → mx_ping()→OK=MCP-mode | Error=Local
    - `context_cleared_at` present OR ∅session_id OR mode=`init` OR age ≥ 12h (STALE) → **Setup version:** `~/.claude/setup-version.json`→parse→`version`. ∅file→`''`
-     → `mx_session_start(project, include_briefing=true, setup_version=<version>)`→session_id (overwrite cached)+Response into state, `state.last_reconciliation ← now()`, clear `context_cleared_at`/`context_cleared_source`
+     → `mx_session_start(project, include_briefing=true, setup_version=<version>)`→session_id (overwrite cached)+Response into state, `state.last_reconciliation ← now_utc` (`date -u +%Y-%m-%dT%H:%MZ`, Timestamp base), clear `context_cleared_at`/`context_cleared_source`
      → Error=Local(`docs/ops/workflow-log.md`+warning)
    - ⚡ The hook must NEVER stamp `last_reconciliation` — that field means "reconciled against MCP", and JS hooks cannot reach MCP. Stamping it there resets the very signal the fallback reads.
 4. **Auto-Detect: Project Setup** (see below)
@@ -73,7 +72,7 @@ Main loop on premium model (Fable/Opus) → every subagent spawn (Agent-Tool, te
 
 ## State File (.claude/orchestrate-state.json)
 
-Schema v2, stack rules, and internal operations → `references/state-schema.md`. Key invariant: `last_save_deltas` is owned by mxSave Step 4 (SSoT, Spec#2152). All state writes follow Edit-vs-Write discipline (see Tool Budget table above + Rules section).
+Schema v2, stack rules, and internal operations → `references/state-schema.md`. Key invariant: `last_save_deltas` is owned by mxSave Step 4 (SSoT, the single-writer rule). All state writes follow Edit-vs-Write discipline (see Tool Budget table above + Rules section).
 
 ## Mode 1: Init
 Forces `mx_session_start` ignoring cached `session_id` (see Init pre-routing step 3); loads workflows from the response into `workflow_stack`; resets `events_log`. Multi-Agent Auto-Listener: response contains `active_peers` -> `/mxAgentListen` background agent.
@@ -115,9 +114,9 @@ Forces `mx_session_start` ignoring cached `session_id` (see Init pre-routing ste
 2. **With ID:** Find WF by ID in stack→move to [0], shift rest down
 3. WF.status = 'active'
 4. Log event (type='resume')
-5. **⚡ Reconciliation (Session-Boundary Sync):** `mx_detail` + compare local vs MCP, push/pull whichever is ahead, handle archived; **diverged → STOP + ask user which version to keep (NEVER silently overwrite)**; clamp; then the **⚡ FS-Anchor Post-Check (Bug#6813)** — verify any `pending` step against the real filesystem (structured target paths → Glob, Grep only on a named symbol); code contradicts doc → STOP + ?user; ∅ structured paths → mark result `unverified against code`. Set `state.last_reconciliation = now()`. Full decision tree + FS-anchor algorithm → `references/reconciliation.md`.
-6. **⚡ Context-Note Enrichment (Bug#3230 + FR#3566) — MANDATORY, NEVER SKIP, BOTH PATHS:**
-   - Stack-pop path (stack >= 1): `mx_search(project, doc_type='session_note', query='<WF-ID> OR <primary_artifact_IDs> OR <outcome-keywords>', limit=4)` — ALWAYS runs, recency-ordered (`updated_at DESC`). Hit -> `mx_detail(note_id, max_content_tokens=1500)`. 0-hit is valid, NOT a reason to skip. Outcome-keywords + limit rationale (Bug#6813) → `references/resume-enrichment.md`.
+5. **⚡ Reconciliation (Session-Boundary Sync):** `mx_detail` + compare local vs MCP, push/pull whichever is ahead, handle archived; **diverged → STOP + ask user which version to keep (NEVER silently overwrite)**; clamp; then the **⚡ FS-Anchor Post-Check** — verify any `pending` step against the real filesystem (structured target paths → Glob, Grep only on a named symbol); code contradicts doc → STOP + ?user; ∅ structured paths → mark result `unverified against code`. Set `state.last_reconciliation = now_utc` (`date -u +%Y-%m-%dT%H:%MZ`, Timestamp base). Full decision tree + FS-anchor algorithm → `references/reconciliation.md`.
+6. **⚡ Context-Note Enrichment (the context-note enrichment rule) — MANDATORY, NEVER SKIP, BOTH PATHS:**
+   - Stack-pop path (stack >= 1): `mx_search(project, doc_type='session_note', query='<WF-ID> OR <primary_artifact_IDs> OR <outcome-keywords>', limit=4)` — ALWAYS runs, recency-ordered (`updated_at DESC`). Hit -> `mx_detail(note_id, max_content_tokens=1500)`. 0-hit is valid, NOT a reason to skip. Outcome-keywords + limit rationale → `references/resume-enrichment.md`.
    - Empty-stack path (stack = []): unconditional `mx_detail(state.last_save_session_note_doc_id)` if set + `mx_search(doc_type='session_note', limit=4)` fallback. Both paths run Step 6.
    - ⚡ independent enrichment calls (mx_search + mx_detail on last_save_session_note_doc_id / primary_artifact) → parallel in one message !sequential
    - **Event-log marker (mandatory both paths):** resume event MUST include `context-note=<note_id>` or `context-note=none` in `detail`. Missing = rule violation. `wf=null` for empty-stack path, `wf=<WF-ID>` for stack-pop.
@@ -131,7 +130,7 @@ Forces `mx_session_start` ignoring cached `session_id` (see Init pre-routing ste
    - see Rules: state_deltas band
 9. Auto-invoke next step
 
-**Empty-Stack Resume invariant (Bug#3230 + FR#3566):** `--resume` without active stack still loads the open-items list, AND Step 6 + `events_log` resume-event are STACK-INDEPENDENT and STILL RUN (unconditional `mx_detail` on `last_save_session_note_doc_id` + `mx_search` fallback + `wf=null` resume-event with `context-note=<id|none>`). Full detail -> `references/resume-enrichment.md`.
+**Empty-Stack Resume invariant (the context-note enrichment rule):** `--resume` without active stack still loads the open-items list, AND Step 6 + `events_log` resume-event are STACK-INDEPENDENT and STILL RUN (unconditional `mx_detail` on `last_save_session_note_doc_id` + `mx_search` fallback + `wf=null` resume-event with `context-note=<id|none>`). Full detail -> `references/resume-enrichment.md`.
 
 ### Load context (on --resume without stack)
 **MCP:** (Session+Briefing already available from pre-routing)
@@ -144,7 +143,7 @@ Forces `mx_session_start` ignoring cached `session_id` (see Init pre-routing ste
 4. status.md: "Known open items"→all bullets. "Next steps"→only `- [ ]`
    - ⚡ Deduplicate against MCP: item in status.md already archived in MCP→remove from display
 5. Result: **Open-items list** (deduplicated, Bug→TODO→Feature→Opt→Other, max 30)
-6. ⚡ FR-aging marker: items older 7d (per `days_since_content_change` from the mx_search row; NOT `updated_at`, which any touch incl. access_count-on-read rejuvenates) get suffix `(>7d — re-audit claims before build)` — apply BEFORE the max-30 truncation so low-ranked stale items stay visible; stale FRs frequently describe already-shipped work. Older server without the field → fall back silently (no marker rather than a false-fresh one)
+6. ⚡ FR-aging marker: items older 7d (per `days_since_content_change` from the mx_search row — the updated_at staleness defect; NOT `updated_at`, which any touch incl. access_count-on-read rejuvenates) get suffix `(>7d — re-audit claims before build)` — apply BEFORE the max-30 truncation so low-ranked stale items stay visible; stale FRs frequently describe already-shipped work. Older server without the field → fall back silently (no marker rather than a false-fresh one)
 
 ## Mode 6: Status
 Full overview:
@@ -170,7 +169,7 @@ Full overview:
 ## Auto-Invoke (all workflow modes)
 - Non-optional auto-execute -> step `done` + state update + log event. Optional -> ?user (`skip` -> `skipped`). Conditional -> check, no match -> `skipped`.
 - Analysis skills (mxDesignChecker, mxBugChecker) -> Agent-Tool (`model` per Model Tiering ⚡). Other mx*/superpowers:*/frontend-design -> Skill-Tool. Independent steps -> parallel via Agent-Tool.
-- ⚡ **MCP-First Step-Update (Spec#1161):**
+- ⚡ **MCP-First Step-Update (the MCP-first step-update spec):**
   1. `mx_update_doc(doc_id, content with Step=done+Timestamp+Result, change_reason='Step N→done')` → MCP first
   2. Derive state file from MCP response: current_step++, push event to events_log (synced=true)
   3. state_deltas++
@@ -188,7 +187,7 @@ All steps done/skipped:
 6. Activate next stack WF if present
 7. Output: Artifacts list + ad-hoc back-link + recommend `/mxSave`
 
-## Auto-Tracking (Spec#1615)
+## Auto-Tracking
 - **Rule 1 (NO_WORKFLOW + substantive work):** auto-create ad-hoc WF (template `ad-hoc`, title `Ad-hoc: <50char>`). Ignore for questions/smalltalk/mxSave/mxOrchestrate.
 - **Rule 2 (WF active + topic deviation):** small deviation -> auto `track` as ad-hoc task; large deviation (>1 step) -> suggest `park`.
 - **Rule 3 (JUST_COMPLETED + continued work, <5min):** create new ad-hoc WF.
@@ -202,8 +201,10 @@ All steps done/skipped:
 - UTF-8 without BOM. Prefer MCP, local=fallback
 - Workflow templates: `docs/workflows.md`(project, priority) then `~/.claude/skills/mxOrchestrate/workflows.md`(global)
 - ⚡ **Token Discipline (state-file):** orchestrate-state.json writes: Edit for incremental changes (1-5 fields), background subagent for full rewrites — keep token cost low in main context
-- ⚡ **Output discipline (Bug#2989):** structured timestamps only (`YYYY-MM-DD HH:MM` or `<N>h ago` from `now() - event.ts`); `events_log[*].detail` = factual fragment (doc_ids/WF-IDs/short summaries), no relative natural language (`gestern`/`heute`/`vorhin`/`yesterday`/`today`/`earlier`/`just now`); numeric claims (`N open`, `X/Y done`) MUST come from a structured tool call (`mx_detail` / `mx_search` data array length), never prose-snippet inference — prefix `estimated, unverified` if budget forbids verification. Per-finding rationale -> `references/bug2989-findings.md`.
+- ⚡ **Output discipline:** structured timestamps only (`YYYY-MM-DD HH:MM` or `<N>h ago` from `now_utc - event.ts`, both UTC per Timestamp base — ⚡ `events_log` entries predating the UTC rule are local-time-with-`Z` and render `<N>h ago` off by the UTC offset; they are indistinguishable from correct ones, so print the raw `ts` whenever the exact age carries weight); `events_log[*].detail` = factual fragment (doc_ids/WF-IDs/short summaries), no relative natural language (`gestern`/`heute`/`vorhin`/`yesterday`/`today`/`earlier`/`just now`); numeric claims (`N open`, `X/Y done`) MUST come from a structured tool call (`mx_detail` / `mx_search` data array length), never prose-snippet inference — prefix `estimated, unverified` if budget forbids verification. Per-finding rationale -> `references/output-discipline-findings.md`.
 - ⚡ **events_log dedupe-guard:** before appending an event, compare with the current LAST entry — identical (type+wf+detail) → skip the append (consecutive-duplicate guard)
 - ⚡ **Decision-Marker shared regex:** Read `~/.claude/skills/_shared/decision-marker.md` for the canonical regex + fence-exclusion algorithm.
-- ⚡ **`state_deltas` band (canonical, Bug#2989 Finding 3 + Spec#2152 SSoT):** every Mode 5 (Resume), Mode 6 (Status), and Auto-Invoke step-done output MUST emit a deltas-band line based on `state.state_deltas` (live counter since the last `/mxSave` reset — NOT `state.last_save_deltas`, which is a pre-reset snapshot owned by mxSave Step 4 per Spec#2152 and MUST NOT be written from here). Bands: `== 0` silent; `>= 1 AND < 10` marketing `mxLore knows - /mxSave keeps context alive across /compact + /clear`; `>= 10 AND < 15` tip `<N> deltas since save - consider /mxSave soon`; `>= 15` compact-question `<N> deltas since save - /mxSave + /compact cycle recommended`. mxOrchestrate reads `state_deltas` + `last_save_deltas` (informational); NEVER writes either — mxSave is the sole writer per Spec#2152.
+- ⚡ **`state_deltas` band (canonical, the live-counter correction + the single-writer rule (SSoT)):** every Mode 5 (Resume), Mode 6 (Status), and Auto-Invoke step-done output MUST emit a deltas-band line based on `state.state_deltas` (live counter since the last `/mxSave` reset — NOT `state.last_save_deltas`, which is a pre-reset snapshot owned by mxSave Step 4 per the single-writer rule and MUST NOT be written from here). Bands: `== 0` silent; `>= 1 AND < 10` marketing `mxLore knows - /mxSave keeps context alive across /compact + /clear`; `>= 10 AND < 15` tip `<N> deltas since save - consider /mxSave soon`; `>= 15` compact-question `<N> deltas since save - /mxSave + /compact cycle recommended`. mxOrchestrate reads `state_deltas` + `last_save_deltas` (informational); NEVER writes either — mxSave is the sole writer per the single-writer rule.
 - ⚡ **Tracker-gap guard:** Mode 5 (Resume) with `state_deltas == 0` AND MCP available → `mx_session_delta(project, since=state.last_save, limit=50)`; `total_changes > 0` → emit `<N> MCP writes since last save (tracker gap — subagent writes bypass the counter) - /mxSave recommended` instead of the silent band. Counter-blind MCP writes must not produce a false "all saved" signal. ⚡ `limit=50`, NOT `1`: `<N>` is printed as a MAGNITUDE. Servers before the `COUNT(*)` fix cap `total_changes` at `limit`, so `limit=1` would always print "1 MCP writes" regardless of the real count.
+  - ⚡ **`since` must be true UTC** (`references/state-schema.md` → Timestamp base). The server reads the `Z` as UTC and converts into DB-local time; a local timestamp labelled `Z` pushes the cutoff `UTC_OFFSET` hours into the future and the guard returns a false `total_changes=0`. `mx_session_delta` echoes the cutoff it actually used — when the echoed `since` disagrees with what was sent, the timestamp base is wrong, not the data.
+  - ⚡ **Never report `0` from a future cutoff.** Before trusting a `0`, compare `state.last_save` against `date -u +%Y-%m-%dT%H:%MZ`. `last_save` in the future → it is mislabelled local time: emit `last_save is not UTC (state file corrupt) - tracker-gap guard cannot verify; /mxSave recommended` instead of the silent band. A broken guard must fail loud, not report "all saved".

@@ -1,32 +1,32 @@
-# Resume Enrichment — Mode 5 Step 6 (Bug#3230 + FR#3566)
+# Resume Enrichment — Mode 5 Step 6 (the context-note enrichment rule)
 
 Detailed rules behind the 6-line summary in `SKILL.md` Mode 5 Step 6.
 
 ## Origin
 
-- **Bug#3230** (Session 268d, canonical SKILL.md md5 `3acaed86`): closed the
+- **The stack-pop search-skip defect** (Session 268d, canonical SKILL.md md5 `3acaed86`): closed the
   stack-pop path. Pre-fix, the session-note search was silently skipped when
   the WF Result-Column "looked rich".
-- **FR#3566:** extends closure to the empty-stack path (post-WF-completion,
+- **The empty-stack enrichment extension:** extends closure to the empty-stack path (post-WF-completion,
   fresh-session resumes, `/clear` + `/mxOrchestrate resume` cycles). Pre-fix,
   the empty-stack branch silently omitted both the session-note search and the
-  resume-event marker, re-opening Bug#3230 for every empty-stack resume.
+  resume-event marker, re-opening the stack-pop search-skip defect for every empty-stack resume.
 
 ## Stack-pop / ID-select path (stack >= 1)
 
 After WF `mx_detail`, you MUST always run the session-note search — even if
 the WF Result-Column looks rich. Skipping is a skill-rule violation that
-reintroduces Bug#3230.
+reintroduces the stack-pop search-skip defect.
 
 1. **Required call:** `mx_search(project, doc_type='session_note',
    query='<WF-ID> OR <primary_artifact_IDs> OR <outcome-keywords>', limit=4)`
    — ALWAYS runs. 0-hit is a valid outcome, NOT a reason to skip the call.
-   - **Outcome-keywords (Bug#6813):** append language-neutral completion terms
+   - **Outcome-keywords:** append language-neutral completion terms
      so a WF *implementation* note is not out-ranked by its older *creation*
      note — DE: `implementiert abgeschlossen fertig`, EN: `implemented completed
      done`. mxOrchestrate is a global skill; session_notes may be in either
      language.
-   - **Recency (Bug#6813):** prefer `updated_at DESC` ordering so the most
+   - **Recency:** prefer `updated_at DESC` ordering so the most
      recent matching note wins the `limit` cut. `limit=4` (raised from 2) keeps
      a stale creation note from crowding out the completion note.
 2. If hit: `mx_detail(note_id, max_content_tokens=1500)` on first match.
@@ -51,7 +51,7 @@ STACK-INDEPENDENT and STILL RUN.
 - **Unconditional `mx_search` fallback:** `mx_search(project,
   doc_type='session_note', limit=4)` ordered by `updated_at DESC` (most
   recent). 0-hit is valid, NOT a reason to skip. `limit=4` raised from 2
-  (Bug#6813) for consistency with the stack-pop path; the empty-stack path is
+  for consistency with the stack-pop path; the empty-stack path is
   already recency-ordered, so no outcome-keyword query is needed here.
 - ⚡ Independent enrichment calls (`mx_detail` + `mx_search`) → parallel in one message !sequential.
 - **Unconditional resume-event:** write `events_log` entry `{type: 'resume',

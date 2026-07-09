@@ -19,7 +19,7 @@ Save agent. Persists project state for seamless session continuation.
 
 1. **Main:** Init → Steps 1, 1b, 2 (settings + artifact sweep + CLAUDE.md/status.md + zombie check).
 2. **Parallel phase A:** Step 3 (background subagent, `model=sonnet` per mxOrchestrate Model Tiering — MCP CRUD needs no premium; MCP-only) + Step 4a (Main, in-memory mutations). Pass `mcp_available` to Step 3 explicitly; Step 4a sends `expected_updated_at` and skips WFs already archived by Step 3. Stale-sweep: subagent returns candidates ONLY — prompts happen in Main after phase A (see Step 3). ⚡ The **FR/BR Closure-Sweep** (Step 3) runs in **Main**, not the subagent — its candidate source is this session's chat context, which the MCP-only subagent lacks.
-3. **Main (synchronous):** Step 5 — `mx_create_doc(session_note)` issued from Main; subagent may build the body string but Main issues the call and captures the doc_id (skill runtime has no await-subagent primitive — running Step 5 in background would regress Bug#3229).
+3. **Main (synchronous):** Step 5 — `mx_create_doc(session_note)` issued from Main; subagent may build the body string but Main issues the call and captures the doc_id (skill runtime has no await-subagent primitive — running Step 5 in background would regress the deferred-write fix).
 4. **Main:** Step 4b — single deferred Write applying ALL 4a + 4b mutations (incl. `last_save_summary` + `last_save_session_note_doc_id` from Step 5's return).
 5. **Parallel phase B (fire-and-forget):** Step 6 Peer Notify — no join, errors logged not aborted.
 
@@ -71,20 +71,20 @@ Scan workspace for stale local artifacts — REPORT only; any delete/refresh str
 - Collect all WFs to archive→`mx_batch_update(items='[{"doc_id":X,"status":"archived","change_reason":"auto-cleanup by mxSave"}, ...]')` — one call instead of N
 - ⚡ Only close clearly completed WFs. Doubt→leave open.
 
-**Ad-hoc WF Auto-Cleanup (Spec#1615):**
+**Ad-hoc WF Auto-Cleanup:**
 Check WFs whose title starts with "Ad-hoc:":
 - WF has only step 1 AND title starts with "Ad-hoc:" AND WF content shows no done steps except step 1
   → Silently archive: `mx_update_doc(doc_id, status='archived', change_reason='auto-cleanup: empty ad-hoc WF')`
   → No output (no noise)
 - WF has real work→archive normally like other WFs
 
-**Stale-Suspect Detection (Spec#7070, Pre-Save Stale-Plan-Sweep):**
+**Stale-Suspect Detection (Pre-Save Stale-Plan-Sweep):**
 - ⚡ Skip entire block if `!mcp_available`
 - ⚡ Skip entire block in `--loop` mode (interactive prompt incompatible; loop-silence preserved)
 - Threshold read: `r = mx_get_env(project, key='MXSAVE_STALE_THRESHOLD_DAYS')` → `T = int(r.value) if r.found else 14` (env tool returns `{found, value}` object, no `default=` param)
-- `mx_search(project, doc_type='plan,spec', status='active', limit=50)` — `plan,spec` only (FS-anchor doc_type matrix per `~/.claude/skills/_shared/fs-anchor.md`); limit=50 aligns with Plan#7071 T2.2 (catches deeper backlog)
+- `mx_search(project, doc_type='plan,spec', status='active', limit=50)` — `plan,spec` only (FS-anchor doc_type matrix per `~/.claude/skills/_shared/fs-anchor.md`); limit=50 aligns with the implementation plan, task T2.2 (catches deeper backlog)
 - For each candidate: `mx_detail(doc_id, max_content_tokens=0)` →
-  - **Age filter (post-detail):** use `days_since_content_change` from the detail response — the age of the last real body revision, NOT `days_since_update` (a known staleness defect: `updated_at` is bumped by any touch incl. access_count-on-read, so it falsely rejuvenates stales). `days_since_content_change < T` → skip this candidate (NOT stale yet). Server-side field via `doc_revisions.MAX(changed_at)`; older servers without it → fall back to `days_since_update` + note the weaker signal.
+  - **Age filter (post-detail):** use `days_since_content_change` from the detail response — the age of the last real body revision, NOT `days_since_update` (the updated_at staleness defect: `updated_at` is bumped by any touch incl. access_count-on-read, so it falsely rejuvenates stales). `days_since_content_change < T` → skip this candidate (NOT stale yet). Server-side field via `doc_revisions.MAX(changed_at)`; older servers without it → fall back to `days_since_update` + note the weaker signal.
   - Run FS-Anchor algorithm per `~/.claude/skills/_shared/fs-anchor.md`:
     - Extract `- [ ]` lines from `## Tasks` (Plan) or `## Acceptance Criteria` (Spec) as items
     - All items return `divergence` → stale-suspect (code shipped, doc not flipped)
@@ -93,7 +93,7 @@ Check WFs whose title starts with "Ad-hoc:":
 - Build candidate list: `[{doc_id, title, doc_type, divergence_count, evidence, days_since_update}]`
 - ⚡ Subagent/Main split: when Step 3 runs as background subagent (Execution Mode phase A), the subagent performs DETECTION ONLY and returns the candidate list — subagents cannot prompt the user. Main re-checks each candidate against the FS-anchor skip rules (any `confirmed_pending` → reject as false positive) and prompts via AskUserQuestion, bundling up to 4 candidates per call (NOT N sequential prompts). Tag is set ONLY on `skip` to avoid orphan-tag if user aborts mid-prompt:
   - Show: `<type>#<id>: <title>` + `evidence: <path>` + `age: <D>d` + `(y=archive / n=ignore / skip=tag-for-next-session)`
-  - `y` → `mx_update_doc(doc_id, status='archived', change_reason='Pre-save stale sweep: code shipped, doc not flipped (FR#7066/Spec#7070)')`
+  - `y` → `mx_update_doc(doc_id, status='archived', change_reason='Pre-save stale sweep: code shipped, doc not flipped')`
   - `n` → no-op (ignore for this session; no tag, no archive)
   - `skip` → `mx_add_tags(doc_id, ['stale-suspect'])` (idempotent — re-run silently if already tagged; persists for next-session review)
 - Output: `Stale-Sweep: <Y> archived, <I> ignored, <S> tagged-for-review (of <C> candidates)`
@@ -109,7 +109,7 @@ Check WFs whose title starts with "Ad-hoc:":
 - ⚡ Only for clearly completed docs. Mixed checkboxes→leave open.
 - Output: `Archived: <N> Plans, <M> Specs. <K> stale Decisions (warning).`
 
-**FR/BR Closure-Sweep (content-reference-driven, Main-context):**
+**FR/BR Closure-Sweep (the FR/BR closure gap, content-reference-driven, Main-context):**
 FR/BR are NOT FS-anchor-capable (no checkbox / impl-target — see `~/.claude/skills/_shared/fs-anchor.md` doc_type table), so the plan/spec Stale-Sweep above cannot touch them. Without a closure trigger, fixed FR/BR stay `status=active` forever and re-surface as open backlog (re-investigation token waste). Signal instead: **the session that fixed them already knows the ID** — no svn blame, no code-scan.
 - ⚡ Skip entire block if `!mcp_available` OR `--loop` mode (interactive prompt).
 - Collect `#IDs` this session explicitly discussed as **fixed / shipped / committed / closed / done** — sources: chat decisions of THIS session + the Step-2 status.md/CLAUDE.md edits (both available before Step 3). Do NOT infer from code; only IDs the session actually named.
@@ -120,7 +120,7 @@ FR/BR are NOT FS-anchor-capable (no checkbox / impl-target — see `~/.claude/sk
   - `n` → no-op (keep open this session).
 - Output: `FR/BR-Closure: <Y> archived (of <C> session-referenced candidates)`. Silent if ∅candidates.
 
-**Extract lesson candidates (Spec#1198, Auto-Learn, AnsatzC-compliant):**
+**Extract lesson candidates (Auto-Learn, AnsatzC-compliant):**
 Derive lesson candidates from chat history:
 - Types: pitfall, decision_note, integration_fact, rule, solution
 - Dedupe: `mx_search(project, doc_type='lesson', query='<title>', limit=3)`→hit→merge, else new
@@ -137,7 +137,7 @@ Batch-dismiss all pending findings (not reviewed in session context):
 - Output: `Findings: batch-dismissed`
 - if !mcp_available → skip
 
-### 4) Orchestrate State Sync (HYBRID, Spec#1161)
+### 4) Orchestrate State Sync (HYBRID)
 Read `.claude/orchestrate-state.json`. ⚡ ∅file → skip entire Step 4 (no state to sync). Otherwise execute in TWO phases per Execution Mode; all 4a/4b mutations are buffered in-memory and the state.json Write happens ONCE at the end of 4b.
 
 ⚡ **Atomic-write + concurrent-race semantics:** see `references/state-write-semantics.md` (Windows non-atomic Write, accepted state_deltas race, optional temp+rename mitigation).
@@ -146,13 +146,13 @@ Read `.claude/orchestrate-state.json`. ⚡ ∅file → skip entire Step 4 (no st
 
 - **WF-guarded sub-checks** (skip BOTH bullets if `workflow_stack` is empty — doc-only sessions have no WFs to sync):
   - **Push unsynced:** WFs with `unsynced=true` → `mx_update_doc` → flip in-memory `unsynced=false`. Events with `synced=false` → append to session note → flip in-memory `synced=true`.
-  - **⚡ Step-State Delta Check (Bug#3281)** — 4-bullet contract; full algorithm + intent-not-verified rationale in `references/step-state-sync.md`:
+  - **⚡ Step-State Delta Check** — 4-bullet contract; full algorithm + intent-not-verified rationale in `references/step-state-sync.md`:
     - **When:** each WF in `workflow_stack` with `status='active'` AND `doc_id` set; runs regardless of loop idempotency.
     - **What:** if `(local current_step - 1) > MCP done-count`, rewrite WF body's Status cells with `expected_updated_at` + `change_reason='mxSave Step4: step-state rewrite sync'`. MCP-status guard skips WFs Step 3 archived. `local-1 < MCP-count` emits warning, no write-back.
     - **On-error:** optimistic-lock / destructive-write block / FOR-UPDATE contention → log per WF, increment `K`, continue (do NOT abort Step 4).
     - **Counters (for 4b output):** `N = WFs updated`, `K = failed`, `W = MCP-ahead warnings`. Inline summary silent if all zero.
-- **Snapshot (Spec#2152, Clear-Cycle pre-reset, UNCONDITIONAL):** `last_save_deltas = state_deltas` (in-memory) — MUST be set BEFORE reset below. Single Source of Truth for this field. ⚡ Runs even when `workflow_stack` is empty — Final Block consumes this regardless of stack depth.
-- **Finalize (UNCONDITIONAL):** `state_deltas` → 0, `last_save` → now, `last_reconciliation` → now (all in-memory). ⚡ Doc-only sessions REQUIRE this — otherwise `state_deltas` accumulates forever and Final Block emits the Active prompt on every subsequent save (regression of Spec#2152).
+- **Snapshot (Clear-Cycle pre-reset, UNCONDITIONAL):** `last_save_deltas = state_deltas` (in-memory) — MUST be set BEFORE reset below. Single Source of Truth for this field. ⚡ Runs even when `workflow_stack` is empty — Final Block consumes this regardless of stack depth.
+- **Finalize (UNCONDITIONAL):** `state_deltas` → 0, `last_save` → now_utc, `last_reconciliation` → now_utc (all in-memory). ⚡ **now_utc = `date -u +%Y-%m-%dT%H:%MZ`, never the chat clock** — `last_save` is fed straight into `mx_session_delta(since=…)` by mxOrchestrate's tracker-gap guard, which reads the `Z` as UTC. Local time carrying a `Z` moves the cutoff into the future and the guard silently reports "nothing unsaved". Canonical rule: `mxOrchestrate/references/state-schema.md` → Timestamp base. ⚡ Doc-only sessions REQUIRE this — otherwise `state_deltas` accumulates forever and Final Block emits the Active prompt on every subsequent save (regression of the single-writer rule).
 - **⚡ Auto-memory stale-WF guard (read-only, Main-only, UNCONDITIONAL):** If the session-loaded auto-memory index (`MEMORY.md`) is in context, cross-check it against `workflow_stack`: any entry marked ACTIVE / in-progress / DEFERRED for a workflow that is NOT present in the active stack (i.e. completed or archived) → flag inline: `Auto-memory still lists <WF-ID> as ACTIVE but it is not in the active stack — correct the memory entry.` Flag ONLY, NEVER auto-edit (free-text index, correction is a judgement call). Runs even when `workflow_stack` is empty — an empty stack + an ACTIVE auto-memory entry is exactly the stale-resume trap this guards. ∅auto-memory in context OR no match → silent.
 - ⚡ Do NOT archive workflows in this step. Only sync+reset.
 
@@ -161,9 +161,9 @@ Read `.claude/orchestrate-state.json`. ⚡ ∅file → skip entire Step 4 (no st
 Step 5 runs in Main; subagent may build body but Main issues `mx_create_doc` → doc_id available here without subagent-join.
 
 - **⚡ Prune state:** see `references/pruning.md` (fail-soft: missing/unreadable → log + skip, continue 4b).
-- **⚡ last_save_summary (Bug#3229 proper fix):** Update the in-memory state object:
-  - `state.last_save_summary` = 1-line narrative, **max 200 chars**, describing this save's main artefacts (new/updated specs/plans/ADRs, bug-fixes, commits, WF-step-flips). NO internal reasoning, NO timestamps (those are in `last_save`). Example: `"Spec#3194 v3 + ADR#3264 + Plan#3266 (33 tasks M1-M3); Bug#3229/3230/3239 fixed (commits d327b92+577dff3)"`.
-  - `state.last_save_session_note_doc_id` = doc_id returned by Step 5's `mx_create_doc`. Pointer for Resume/cross-session enrichment (Bug#3230 pairing). Always set when Step 5 succeeded.
+- **⚡ last_save_summary (deferred-write fix):** Update the in-memory state object:
+  - `state.last_save_summary` = 1-line narrative, **max 200 chars**, describing this save's main artefacts (new/updated specs/plans/ADRs, bug-fixes, commits, WF-step-flips). NO internal reasoning, NO timestamps (those are in `last_save`). Example (pattern, illustrative numbers): `"Spec#12 v3 + ADR-0003 + Plan#13 (33 tasks M1-M3); Bug#14/15/16 fixed (commits abc1234+def5678)"`.
+  - `state.last_save_session_note_doc_id` = doc_id returned by Step 5's `mx_create_doc`. Pointer for Resume/cross-session enrichment (pairing). Always set when Step 5 succeeded.
   - Both fields are **required** (not optional). The statusline hook prefers them over events_log parsing for the `last:` display.
   - ⚡ **Step-2 degradation carry-over:** if Step 2 reported a missing local resume-pointer (still `0` after the explicit re-write), prefix `last_save_summary` with `[local-pointer missing] `. The terminal warning dies with the scrollback; the state file is what the next session actually reads — an invisible degradation is the defect this guard exists to prevent.
   - If Step 5's `mx_create_doc` failed (mcp_available=false, destructive-write block, network error) → still write `last_save_summary` with the local summary + set `last_save_session_note_doc_id = null` (signals "summary is real, but no MCP-archive link"). The degraded path is honest about the missing link instead of silently omitting the summary.
@@ -172,9 +172,9 @@ Step 5 runs in Main; subagent may build body but Main issues `mx_create_doc` →
 - Output (aggregated): `Orchestrate: <X> unsynced pushed, <N> step-syncs (<K> failed, <W> MCP-ahead), deltas reset, summary written[<archive-link-suffix>]`. Suffix rules: append `" (no archive link — Step 5 failed)"` ONLY if `last_save_session_note_doc_id==null` AND `mcp_available==true` at Init (distinguishes degraded from expected-null paths). If K>0: also append at end `⚠ root-cause K step-sync failures before next session`.
 
 ### 5) Session Summary as MCP Note (MCP, Main-context synchronous)
-Step 5 runs in Main; subagent may build body but Main issues `mx_create_doc` (skill runtime cannot await a background subagent — running Step 5 in background regresses Bug#3229).
+Step 5 runs in Main; subagent may build body but Main issues `mx_create_doc` (skill runtime cannot await a background subagent — running Step 5 in background regresses the deferred-write fix).
 
-⚡ **Body-Validation Gate + Subagent dispatch hardening + Archive-Fidelity Rule (Bug#3239):** see `references/body-validation.md`.
+⚡ **Body-Validation Gate + Subagent dispatch hardening + Archive-Fidelity Rule:** see `references/body-validation.md`.
 Enforce in Step 5 BEFORE `mx_create_doc`: validate length≥500 / ≥3 template sections / required-appendices preserved → fail any → Main builds local fallback (verbatim appendices). Body passed to `mx_create_doc` is NEVER empty, NEVER shorter than fallback, NEVER drops detected decision artefacts.
 
 ⚡ **Status must be `active`:** Session-notes are finalised at save-time. Pass `status='active'` explicitly — leaving it at the server's `draft` default breaks resume-enrichment pairing in the next session.
@@ -196,14 +196,14 @@ mx_create_doc(project, doc_type='session_note', title='Session Notes YYYY-MM-DD[
 
 ### 6) Peer Notify (MCP, only if delta > 0)
 if !mcp_available → skip entire step.
-`mx_session_delta(project, session_id=<state.session_id>, limit=50)`→total_changes==0→skip.
+`mx_session_delta(project, session_id=<state.session_id>, limit=50)`→total_changes==0→skip. ⚡ `session_id`, NOT `since`: the server derives the cutoff from `started_at`, so this call carries no client timestamp and cannot inherit a wrong timestamp base. Do not "harmonize" it to `since` — mxOrchestrate needs `since=last_save` only because at resume time the session has just begun.
 ⚡ `limit=50`, NOT `1`: the Final Block reuses this call's `total_changes` as a MAGNITUDE, not a boolean. Servers before the `COUNT(*)` fix return `RecordCount` of the LIMITed query, so `limit=1` pins `total_changes` to 1 and silently kills the tracker-gap guard. 50 clears every band threshold (max 15), so the band stays correct against old and new servers alike.
 `mx_agent_peers(project)`→∅peers→skip.
 1 call: `mx_agent_send(project, target_project=<peer_slug>, message_type='status', ttl_days=7, payload=<summary>)`
 - Payload: `{"type":"session_summary","summary":"<1-2 sentences>","changed_files":<count>,"project":"<slug>"}`
 - Error→log, don't abort
 
-## Final Block — Clear-Cycle Recommendation (Spec#2152)
+## Final Block — Clear-Cycle Recommendation
 
 Mode-agnostic threshold emit consuming `N` (normal: `last_save_deltas` set by Step 4; `--delta-check`: `state_deltas` in-flight, see Delta-Check section).
 
@@ -218,7 +218,7 @@ Mode-agnostic threshold emit consuming `N` (normal: `last_save_deltas` set by St
 | `>=1` | Marketing: `Clear-Cycle: <N> deltas persisted. /clear + manual mx_briefing ready.` | No token-multiplier numbers (state_deltas counts DB events not transcript tokens) |
 | `==0` | silent | |
 
-⚡ PreCompact/PostCompact hooks dormant (Spec#2152, Lesson#2161 — prompt-type hooks blocked upstream); `/clear` + manual `mx_briefing` is the active path. Re-activation: `~/.claude/hooks/dormant-pre-post-compact.md`.
+⚡ PreCompact/PostCompact hooks dormant (prompt-type hooks blocked upstream); `/clear` + manual `mx_briefing` is the active path. Re-activation: `~/.claude/hooks/dormant-pre-post-compact.md`.
 
 ## Delta-Check Mode (`--delta-check`)
 
@@ -226,7 +226,7 @@ Mode-agnostic threshold emit consuming `N` (normal: `last_save_deltas` set by St
 
 ⚡ **Legacy flag:** `--clear-cycle` was the former name. It falsely implied the flag performed the Clear-Cycle *save*; it never did. Accept `--clear-cycle` as a deprecated alias for `--delta-check` and warn once (`--clear-cycle is deprecated, use --delta-check`). Do NOT silently ignore it — a dropped flag looks like a completed check.
 
-⚡ Manual replacement for dormant PreCompact/PostCompact hooks (Spec#2152 + Lesson#2161). Skips Steps 1-6 and runs ONLY the Final Block, using **`N = state.state_deltas`** (in-flight, NOT the stale `last_save_deltas` — Step 4 snapshot is skipped in this mode). Flag precedence: `--delta-check` — and its deprecated `--clear-cycle` alias, which resolves to `--delta-check` BEFORE precedence is evaluated — wins over `--loop`.
+⚡ Manual replacement for dormant PreCompact/PostCompact hooks. Skips Steps 1-6 and runs ONLY the Final Block, using **`N = state.state_deltas`** (in-flight, NOT the stale `last_save_deltas` — Step 4 snapshot is skipped in this mode). Flag precedence: `--delta-check` — and its deprecated `--clear-cycle` alias, which resolves to `--delta-check` BEFORE precedence is evaluated — wins over `--loop`.
 
 Sequence:
 1. Init (read state file only — no MCP roundtrip; loadState contract: corrupt/missing → empty state).

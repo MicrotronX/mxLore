@@ -19,7 +19,7 @@ mxOrchestrate is hook-driven. The hooks live in `~/.claude/hooks/` and are regis
 
 ## PreCompact hook — ⚡ DORMANT
 
-- **Status:** NOT installed. Spec#2152 + Lesson#2161 — prompt-type PreCompact hook is blocked upstream in Claude Code's harness.
+- **Status:** NOT installed — prompt-type PreCompact hooks are blocked upstream in Claude Code's harness.
 - **Dormant marker file:** `~/.claude/hooks/dormant-pre-post-compact.md` (contains re-activation instructions if upstream lifts the block).
 - **Manual workaround:** run `/mxSave` manually BEFORE `/compact`, then invoke `mx_briefing` manually in the new context after the compact.
 - **Alternative:** use `/mxSave --delta-check` for the threshold emit without a full save.

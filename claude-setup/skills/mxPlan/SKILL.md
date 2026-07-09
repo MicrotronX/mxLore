@@ -29,7 +29,7 @@ Slug from command argument. ∅arg→?user.
 2. Replace `[^a-z0-9-]` with `-`
 3. Collapse multiple `-` and strip leading/trailing `-`
 4. If the normalized slug differs from input → show both and ask user to confirm before proceeding
-5. Server clamps slug to 100 chars (ClampSlug, Bug#2889) — truncate locally and warn if longer
+5. Server clamps slug to 100 chars (ClampSlug) — truncate locally and warn if longer
 
 ## Workflow
 
@@ -45,11 +45,11 @@ For each result, verify the slug field matches the normalized input EXACTLY (mx_
 
 Template → `~/.claude/skills/mxPlan/assets/plan-template.md` (8 sections: Goal, Related, Inherited Decisions, Non-goals, Milestones, Tasks, Risks, Notes — plus title/meta lines). ⚡ **Absolute path** — the subagent CWD is the project root, not the skill dir, so a relative `assets/…` read silently fails. If the template file is unreadable, fall back to a minimal inline skeleton (Goal + Tasks + Notes) and warn the user.
 
-⚡ **Title clamp:** server ClampTitle=255 (Bug#2889). Keep titles short.
+⚡ **Title clamp:** server ClampTitle=255. Keep titles short.
 
 ⚡ **FR-aging guard:** when the plan's source FR/BR is older than 7 days (`updated_at`), re-audit its claims against current code/state BEFORE estimating or writing tasks — stale FRs overstate drift (a 3-week-old FR once claimed 8 missing sections, real drift was 1; 3 of 5 FRs in one triage were already shipped). Emit 1 line: `FR-aging: source #<id> is <D>d old — claims re-audited` (or `— re-audit skipped: <reason>`).
 
-⚡ **Inherited-Decisions scan (FR#5177) — operates on the assembled body, BEFORE the mx_create_doc call:** if the body's `## Related` section references any spec, scan that spec chain (level-0 specs + 1 hop into their own Related) for inline Decision-Markers and inject an `## Inherited Decisions` section right after `## Related`. ≥1 marker → render; 0 markers → no section. Full algorithm → `~/.claude/skills/mxPlan/references/inherited-decisions.md` (lazy-load; fail-soft — any read/MCP error skips the scan, plan still created normally with a one-line note). Reuses the spec resolution done for **Related handling** below — no extra `mx_search`.
+⚡ **Inherited-Decisions scan — operates on the assembled body, BEFORE the mx_create_doc call:** if the body's `## Related` section references any spec, scan that spec chain (level-0 specs + 1 hop into their own Related) for inline Decision-Markers and inject an `## Inherited Decisions` section right after `## Related`. ≥1 marker → render; 0 markers → no section. Full algorithm → `~/.claude/skills/mxPlan/references/inherited-decisions.md` (lazy-load; fail-soft — any read/MCP error skips the scan, plan still created normally with a one-line note). Reuses the spec resolution done for **Related handling** below — no extra `mx_search`.
 
 **MCP:** `mx_create_doc(project, doc_type='plan', title='PLAN: <Title>', content)` (body — incl. any `## Inherited Decisions` section from the scan above — assembled in this subagent from the template; !echo to parent — see Tokens rule).
 
@@ -73,7 +73,7 @@ Template → `~/.claude/skills/mxPlan/assets/plan-template.md` (8 sections: Goal
 - **Complete a task:** flip `- [ ]` to `- [x]` (or `- [X]`); do NOT remove the line.
 - **Remove an obsolete task:** annotate as `- [x] ~~original text~~ (dropped)` rather than deleting the line — the strike-through preserves audit history and still counts toward "all done" in the status transition. Do NOT delete task lines silently.
 
-⚡ **Server clamp limits (Bug#2889 ClampVarchar family):** title=255, slug=100, change_reason=500. Keep change_reason concise but the budget is 500 chars, not 200. Long values past the limit are silently truncated.
+⚡ **Server clamp limits (ClampVarchar family):** title=255, slug=100, change_reason=500. Keep change_reason concise but the budget is 500 chars, not 200. Long values past the limit are silently truncated.
 
 **Local:** Read → Edit → index update if status changed.
 

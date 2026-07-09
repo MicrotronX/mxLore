@@ -108,7 +108,7 @@ For MCP projects, workflows are stored in the DB.
    - **NEVER** use the slug or a self-invented name as the project name!
 4. Add slug to CLAUDE.md if not already present
 
-CRITICAL **ClampVarchar (Bug#2889) when calling mx_init_project:** `project_name` and `project_slug` are both VARCHAR-clamped server-side. Limits: `project_name` max ~200 chars (the mx_init_project server handler applies ClampTitle), `project_slug` max 100 chars (ClampSlug). Trim locally before the call and warn the user if the input would be truncated. Long values are silently clamped without error.
+CRITICAL **ClampVarchar when calling mx_init_project:** `project_name` and `project_slug` are both VARCHAR-clamped server-side. Limits: `project_name` max ~200 chars (the mx_init_project server handler applies ClampTitle), `project_slug` max 100 chars (ClampSlug). Trim locally before the call and warn the user if the input would be truncated. Long values are silently clamped without error.
 
 CRITICAL **MCP-down fallback during bootstrap:** if `mx_ping` succeeded in Phase "Project Context / MCP Detection" but then `mx_briefing` or `mx_init_project` fails mid-bootstrap (network blip, server restart), do NOT abort the whole skill. Instead:
 - Continue creating local directories and docs/status.md

@@ -1,8 +1,8 @@
-# mxPlan — Inherited-Decisions Scan (FR#5177)
+# mxPlan — Inherited-Decisions Scan
 
 > Lazy-loaded by mxPlan New-plan path (step 2) only. Goal: surface Decision-Markers
 > that live inline in the referenced spec chain so they are visible at plan-time
-> (root cause of BR#5172). Consumes — does NOT duplicate — the canonical regex.
+> Consumes — does NOT duplicate — the canonical regex.
 > ⚡ Fail-soft: any read/MCP error in this scan → skip the whole scan, log one line
 > in mxPlan output (`Inherited-Decisions scan skipped: <reason>`), create the plan
 > normally with no `## Inherited Decisions` section. Never abort plan creation.

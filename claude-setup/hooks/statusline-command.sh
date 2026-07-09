@@ -92,7 +92,7 @@ if [ "$total_tok" -gt 0 ]; then
   fi
 fi
 
-# --- Section 5: active workflow (FR#3081) ---
+# --- Section 5: active workflow ---
 # Reads .claude/orchestrate-state.json in the project root (same dir as
 # CLAUDE.md located in Section 1). Shows workflow_stack[0].title truncated
 # to 50 chars + `(+N parked)` when parked WFs > 0. Hidden on empty stack.

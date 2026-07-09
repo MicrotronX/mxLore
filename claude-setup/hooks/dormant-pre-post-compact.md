@@ -1,7 +1,7 @@
 # PreCompact / PostCompact Hooks — DORMANT
 
-**Status:** Removed from `~/.claude/settings.json`.
-**Reason:** `type: "prompt"` hooks for `PreCompact` and `PostCompact` are not executed by the current Claude Code version (Anthropic-side limitation). They fired silently with no visible effect, creating a marketing/reality mismatch (CLAUDE.md previously promised auto-mxSave + auto-briefing).
+**Status:** Removed from `~/.claude/settings.json` on 2026-04-13.
+**Reason:** `type: "prompt"` hooks for `PreCompact` and `PostCompact` are not executed by the current Claude Code version (as of April 2026, Anthropic-side limitation). They fired silently with no visible effect, creating a marketing/reality mismatch (CLAUDE.md previously promised auto-mxSave + auto-briefing).
 
 **Re-activate:** Once Anthropic supports prompt-type hooks for Pre/PostCompact, paste the two blocks below back into `~/.claude/settings.json` under `"hooks"` — directly after the `PostToolUse` block, before the closing `}` of the hooks section. Add a comma after the `PostToolUse` closing `]`.
 
@@ -36,6 +36,8 @@
   }
 ]
 ```
+
+(Note: prompt strings shown here are the English re-translation. The original deployed prompts in pre-removal `settings.json` were German; both versions are functionally equivalent. English saves tokens and matches the AI-Steno rule from ADR-0009.)
 
 ## Until re-activation
 

@@ -31,7 +31,7 @@ Compare local `current_step` vs `mcp_step`:
   WARN user, show both versions, ask which to keep before pushing.
 - **Equal:** no action needed.
 
-## FS-Anchor Post-Check (Bug#6813)
+## FS-Anchor Post-Check
 
 ⚡ The doc-vs-doc compare above can yield a **false GREEN**: if the implementation
 happened but neither the state file nor the MCP WF-doc was updated (e.g. the work
@@ -44,8 +44,7 @@ Runs AFTER the 4-way compare, as an **orthogonal override** — not a 5th compar
 branch. It can overturn ANY of the four results above.
 
 **Algorithm:** see `~/.claude/skills/_shared/fs-anchor.md` (canonical shared
-helper — same algorithm reused by mxSave Step 3 Stale-Suspect Detection per
-Spec#7070).
+helper — same algorithm reused by mxSave Step 3 Stale-Suspect Detection).
 
 ### mxOrchestrate-specific caller wiring
 

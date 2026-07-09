@@ -89,7 +89,7 @@ For each finding: `mx_skill_manage(action='record_finding', skill='mxDesignCheck
 
 ⚡ **Severity mapping** (report → MCP): `CRITICAL` → `critical`, `WARNING` → `warning`, `INFO` → `info`. Canonical lowercase on the wire.
 
-⚡ **ClampVarchar (Bug#2889) limits for persisted fields:**
+⚡ **ClampVarchar limits for persisted fields:**
 - `title` → max 255 chars. Trim the finding summary locally.
 - `rule_id` → max 100 chars. Slugs are short, safe.
 - `file_path` → max 500 chars. Long paths are rare; trim leading repo path if needed.

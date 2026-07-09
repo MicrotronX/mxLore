@@ -36,7 +36,7 @@ pattern-rationale, so the main skill stays lean.
 ## Plan / ADR / doc IDs (in Related or body prose)
 
 - `mx_search` or `mx_detail` confirmation before writing the ID.
-- Do not cite `Plan#145` unless you have just seen `doc_id=145` exist.
+- Do not cite `Plan#14` unless you have just seen `doc_id=14` exist.
 
 ## Why these six (rationale)
 

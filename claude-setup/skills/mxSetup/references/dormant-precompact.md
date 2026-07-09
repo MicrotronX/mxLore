@@ -1,7 +1,7 @@
 # PreCompact / PostCompact Prompt Hooks — DORMANT
 
 ## Why dormant
-Both `type: "prompt"` hooks for `PreCompact` and `PostCompact` are **not executed** by the current Claude Code version. This is an Anthropic-side limitation: the runtime accepts the hook registration but never fires the prompt before/after compaction. Installing them would only sleep silently and reintroduce the marketing/reality mismatch we had before Spec#2152.
+Both `type: "prompt"` hooks for `PreCompact` and `PostCompact` are **not executed** by the current Claude Code version. This is an Anthropic-side limitation: the runtime accepts the hook registration but never fires the prompt before/after compaction. Installing them would only sleep silently and reintroduce the marketing/reality mismatch we had before the dormant-hook decision.
 
 ## What mxSetup does
 - The `PreCompact` and `PostCompact` rows are **not** added to `~/.claude/settings.json` during Phase 5b.
@@ -22,4 +22,4 @@ The `last_save_deltas` mechanism in `mxSave` Step 4 plus `orchestrate-state.json
 4. Verify via `/mxSave` followed by `/compact` that the PreCompact prompt fires (should inject a reminder).
 
 ## Related
-- Spec#2152 (Compact cycle), Lesson#2161 (prompt-type hooks blocked upstream).
+- The dormant-hook decision (compact cycle, prompt-type hooks blocked upstream).

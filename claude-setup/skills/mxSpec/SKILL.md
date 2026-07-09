@@ -65,7 +65,7 @@ Template → `~/.claude/skills/mxSpec/assets/spec-template.md` (9 sections: Over
 **MCP:** `mx_create_doc(project, doc_type='spec', title='SPEC: <Title>', content)` — ⚡ Slug is auto-generated server-side from the title; the `slug=` param does not exist on `mx_create_doc` and is silently ignored. Server handles dedup via ClampSlug + retry-with-suffix (see `references/bug-history.md`).
 
 **Related handling (iterate, do not stop at first):**
-1. Parse the Related section for ALL referenced ADRs + plans. Canonical bracket form: `[ADR-NNNN]`, `[PLAN-slug]`. Reject ambiguous formats like `ADR#123` — warn and skip.
+1. Parse the Related section for ALL referenced ADRs + plans. Canonical bracket form: `[ADR-NNNN]`, `[PLAN-slug]`. Reject ambiguous formats like `ADR#12` — warn and skip.
 2. For each → `mx_search(project, doc_type='decision,plan', query='<id-or-slug>', status='active', limit=3)` to resolve target_id.
 3. For each resolved target → `mx_add_relation(source_doc_id=<new spec doc_id>, target_doc_id=<target doc_id>, relation_type='references')`. ⚡ source = new spec, target = ADR/plan; never reverse. Server dedupes.
 4. Loop until all Related items processed.

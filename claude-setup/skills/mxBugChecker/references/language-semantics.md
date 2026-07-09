@@ -1,4 +1,4 @@
-## Language Semantics ⚡ (Bug#2989 F7 — isset Overclaim Fix)
+## Language Semantics ⚡ (isset Overclaim Fix)
 
 Before claiming a language-level bug, verify against actual language semantics. Cross-reference this section during Phase 3 analysis for any finding that depends on how a language treats undefined/null/missing values. Common false-positive traps:
 

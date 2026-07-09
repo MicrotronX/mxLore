@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Institutional Memory Outcome Hook (Spec#1198, B8.3+B8.4 Plan#1231)
+// Institutional Memory Outcome Hook
 // PostToolUse Hook: Fires after Edit/Write on source files.
 // Prompts Claude to call mx_recall_outcome if a recall_id is active.
 // Performance target: <50ms.

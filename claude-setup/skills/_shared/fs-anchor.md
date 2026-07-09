@@ -1,7 +1,7 @@
 # FS-Anchor — Canonical Algorithm (Shared)
 
 Doc-vs-code reality check. Both **mxOrchestrate Mode 5 (Reconciliation)** and
-**mxSave Step 3 (Pre-Save Stale-Plan-Sweep, Spec#7070)** call this helper to
+**mxSave Step 3 (Pre-Save Stale-Plan-Sweep)** call this helper to
 verify whether a doc's "pending" / "active" status is contradicted by the real
 filesystem.
 
@@ -69,13 +69,13 @@ Per-item: `{label, verdict, evidence}` where:
   doc-vs-doc "Both diverged" branch — never silently overwrite).
 - mxSave Step 3: all items `divergence` AND no `confirmed_pending` AND doc
   `days_since_content_change` older than `MXSAVE_STALE_THRESHOLD_DAYS` env
-  (default 14) → tag `stale-suspect` + prompt user y/n/skip (internal spec
-  AC2/AC3). Use `days_since_content_change`, NOT `updated_at` (which any touch
-  incl. access_count-on-read bumps).
+  (default 14) → tag `stale-suspect` + prompt user y/n/skip.
+  Use `days_since_content_change`, NOT `updated_at` (`updated_at` is bumped
+  by any touch incl. access_count-on-read).
 
 ## doc_type applicability
 
-| doc_type | FS-anchor-capable? | Reason |
+| doc_type | FS-anchor-fähig? | Reason |
 |---|---|---|
 | `plan` | yes | Task lines `- [ ] <action>` carry implementation targets |
 | `spec` | yes | Acceptance Criteria `- [ ] <ac>` + Interfaces/Data section |
@@ -85,5 +85,5 @@ Per-item: `{label, verdict, evidence}` where:
 | `feature_request` | no | User-direktive, not impl-target |
 | `decision` | no | Records choice, not impl-target |
 
-Callers MUST filter to capable doc_types before invoking the helper. Excluded
+Callers MUST filter to fähig doc_types before invoking the helper. Excluded
 doc_types just keep their MCP status as-is.
