@@ -174,7 +174,13 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 120;
+  MXAI_BUILD   = 121;
+  // Build 121 (2026-07-09): mx_session_delta — total_changes is now a real
+  //   SELECT COUNT(*) over the same WHERE clause instead of RecordCount of the
+  //   LIMITed query. It reported the page size, so callers reading it as a
+  //   magnitude got the limit back: mxSave's tracker-gap guard
+  //   (N_eff = max(N, total_changes)) could never fire with limit=1.
+  //   Boolean consumers unaffected — COUNT(*) is 0 exactly when 0 rows match.
   // Build 120 (2026-07-06): Bug#11815 — content_changed_at staleness signal via
   //   doc_revisions.MAX(changed_at) in mx_detail/batch/search (updated_at was
   //   bumped by every read incl. access_count, so unusable as freshness proxy)
