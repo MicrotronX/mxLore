@@ -44,7 +44,7 @@ allowed-tools: Glob, Grep, Read
 
 ### Public Skill Allowlist
 
-⚡ mxHelp ONLY renders skills from the public mxLore-skills GitHub bundle. Internal/customer-specific skills (mxerptrigger, mxTicketSystemHannes, mxDelphiAnsi2UTF8, etc.) are FILTERED OUT — they are not part of the public distribution and must not appear in mxHelp output.
+⚡ mxHelp ONLY renders skills from the public mxLore-skills GitHub bundle, enumerated in the allowlist below. Any installed skill absent from that table — internal, customer-specific, or third-party — is FILTERED OUT and must not appear in mxHelp output. The table is the mechanism: do NOT name excluded skills here, since this file ships publicly and a denylist would disclose exactly what it excludes.
 
 | Category | Public skills (allowlist) |
 |----------|---------------------------|
