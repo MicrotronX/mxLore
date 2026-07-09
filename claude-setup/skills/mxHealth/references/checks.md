@@ -154,12 +154,29 @@ entirely from output).
   mxSpec, mxDecision, mxMigrateToDb, mxInitProject]`. For each, call
   `mx_skill_metrics(skill=<name>, project=<slug>, days=90)`.
 - **Checks:**
-  - FP rate > 50% for a rule -> `WARNING("Rule {rule_id} has {fp_rate}%
-    false positives — mx_skill_manage(action='tune', ...) recommended")`.
+  - Rule accuracy, gated on `weighted_precision` (NOT `fp_rate`):
+    1. Graded sample `n = confirmed + false_positives`. `n < 10` -> skip the
+       rule silently (small-n). This also covers the `0/0` case, where the
+       server reports `weighted_precision = 0` for a rule that only ever
+       received `dismissed` verdicts — an ungraded rule, not a bad one.
+    2. `n >= 10` AND `weighted_precision < 0.5` -> `WARNING("Rule {rule_id}
+       weighted precision {weighted_precision}% over {n} graded findings —
+       mx_skill_manage(action='tune', ...) recommended")`.
+  - ⚡ Never gate on `fp_rate`, `confirmation_rate`, `weighted_fp_rate` or
+    `weighted_confirmation_rate`: all four divide by the reacted total, which
+    counts `dismissed`. `dismissed` means "the rule was right, the fix is not
+    worth it" (`_shared/skill-verdicts.md`) — an effort verdict, not an
+    accuracy verdict. Every honest `dismissed` dilutes those denominators and
+    makes the gate blinder. Only `precision` and `weighted_precision` exclude
+    it. `weighted_precision` additionally decays findings by age
+    (<30d=1.0, 30-60d=0.7, >60d=0.3), which retires the pre-verdict-channel
+    data that was recorded under the old, mislabelled semantics.
   - More than 20 pending findings -> `INFO("N findings awaiting feedback")`.
+    Since mxSave no longer batch-dismisses, a growing `pending` count is an
+    unreviewed-backlog signal, not noise.
   - No `skill_findings` table or error -> skip (feature not active for that
     skill).
-- **Severity:** `WARNING` (high FP) | `INFO` (pending).
+- **Severity:** `WARNING` (low weighted precision) | `INFO` (pending).
 - **Persistence:** Phase 3b note + Phase 4 bugreport for `WARNING` only.
 
 ## P14: AI-Batch Status

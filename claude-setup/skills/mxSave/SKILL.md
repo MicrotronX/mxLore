@@ -131,11 +131,15 @@ Derive lesson candidates from chat history:
 
 ∅MCP→skip (mcp_available flag from Init)
 
-**Auto-dismiss pending findings:**
-Batch-dismiss all pending findings (not reviewed in session context):
-`mx_skill_feedback(project=<slug>, reaction='dismissed')` — one call dismisses all pending findings for the project.
-- Output: `Findings: batch-dismissed`
+**Report unresolved findings (⚡ NEVER batch-dismiss):**
+`mx_skill_findings_list(project=<slug>, status='pending', limit=50)` → N = number of findings returned
+- N == 0 → silent (the normal case: every finding got its verdict at fix time)
+- N >= 1 → `Findings: <N> without verdict — a checker run ended without recording the user's call`
 - if !mcp_available → skip
+
+⚡ **Batch-dismiss is FORBIDDEN here.** `pending` is not a backlog to clear; it is the signal that a checker dropped a verdict on the floor. Dismissing it hides the defect and destroys the metric: `confirmed`/`false_positive` never accumulate, `precision` stays `0/0`, and the server renders that as `0.0` — indistinguishable from "always wrong". Fix the checker, not the queue.
+
+⚡ Reaction vocabulary + who may write a verdict: `~/.claude/skills/_shared/skill-verdicts.md` (SSoT). mxSave writes NO verdicts — it only reports the anomaly.
 
 ### 4) Orchestrate State Sync (HYBRID)
 Read `.claude/orchestrate-state.json`. ⚡ ∅file → skip entire Step 4 (no state to sync). Otherwise execute in TWO phases per Execution Mode; all 4a/4b mutations are buffered in-memory and the state.json Write happens ONCE at the end of 4b.

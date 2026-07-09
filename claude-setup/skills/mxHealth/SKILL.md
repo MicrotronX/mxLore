@@ -97,6 +97,7 @@ Deduplication: mx_search before creating. ∅ERROR/WARNING→no report.
 **Skill Evolution:** For each finding (ERROR+WARNING): `mx_skill_manage(action='record_finding', skill='mxHealth', rule_id='<pN-lowercase>' (e.g. p1-metadata, p3-crossref, p4-status), project='<slug>', severity='<error|warning>', title='<finding summary>', details='<document + finding>')`
 - context_hash='<check>:<document-slug>' for dedup across runs
 - ∅MCP→skip (already captured in bugreport)
+- ⚡ **Record the verdict too.** Read `~/.claude/skills/_shared/skill-verdicts.md` (SSoT). Recording a finding without ever recording the user's call leaves it `pending` forever, and `precision` for that rule stays `0/0` — the server renders that as `0.0`, indistinguishable from "always wrong". Fixed→`confirmed` | user declines→`dismissed` | user says the check misread→`false_positive` | user never ruled→`pending` (report it, !dismiss it)
 
 ## Phase 5: Auto-Fix (P9)
 P9 findings→removed (B6.5). ∅P9→skip.

@@ -90,7 +90,7 @@ Read ~/.claude/skills/_shared/mcp-clamp-limits.md.
 
 After recording note: `**Skill Evolution:** N findings persisted. Feedback: mx_skill_feedback(finding_uid='...', reaction='confirmed|dismissed|false_positive')`
 
-## Phase 5: Fixes + Auto-Confirm
+## Phase 5: Fixes + Verdicts
 1. CRITICAL→?user whether to apply fix. Show concrete fix.
 2. WARNING→list suggestions. User decides.
 3. INFO→report only, no fix.
@@ -98,18 +98,21 @@ After recording note: `**Skill Evolution:** N findings persisted. Feedback: mx_s
 - Confidence<high or complex bugs→suggest test-first (test red→fix→test green)
 - MCP: check active workflow→mention step completion
 
-### Auto-Confirm (⚡ MANDATORY after fix)
-Every finding that is fixed+accepted by user→immediately execute `mx_skill_feedback(finding_uid='...', reaction='confirmed')`.
-- Fix applied (Edit tool successful) → confirmed
-- User says "skip"/"don't fix" → no feedback (remains pending)
-- User says "wrong"/"incorrect" → `reaction='false_positive'`
-- ⚡ !wait for manual feedback step. !leave findings without confirm.
-- Caller (main context/mxOrchestrate) that applies fixes outside the checker→MUST also send auto-confirm
+### Record Verdicts (⚡ MANDATORY — no finding leaves the run undecided)
+Read ~/.claude/skills/_shared/skill-verdicts.md — SSoT for what the three reactions mean.
+The user's call on each finding→immediately `mx_skill_feedback(finding_uid='...', reaction=<verdict>)`:
+- Fix applied (Edit tool successful) → `confirmed` (rule right, defect fixed)
+- User says "skip"/"don't fix"/"not worth it" → `dismissed` (rule right, nobody acts)
+- User says "wrong"/"incorrect" → `false_positive` (rule wrong, no defect existed)
+- ⚡ !route "won't fix" into `false_positive` — that turns `precision` into an effort ratio
+- ⚡ !invent a verdict the user did not state. Undecided→stays `pending` and gets reported, !silently dismissed
+- Caller (main context/mxOrchestrate) that applies fixes outside the checker→MUST also record the verdict
 
 ### Pending-Review (optional, with `--review-pending` argument)
 1. `mx_skill_findings_list(project='<slug>', skill='mxBugChecker', status='pending')` → load all open findings
-2. For each finding: check File:Line whether problem still exists
-3. Fixed→`mx_skill_feedback(finding_uid, 'confirmed')` | Still open→skip | Irrelevant→`dismissed`
+2. For each finding: check File:Line whether the problem still exists
+3. ⚡ Present finding + evidence, user picks the verdict. Re-adjudication is a PROPOSAL — !write a reaction on the checker's own findings without the user's word
+4. "Code changed" is no verdict by itself: defect was fixed→`confirmed` | defect stopped mattering→`dismissed`
 
 ## Rules
 - ⚡ !Finding without read code proof. !Exceptions. !Assumptions("probably/likely")
