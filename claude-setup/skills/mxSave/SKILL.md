@@ -4,7 +4,7 @@ description: Use when the user says "save state", "/mxSave", "session end", "bef
 user-invocable: true
 effort: medium
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
-argument-hint: "[optional-notes] [--loop] [--clear-cycle]"
+argument-hint: "[optional-notes] [--loop] [--delta-check]"
 ---
 
 # /mxSave — Persist Project State (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
@@ -28,7 +28,7 @@ Degraded path: Step 5 MCP call fails → Step 4b writes `last_save_summary` (loc
 ## Init
 1. CLAUDE.md→`**Slug:**`=project slug. ∅slug→?user
 2. mx_ping()→check MCP availability. Set `mcp_available = (ping == ok)`. Steps 3, 5, 6 reference this flag for fallback decisions instead of repeating "MCP error→fallback" inline.
-3. ⚡ State file safety: If `.claude/orchestrate-state.json` is missing or unparseable, treat as empty state per the mxOrchestrate `loadState()` contract: `state_deltas=0`, `last_save_deltas=0`, `workflow_stack=[]`, `mcp_available` still set from ping result. Warn user inline ("orchestrate-state.json missing/corrupt — proceeding with empty state"). The `--clear-cycle` mode in this case emits nothing (N==0 silent path).
+3. ⚡ State file safety: If `.claude/orchestrate-state.json` is missing or unparseable, treat as empty state per the mxOrchestrate `loadState()` contract: `state_deltas=0`, `last_save_deltas=0`, `workflow_stack=[]`, `mcp_available` still set from ping result. Warn user inline ("orchestrate-state.json missing/corrupt — proceeding with empty state"). The `--delta-check` mode in this case emits nothing (N==0 silent path).
 
 ## Steps (sequential)
 
@@ -203,11 +203,11 @@ if !mcp_available → skip entire step.
 
 ## Final Block — Clear-Cycle Recommendation (Spec#2152)
 
-Mode-agnostic threshold emit consuming `N` (normal: `last_save_deltas` set by Step 4; `--clear-cycle`: `state_deltas` in-flight, see Clear-Cycle section).
+Mode-agnostic threshold emit consuming `N` (normal: `last_save_deltas` set by Step 4; `--delta-check`: `state_deltas` in-flight, see Delta-Check section).
 
 **Skip:** state file missing OR mode-relevant deltas field unset. Do NOT skip on empty workflow_stack — doc-only sessions can have meaningful deltas.
 
-⚡ **Tracker-gap guard:** `N_eff = max(N, total_changes)` where `total_changes` comes from the `mx_session_delta` call Step 6 already made (reuse, do not re-query; `!mcp_available` OR `--clear-cycle` (Step 6 skipped, no delta data) → `N_eff = N`). Subagent MCP-writes bypass the `state_deltas` counter — the band must not fall back to silent when real writes happened.
+⚡ **Tracker-gap guard:** `N_eff = max(N, total_changes)` where `total_changes` comes from the `mx_session_delta` call Step 6 already made (reuse, do not re-query; `!mcp_available` OR `--delta-check` (Step 6 skipped, no delta data) → `N_eff = N`). Subagent MCP-writes bypass the `state_deltas` counter — the band must not fall back to silent when real writes happened.
 
 | N | Output | Notes |
 |---|---|---|
@@ -218,11 +218,13 @@ Mode-agnostic threshold emit consuming `N` (normal: `last_save_deltas` set by St
 
 ⚡ PreCompact/PostCompact hooks dormant (Spec#2152, Lesson#2161 — prompt-type hooks blocked upstream); `/clear` + manual `mx_briefing` is the active path. Re-activation: `~/.claude/hooks/dormant-pre-post-compact.md`.
 
-## Clear-Cycle Mode (`--clear-cycle`)
+## Delta-Check Mode (`--delta-check`)
 
-⚡ **Name disambiguation — do NOT confuse with a full save:** `--clear-cycle` runs ONLY the Final Block (the "/clear worthwhile?" deltas recommendation). It is NOT a resume-capable save and writes no session note. The full resume-capable save is the DEFAULT `/mxSave` (Steps 1-6, incl. the ⚡ALWAYS Quickstart + Tooling-gotchas sections in Step 5). Difference between save modes is Cleanup-DEPTH (loop = light, full = pre-clear), never "resume-capable or not" — every real save is resume-capable.
+⚡ **Not a save:** `--delta-check` runs ONLY the Final Block (the "/clear worthwhile?" deltas recommendation). It writes no session note, no CLAUDE.md/status.md pointer, and no state. The full resume-capable save is the DEFAULT `/mxSave` (Steps 1-6, incl. the ⚡ALWAYS Quickstart + Tooling-gotchas sections in Step 5). Difference between save modes is Cleanup-DEPTH (loop = light, full = pre-clear), never "resume-capable or not" — every real save is resume-capable.
 
-⚡ Manual replacement for dormant PreCompact/PostCompact hooks (Spec#2152 + Lesson#2161). Skips Steps 1-6 and runs ONLY the Final Block, using **`N = state.state_deltas`** (in-flight, NOT the stale `last_save_deltas` — Step 4 snapshot is skipped in this mode). Flag precedence: `--clear-cycle` wins over `--loop`.
+⚡ **Legacy flag:** `--clear-cycle` was the former name. It falsely implied the flag performed the Clear-Cycle *save*; it never did. Accept `--clear-cycle` as a deprecated alias for `--delta-check` and warn once (`--clear-cycle is deprecated, use --delta-check`). Do NOT silently ignore it — a dropped flag looks like a completed check.
+
+⚡ Manual replacement for dormant PreCompact/PostCompact hooks (Spec#2152 + Lesson#2161). Skips Steps 1-6 and runs ONLY the Final Block, using **`N = state.state_deltas`** (in-flight, NOT the stale `last_save_deltas` — Step 4 snapshot is skipped in this mode). Flag precedence: `--delta-check` — and its deprecated `--clear-cycle` alias, which resolves to `--delta-check` BEFORE precedence is evaluated — wins over `--loop`.
 
 Sequence:
 1. Init (read state file only — no MCP roundtrip; loadState contract: corrupt/missing → empty state).
