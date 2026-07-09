@@ -584,7 +584,7 @@ function HandleSessionDelta(const AParams: TJSONObject;
 var
   Qry: TFDQuery;
   ProjectSlug, SinceStr: string;
-  ProjectId, SessionId, MaxLimit: Integer;
+  ProjectId, SessionId, MaxLimit, TotalChanges: Integer;
   Cutoff: TDateTime;
   HasCutoff: Boolean;
   Data: TJSONObject;
@@ -688,6 +688,26 @@ begin
   if not HasCutoff then
     Cutoff := EncodeDate(2000, 1, 1);
 
+  // Count first, unbounded by :max_rows. `changes` is a page; `total_changes`
+  // is the whole set. Callers use it as a magnitude (e.g. mxSave's tracker-gap
+  // guard) and cannot distinguish a full page from a truncated one otherwise.
+  TotalChanges := 0;
+  Qry := AContext.CreateQuery(
+    'SELECT COUNT(*) AS n ' +
+    'FROM documents d ' +
+    'WHERE d.project_id = :proj_id ' +
+    '  AND d.status <> ''deleted'' ' +
+    '  AND d.updated_at > :since');
+  try
+    Qry.ParamByName('proj_id').AsInteger := ProjectId;
+    Qry.ParamByName('since').AsDateTime := Cutoff;
+    Qry.Open;
+    if not Qry.IsEmpty then
+      TotalChanges := Qry.FieldByName('n').AsInteger;
+  finally
+    Qry.Free;
+  end;
+
   // Fetch changes (metadata only — no summary_l1 / content)
   Qry := AContext.CreateQuery(
     'SELECT d.id, d.doc_type, d.slug, d.title, d.status, d.updated_at ' +
@@ -710,7 +730,7 @@ begin
         FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', Cutoff));
       Data.AddPair('limit', TJSONNumber.Create(MaxLimit));
       Data.AddPair('total_changes',
-        TJSONNumber.Create(Qry.RecordCount));
+        TJSONNumber.Create(TotalChanges));
 
       Changes := TJSONArray.Create;
       while not Qry.Eof do

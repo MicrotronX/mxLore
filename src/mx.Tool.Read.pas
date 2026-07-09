@@ -565,7 +565,7 @@ begin
   begin
     // Accept date-only form (YYYY-MM-DD) by normalizing to midnight, because
     // Delphi's ISO8601ToDate requires a 'T'-datetime component. Parse once
-    // and bind as TDateTime (AsDateTime), mirroring mx_session_delta:697-702.
+    // and bind as TDateTime (AsDateTime), mirroring HandleSessionDelta.
     if Length(SinceStr) = 10 then
       NormSinceStr := SinceStr + 'T00:00:00'
     else
@@ -714,7 +714,7 @@ begin
         Qry.ParamByName('tag').AsWideString :=LowerCase(Trim(Tag));
       if StatusFilter <> '' then
         Qry.ParamByName('status').AsWideString :=StatusFilter;
-      // Bug#3033: since binding — TDateTime bind, matches mx_session_delta pattern (Session.pas:697-702)
+      // Bug#3033: since binding — TDateTime bind, matches HandleSessionDelta
       if SinceStr <> '' then
         Qry.ParamByName('since').AsDateTime := SinceDT;
       Qry.Open;
