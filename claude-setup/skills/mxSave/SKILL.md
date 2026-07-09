@@ -196,7 +196,8 @@ mx_create_doc(project, doc_type='session_note', title='Session Notes YYYY-MM-DD[
 
 ### 6) Peer Notify (MCP, only if delta > 0)
 if !mcp_available → skip entire step.
-`mx_session_delta(project, session_id=<state.session_id>, limit=1)`→total_changes==0→skip.
+`mx_session_delta(project, session_id=<state.session_id>, limit=50)`→total_changes==0→skip.
+⚡ `limit=50`, NOT `1`: the Final Block reuses this call's `total_changes` as a MAGNITUDE, not a boolean. Servers before the `COUNT(*)` fix return `RecordCount` of the LIMITed query, so `limit=1` pins `total_changes` to 1 and silently kills the tracker-gap guard. 50 clears every band threshold (max 15), so the band stays correct against old and new servers alike.
 `mx_agent_peers(project)`→∅peers→skip.
 1 call: `mx_agent_send(project, target_project=<peer_slug>, message_type='status', ttl_days=7, payload=<summary>)`
 - Payload: `{"type":"session_summary","summary":"<1-2 sentences>","changed_files":<count>,"project":"<slug>"}`
@@ -235,7 +236,7 @@ Sequence:
 
 ## Loop Mode (--loop or /loop context)
 
-**Idempotency:** `mx_session_delta(project, session_id=<state.session_id>, limit=1)` → `total_changes`. Null session_id → skip check, normal save. **Step 4a always runs** (detects local-only divergence that produces no MCP activity); Step 4b + Step 5 skipped on idempotent branch.
+**Idempotency:** `mx_session_delta(project, session_id=<state.session_id>, limit=1)` → `total_changes`. ⚡ `limit=1` is CORRECT here: this is a boolean `==0` test, and `total_changes==0` iff zero rows match on every server build. Contrast Step 6, whose `total_changes` the Final Block reads as a MAGNITUDE and which therefore needs `limit=50`. Null session_id → skip check, normal save. **Step 4a always runs** (detects local-only divergence that produces no MCP activity); Step 4b + Step 5 skipped on idempotent branch.
 
 **Output decision (after Step 4a counters):**
 
