@@ -62,6 +62,9 @@ Read spec completely→apply spec-review.md rules→check technical feasibility
 ## Adversarial Verify (optional, on request or `--adversarial`)
 Each finding above INFO → 1 independent refuter-agent (parallel, prompt: 'Try to refute this finding with code proof'). Refuted → discard; partially refuted → downgrade severity. Output notes refuted-count. Costs ~1 agent/finding — use for release-gates or low-confidence runs.
 
+### Gate-check (before report, findings > 0 only)
+⚡ `Read ~/.claude/skills/_shared/skill-metrics-gate.md` (SSoT). One `mx_skill_metrics(skill='mxDesignChecker', project=<slug>)` call HERE — end of Analysis, before Phase 3 builds the report table. Calling it later (inside Phase 3b, after the table is already rendered) cannot annotate a table that has already been printed. Mark gated-rule findings for the Phase 3 table: append `⚠ low-precision rule` to their row.
+
 ## Phase 3: Report
 
 ```markdown
@@ -82,6 +85,7 @@ X CRITICAL | Y WARNING | Z INFO | **Not checked:** <irrelevant cats>
 
 ## Phase 3b: Persist findings (Skill Evolution)
 MCP available (Phase 1 mx_ping OK) AND Findings > 0:
+⚡ **Read-path gate:** annotation already applied to the Phase 3 table (see Gate-check step above, end of Phase 2). `record_finding` is NEVER suppressed — persist every finding regardless of gate state.
 For each finding: `mx_skill_manage(action='record_finding', skill='mxDesignChecker', rule_id='<cat-lowercase>', project='<slug>', severity='<sev-lowercase>', title='<finding summary>', file_path='<file>', line_number=<line>, context_hash='<file>:<line>', details='<code-proof + finding>')`
 ⚡ Issue record_finding calls in parallel (independent writes, single message multi-tool-call) !sequential one-by-one.
 

@@ -154,23 +154,16 @@ entirely from output).
   mxSpec, mxDecision, mxMigrateToDb, mxInitProject]`. For each, call
   `mx_skill_metrics(skill=<name>, project=<slug>, days=90)`.
 - **Checks:**
-  - Rule accuracy, gated on `weighted_precision` (NOT `fp_rate`):
-    1. Graded sample `n = confirmed + false_positives`. `n < 10` -> skip the
-       rule silently (small-n). This also covers the `0/0` case, where the
-       server reports `weighted_precision = 0` for a rule that only ever
-       received `dismissed` verdicts — an ungraded rule, not a bad one.
-    2. `n >= 10` AND `weighted_precision < 0.5` -> `WARNING("Rule {rule_id}
-       weighted precision {weighted_precision}% over {n} graded findings —
-       mx_skill_manage(action='tune', ...) recommended")`.
-  - ⚡ Never gate on `fp_rate`, `confirmation_rate`, `weighted_fp_rate` or
-    `weighted_confirmation_rate`: all four divide by the reacted total, which
-    counts `dismissed`. `dismissed` means "the rule was right, the fix is not
-    worth it" (`_shared/skill-verdicts.md`) — an effort verdict, not an
-    accuracy verdict. Every honest `dismissed` dilutes those denominators and
-    makes the gate blinder. Only `precision` and `weighted_precision` exclude
-    it. `weighted_precision` additionally decays findings by age
-    (<30d=1.0, 30-60d=0.7, >60d=0.3), which retires the pre-verdict-channel
-    data that was recorded under the old, mislabelled semantics.
+  - Rule accuracy: `Read ~/.claude/skills/_shared/skill-metrics-gate.md` —
+    SSoT for the gate condition (evidence floor, threshold, metric selection,
+    `0/0` handling, never-gate-on-`fp_rate` rule). Rule **gated** ->
+    `WARNING("Rule {rule_id}: low weighted precision — tune recommended")`,
+    with `weighted_precision` (a 0..1 quotient, not a percent) and `n` in the
+    finding DETAILS, never in the title — titles carrying run-varying numbers
+    defeat the Phase 3b title dedup and re-silt the DB every run (FR#12207
+    pattern one level up). Rule below the evidence floor -> skip silently.
+  - ⚡ Keep the per-rule gate results from this check — Phase 3b/4 reuse them
+    for read-path suppression (same SSoT file, 0 extra MCP calls).
   - More than 20 pending findings -> `INFO("N findings awaiting feedback")`.
     Since mxSave no longer batch-dismisses, a growing `pending` count is an
     unreviewed-backlog signal, not noise.

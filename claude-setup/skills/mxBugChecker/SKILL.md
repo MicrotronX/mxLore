@@ -55,6 +55,9 @@ Fallback: mxDesignChecker/references missing → proceed without Delphi taxonomy
 - Verification reads of independent findings → parallel tool-calls in one message !sequential
 - !verifiable → discard. Document discarded/verified counters.
 
+### Gate-check (before report, findings > 0 only)
+⚡ `Read ~/.claude/skills/_shared/skill-metrics-gate.md` (SSoT). One `mx_skill_metrics(skill='mxBugChecker', project=<slug>)` call HERE — end of Analysis, before Phase 4 builds the report table. Calling it later (inside Phase 4b, after the table is already rendered) cannot annotate a table that has already been printed. Mark gated-rule findings for the Phase 4 table: append `⚠ low-precision rule` to their row.
+
 ## Phase 4: Report
 
 ```markdown
@@ -76,6 +79,7 @@ X CRITICAL | Y WARNING | Z INFO | **Not checked:** <irrelevant categories>
 
 ## Phase 4b: Persist findings (Skill Evolution)
 MCP available (Phase 1 mx_ping OK) AND Findings > 0:
+⚡ **Read-path gate:** annotation already applied to the Phase 4 table (see Gate-check step above, end of Phase 3). `record_finding` is NEVER suppressed — persist every finding regardless of gate state.
 For each finding: `mx_skill_manage(action='record_finding', skill='mxBugChecker', rule_id='<cat-lowercase>', project='<slug>', severity='<sev-lowercase>', title='<Root Cause summary>', file_path='<File>', line_number=<Line>, context_hash='<File>:<Line>', details='<Code Proof + Root Cause>')`
 - rule_id = category slug: `logic`, `runtime`, `edge-cases`, `error-handling`, `concurrency`, `resource-leaks`, `security`, `performance`
 - Response contains finding_uid → remember for user feedback
