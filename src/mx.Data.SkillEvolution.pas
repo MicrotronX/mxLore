@@ -413,7 +413,9 @@ begin
     '    CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1.0 ' +
     '         WHEN created_at >= DATE_SUB(NOW(), INTERVAL 60 DAY) THEN 0.7 ELSE 0.3 END ' +
     '    ELSE 0 END) AS w_false_pos, ' +
-    '  SUM(CASE WHEN user_reaction IN (''confirmed'', ''dismissed'', ''false_positive'') THEN ' +
+    // BR#12238: dismissed = effort verdict, not an accuracy verdict — keep it
+    // out of every accuracy denominator (w_reacted == w_confirmed + w_false_pos)
+    '  SUM(CASE WHEN user_reaction IN (''confirmed'', ''false_positive'') THEN ' +
     '    CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1.0 ' +
     '         WHEN created_at >= DATE_SUB(NOW(), INTERVAL 60 DAY) THEN 0.7 ELSE 0.3 END ' +
     '    ELSE 0 END) AS w_reacted ' +
@@ -445,15 +447,16 @@ begin
       else
         M.Precision := 0;
 
-      // FP rate: false_positive / total_reacted
-      if (M.TotalFindings - M.Pending - M.Ignored) > 0 then
-        M.FalsePositiveRate := M.FalsePositives / (M.TotalFindings - M.Pending - M.Ignored)
+      // FP rate: false_positive / (confirmed + false_positive) — BR#12238:
+      // dismissed excluded, otherwise honest dismissals dilute the rate
+      if (M.Confirmed + M.FalsePositives) > 0 then
+        M.FalsePositiveRate := M.FalsePositives / (M.Confirmed + M.FalsePositives)
       else
         M.FalsePositiveRate := 0;
 
-      // Confirmation rate: confirmed / total_reacted
-      if (M.TotalFindings - M.Pending - M.Ignored) > 0 then
-        M.ConfirmationRate := M.Confirmed / (M.TotalFindings - M.Pending - M.Ignored)
+      // Confirmation rate: confirmed / (confirmed + false_positive) — BR#12238
+      if (M.Confirmed + M.FalsePositives) > 0 then
+        M.ConfirmationRate := M.Confirmed / (M.Confirmed + M.FalsePositives)
       else
         M.ConfirmationRate := 0;
 

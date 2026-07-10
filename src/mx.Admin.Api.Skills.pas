@@ -73,15 +73,15 @@ begin
         if not Qry.FieldByName('last_finding').IsNull then
           Obj.AddPair('last_finding', FormatDateTime('yyyy-mm-dd hh:nn',
             Qry.FieldByName('last_finding').AsDateTime));
-        // FP rate calculation
-        var Reacted := Qry.FieldByName('total').AsInteger - Qry.FieldByName('pending').AsInteger;
+        // BR#12238: accuracy denominator = confirmed + false_pos only;
+        // dismissed is an effort verdict and must not dilute the rates
+        var Conf := Qry.FieldByName('confirmed').AsInteger;
+        var Reacted := Conf + Qry.FieldByName('false_pos').AsInteger;
         if Reacted > 0 then
           Obj.AddPair('fp_rate', TJSONNumber.Create(
             Round(Qry.FieldByName('false_pos').AsInteger / Reacted * 100)))
         else
           Obj.AddPair('fp_rate', TJSONNumber.Create(0));
-        // Confirmation rate: confirmed / all reacted (confirmed + dismissed + FP)
-        var Conf := Qry.FieldByName('confirmed').AsInteger;
         if Reacted > 0 then
           Obj.AddPair('precision', TJSONNumber.Create(Round(Conf / Reacted * 100)))
         else
@@ -109,7 +109,8 @@ begin
     Summary.AddPair('dismissed', TJSONNumber.Create(TotalDismissed));
     Summary.AddPair('false_positives', TJSONNumber.Create(TotalFP));
     Summary.AddPair('skills_tracked', TJSONNumber.Create(SkillsArr.Count));
-    var TotalReacted := TotalFindings - TotalPending;
+    // BR#12238: dismissed excluded from the accuracy denominator
+    var TotalReacted := TotalConfirmed + TotalFP;
     if TotalReacted > 0 then
     begin
       Summary.AddPair('overall_fp_rate', TJSONNumber.Create(Round(TotalFP / TotalReacted * 100)));

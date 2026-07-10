@@ -313,8 +313,9 @@ begin
     for I := 0 to High(Metrics) do
     begin
       M := Metrics[I];
-      // Reacted = total - pending - ignored
-      TotalReacted := M.TotalFindings - M.Pending - M.Ignored;
+      // BR#12238: accuracy sample = confirmed + false_pos (matches the
+      // skill-metrics-gate SSoT n); dismissed carries no accuracy signal
+      TotalReacted := M.Confirmed + M.FalsePositives;
       if TotalReacted < MinFindings then
         Continue;
 
