@@ -8,8 +8,8 @@ argument-hint: "start <type> | track <note> | park [reason] | resume [id] | stat
 
 # /mxOrchestrate — Persistent Session Orchestrator (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
-> **Context:** ALWAYS run as subagent(Agent-Tool, `model` per Model Tiering ⚡) !main-context. Result: max 20 lines.
-> **Tokens ⚡:** mx_create_doc/mx_update_doc body >300 words → assemble in this subagent, !echo to parent. mx_detail server default = 600 tokens.
+> **Context ⚡ (split by mode weight):** HEAVY modes (`init`, `resume`, `status`, `suggest` — briefing, reconciliation, multi-doc enrichment) → subagent (Agent-Tool, `model` per Model Tiering). MINI modes (`start`, `track`, `park`, Auto-Invoke step-updates, Workflow Completion — 1-3 MCP calls + 1 state edit) → **Main-inline, NO spawn**: a spawn re-reads SKILL.md + references + the full state file (~70-100k subagent tokens measured live 2026-07-10) for 2-3 calls; the same calls inline cost ~2k. Context-hygiene argument does not apply at that size. Subagent result: max 20 lines.
+> **Tokens ⚡:** mx_create_doc/mx_update_doc body >300 words → assemble in subagent, !echo to parent. mx_detail server default = 600 tokens.
 
 Central session manager. Manages workflow stack, ad-hoc tasks, team agents.
 Skills **auto-execute fully**. Only ask user for **optional steps**.
@@ -62,7 +62,7 @@ Main loop on premium model (Fable/Opus) → every subagent spawn (Agent-Tool, te
 | Tier | `model` | Task profile |
 |------|---------|--------------|
 | haiku | `haiku` | mechanical: state-file rewrites, file copy/sync, log tails, doc-body assembly from given content, simple greps |
-| sonnet | `sonnet` | **DEFAULT** for subagents: mxOrchestrate runs, MCP CRUD flows, mxBugChecker/mxDesignChecker standard scope, Explore/codebase-search, standard implementation steps |
+| sonnet | `sonnet` | **DEFAULT** for subagents: mxOrchestrate HEAVY modes (init/resume/status/suggest), MCP CRUD flows, mxBugChecker/mxDesignChecker standard scope, Explore/codebase-search, standard implementation steps. MINI modes spawn nothing (see Context header) — the cheapest spawn is no spawn |
 | inherit | omit param | top-tier reasoning genuinely required: architecture decisions, security-critical analysis, cross-cutting refactors, ambiguous specs |
 
 - ⚡ Orchestration *intelligence* (skill routing, escalation judgment, interpreting results) lives in the MAIN loop (premium model) — the /mxOrchestrate subagent executes a fully specified procedure (state CRUD, fixed decision trees), so `sonnet` suffices. Ambiguity safety net: diverged state / code-vs-doc conflict → STOP + ?user regardless of model.
@@ -81,7 +81,7 @@ Forces `mx_session_start` ignoring cached `session_id` (see Init pre-routing ste
 1. Search workflow template: `docs/workflows.md`(project) then `~/.claude/skills/mxOrchestrate/workflows.md`(global). ∅template→?user→ad-hoc
 2. ID: `WF-YYYY-MM-DD-NNN`
 3. `mx_create_doc(project, doc_type='workflow_log', title='WF-...: <Title>', content)`
-4. Push WF object onto stack (becomes [0] = active). Previous [0]→parked (if present)
+4. Push WF object onto stack (becomes [0] = active). Previous [0]→parked (if present). ⚡ Event `ts` = true UTC via `date -u +%Y-%m-%dT%H:%MZ` — NEVER the chat clock (local-time-with-Z observed live 2026-07-10 despite the state-schema rule; inline reminder because spawn prompts skip references)
    - ⚡ **Canonical keys** (`references/state-schema.md`): `id`, `name`, `doc_id`, `doc_revision`, `status`, `current_step`, `total_steps`, `started`, `unsynced`. **NOT `wf_id` / `title`.** The SessionStart hook normalizes those two, but a workflow missing `id` after normalization is DROPPED from the stack — writers must not rely on the repair.
 5. Save state + log event (type='start')
 6. Output: `Workflow "<Name>" started (WF-xxx, doc_id=<id>). Stack: <N> WFs.`
@@ -177,8 +177,8 @@ Full overview:
   5. ⚡ **NEVER** mark state file as done without MCP update or unsynced flag
 
 ## Workflow Completion
-All steps done/skipped:
-1. Update content: `**Status:** completed` + `**Completed:** YYYY-MM-DD HH:MM`
+Runs Main-inline (MINI mode — see Context header). All steps done/skipped:
+1. Update content: `**Status:** completed` + `**Completed:** YYYY-MM-DD HH:MM` — ⚡ all timestamps (content + event `ts` + archive `completed`) in true UTC via `date -u`, never the chat clock
 2. ⚡ `mx_update_doc(doc_id, content, status='archived', change_reason='Workflow completed')` — content AND status synchronously in ONE call
 3. Remove WF from stack + log event (synced=true)
 4. **Ad-hoc back-link:** Show all adhoc_tasks with origin_workflow==WF-ID:
@@ -201,7 +201,7 @@ All steps done/skipped:
 - UTF-8 without BOM. Prefer MCP, local=fallback
 - Workflow templates: `docs/workflows.md`(project, priority) then `~/.claude/skills/mxOrchestrate/workflows.md`(global)
 - ⚡ **Token Discipline (state-file):** orchestrate-state.json writes: Edit for incremental changes (1-5 fields), background subagent for full rewrites — keep token cost low in main context
-- ⚡ **Output discipline:** structured timestamps only (`YYYY-MM-DD HH:MM` or `<N>h ago` from `now_utc - event.ts`, both UTC per Timestamp base — ⚡ `events_log` entries predating the UTC rule are local-time-with-`Z` and render `<N>h ago` off by the UTC offset; they are indistinguishable from correct ones, so print the raw `ts` whenever the exact age carries weight); `events_log[*].detail` = factual fragment (doc_ids/WF-IDs/short summaries), no relative natural language (`gestern`/`heute`/`vorhin`/`yesterday`/`today`/`earlier`/`just now`); numeric claims (`N open`, `X/Y done`) MUST come from a structured tool call (`mx_detail` / `mx_search` data array length), never prose-snippet inference — prefix `estimated, unverified` if budget forbids verification. Per-finding rationale -> `references/output-discipline-findings.md`.
+- ⚡ **Output discipline:** structured timestamps only (`YYYY-MM-DD HH:MM` or `<N>h ago` from `now_utc - event.ts`, both UTC per Timestamp base — ⚡ `events_log` entries predating the UTC rule are local-time-with-`Z` and render `<N>h ago` off by the UTC offset; they are indistinguishable from correct ones, so print the raw `ts` whenever the exact age carries weight); `events_log[*].detail` = factual fragment (doc_ids/WF-IDs/short summaries), **max ~50 words** — the long narrative belongs in the MCP session note, NOT in the state file that every subagent spawn reads in full (300-word details measured as the top token driver 2026-07-10); no relative natural language (`gestern`/`heute`/`vorhin`/`yesterday`/`today`/`earlier`/`just now`); numeric claims (`N open`, `X/Y done`) MUST come from a structured tool call (`mx_detail` / `mx_search` data array length), never prose-snippet inference — prefix `estimated, unverified` if budget forbids verification. Per-finding rationale -> `references/output-discipline-findings.md`.
 - ⚡ **events_log dedupe-guard:** before appending an event, compare with the current LAST entry — identical (type+wf+detail) → skip the append (consecutive-duplicate guard)
 - ⚡ **Decision-Marker shared regex:** Read `~/.claude/skills/_shared/decision-marker.md` for the canonical regex + fence-exclusion algorithm.
 - ⚡ **`state_deltas` band (canonical, the live-counter correction + the single-writer rule (SSoT)):** every Mode 5 (Resume), Mode 6 (Status), and Auto-Invoke step-done output MUST emit a deltas-band line based on `state.state_deltas` (live counter since the last `/mxSave` reset — NOT `state.last_save_deltas`, which is a pre-reset snapshot owned by mxSave Step 4 per the single-writer rule and MUST NOT be written from here). Bands: `== 0` silent; `>= 1 AND < 10` marketing `mxLore knows - /mxSave keeps context alive across /compact + /clear`; `>= 10 AND < 15` tip `<N> deltas since save - consider /mxSave soon`; `>= 15` compact-question `<N> deltas since save - /mxSave + /compact cycle recommended`. mxOrchestrate reads `state_deltas` + `last_save_deltas` (informational); NEVER writes either — mxSave is the sole writer per the single-writer rule.
