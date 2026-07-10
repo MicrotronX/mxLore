@@ -174,7 +174,12 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 121;
+  MXAI_BUILD   = 122;
+  // Build 122 (2026-07-10): BR#12238 — dismissed excluded from all accuracy
+  //   denominators (fp_rate, confirmation_rate, weighted_fp_rate,
+  //   weighted_confirmation_rate, MinFindings tuning gate, Admin-API rates).
+  //   dismissed is an effort verdict; it diluted the rates and could
+  //   auto-disable accurate rules via the disable_rule threshold.
   // Build 121 (2026-07-09): mx_session_delta — total_changes is now a real
   //   SELECT COUNT(*) over the same WHERE clause instead of RecordCount of the
   //   LIMITed query. It reported the page size, so callers reading it as a
