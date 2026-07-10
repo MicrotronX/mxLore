@@ -160,8 +160,9 @@ entirely from output).
     `WARNING("Rule {rule_id}: low weighted precision — tune recommended")`,
     with `weighted_precision` (a 0..1 quotient, not a percent) and `n` in the
     finding DETAILS, never in the title — titles carrying run-varying numbers
-    defeat the Phase 3b title dedup and re-silt the DB every run (FR#12207
-    pattern one level up). Rule below the evidence floor -> skip silently.
+    defeat the Phase 3b title dedup and re-silt the DB every run (the same
+    silt pattern this gate exists to stop, one level up). Rule below the
+    evidence floor -> skip silently.
   - ⚡ Keep the per-rule gate results from this check — Phase 3b/4 reuse them
     for read-path suppression (same SSoT file, 0 extra MCP calls).
   - More than 20 pending findings -> `INFO("N findings awaiting feedback")`.

@@ -1,4 +1,4 @@
-# Skill-Metrics Gate — SSoT (read-path suppression, Spec#12221 AC8 / FR#12207)
+# Skill-Metrics Gate — SSoT (read-path suppression)
 
 Single source of truth for WHEN a rule counts as "measurably low-precision" and
 WHAT each consumer does about it. mxHealth P13 (`references/checks.md`) applies
@@ -29,7 +29,8 @@ verdict. Only `precision` and `weighted_precision` exclude it.
 Rationale for one shared threshold with P13 instead of the spec's original
 `n >= 5 AND Laplace p_hat < 0.3`: the server returns only the finished
 quotients, never the weighted raw sums, so Laplace smoothing on a weighted
-basis is not computable (Spec#12221 AC7 deviation, same constraint). One
+basis is not computable (same constraint as the P13 gate's documented
+deviation from Laplace smoothing). One
 threshold = one story: a rule P13 warns about is the same rule whose findings
 stop silting the DB.
 
