@@ -5,6 +5,54 @@
 
 ---
 
+## Build & Toolchain
+
+### Never assume "no Delphi environment available"
+
+Neither `dcc32` nor `msbuild` is on the default `PATH`. Their absence proves nothing
+about whether RAD Studio is installed — set up the environment first, then check.
+
+`rsvars.bat` lives in the RAD Studio `bin` directory and sets:
+
+| Variable | Meaning |
+|----------|---------|
+| `BDS` | RAD Studio installation root |
+| `BDSINCLUDE`, `BDSCOMMONDIR` | include dir / shared user dir |
+| `FrameworkDir`, `FrameworkVersion` | the .NET Framework directory used for the build |
+| `PATH` | prepends `FrameworkDir`, `%BDS%\bin`, `%BDS%\bin64`, `%BDS%\cmake` |
+
+Two consequences worth knowing:
+
+- `dcc32.exe` / `dcc64.exe` live in `%BDS%\bin` — that is why they appear on `PATH`.
+- `MSBuild.exe` is **not** part of RAD Studio; it ships with the .NET Framework and
+  lives in `FrameworkDir`. It becomes callable only because `rsvars.bat` puts that
+  directory on `PATH`.
+
+`rsvars.bat` is a **cmd batch file**: it sets variables in the `cmd.exe` session that
+runs it. Invoking it from PowerShell or a POSIX shell spawns a child `cmd`, and the
+variables die with that child. Chain it with the build in a single `cmd` invocation.
+
+### Building from the command line
+
+```batch
+rem Set up the environment, then build — one cmd session
+call "%BDS%\bin\rsvars.bat"
+msbuild MyProject.dproj /t:Build /p:Config=Debug /p:Platform=Win32
+```
+
+- `msbuild <project>.dproj` builds what the IDE builds: the `.dproj` imports
+  `$(BDS)\Bin\CodeGear.Delphi.Targets`, which defines the `Build`, `Make` and `Clean`
+  targets — the same ones the IDE drives.
+- `Config` and `Platform` are ordinary MSBuild properties. The `.dproj` declares a
+  default for each (`<Config Condition="'$(Config)'==''">`), so `/p:` overrides them.
+- `/t:Clean` before `/t:Build` when stale `.dcu` files are suspected. `/t:Make` is the
+  incremental variant.
+- `dcc32` / `dcc64` can compile a single unit or a `.dpr` directly when no `.dproj`
+  exists — but then unit search paths and conditional defines must be passed by hand,
+  so the result no longer necessarily matches an IDE build.
+
+---
+
 ## Ownership & Lifecycle (MOST CRITICAL RULE)
 
 ### TComponent Ownership
@@ -313,6 +361,174 @@ uses
 - ❌ `Form.Free` instead of `Form.Close` + `caFree` in OnClose
 - ❌ Deep `with` nesting — readability and debugging suffer
 - ❌ Forgetting `inherited` in overridden methods (especially Create/Destroy)
+
+---
+
+## DFM & Form Streaming
+
+Forms, frames, and data modules are **resolved at runtime via RTTI**, not at compile
+time. A form whose `.dfm` and `.pas` disagree still compiles cleanly — the failure
+surfaces as an access violation or a filer error when the form is created. The
+compiler is not your safety net here.
+
+### The DFM ↔ .pas contract (error source #1)
+
+Every `object <Name>: <Type>` block in the `.dfm` needs a matching **field** in the
+form class, and every event binding (`OnClick = BtnBrowseClick`) needs a matching
+**method**. Both are resolved by name at runtime, and both are found **only if they are
+`published`**.
+
+```pascal
+type
+  TMainForm = class(TForm)
+    BtnBrowse: TButton;                        // implicitly published — DFM finds it
+    EdtPath: TEdit;
+    procedure BtnBrowseClick(Sender: TObject); // handler bound in the DFM
+  private
+    FSettings: TSettings;                      // no DFM counterpart — correct here
+  end;
+```
+
+In a form class, everything between `= class(TForm)` and the first explicit `private` /
+`protected` / `public` is **implicitly published**. That is where the designer puts its
+components and where manual additions belong; no explicit `published:` keyword is needed.
+
+**`public` is not enough — only `published` works.** Visibility is not a spectrum here.
+A field moved from the implicit section into `public` is exactly as invisible to the
+streaming system as a `private` one.
+
+The two failure modes are **not** the same, and the difference matters when debugging:
+
+- **Event handler not published → hard error at load.** `TReader.FindMethod` resolves
+  the handler via `Root.MethodAddress(MethodName)`; a `nil` result goes straight to
+  `PropValueError`. So a handler in the wrong section produces an immediate, loud
+  read error when the form is created.
+- **Component field not published → silence.** `TComponent.SetReference` looks the field
+  up via `TObject.FieldAddress` and assigns only `if Field <> nil`. A missing or
+  non-published field is therefore a **no-op**: the component is still created and owned
+  by the form, no exception is raised, and the form appears to load fine — the field
+  simply stays `nil`. The access violation arrives later, wherever code first touches
+  that reference. This is the more dangerous of the two, precisely because loading
+  succeeds.
+
+Further rules:
+
+- Delete a published field in the `.pas` and the corresponding `object` block MUST go
+  from the `.dfm` too (and vice versa). A leftover `object` block whose class is no
+  longer reachable through the type declaration raises **`EClassNotFound`** — note this
+  is about the missing *class*, not the missing *field*.
+- Case may differ between `.pas` and `.dfm` — the name match is case-insensitive.
+
+### The field is looked up on the Owner — not on the form by default
+
+`SetReference` resolves the field on the component's **`Owner`**, not on whatever
+object encloses it in the DFM text. Two consequences that look contradictory but are
+not:
+
+- **DFM nesting is not ownership.** A button placed on a panel is nested under that
+  panel in the DFM, but the form is still its Owner (the panel is only its `Parent`).
+  It therefore *does* need a field on the form. Do not assume "nested = no field needed".
+- **Components owned by another component get no form field.** Where a third-party
+  component creates children of its own (report fields under a pipeline, items under a
+  collection owner), the lookup happens on that owner, not on the form — so no form
+  field exists and none is needed.
+
+A naive "every `object` block needs a form field" check flags the second group as
+errors. Before believing such a finding on a large third-party form, check it against
+the unmodified file: if the form has been loading for years, the finding is a false
+positive, not something your edit introduced.
+
+### Published semantics — what actually gets stored
+
+- **All published properties are streamed by default.** You can exclude a property
+  from storage (`stored False`) or decide dynamically via a function — but you cannot
+  force a property to be stored that otherwise would not be.
+- **`stored` / `default` / `nodefault` control storage only, never behaviour.** They
+  do not initialize anything. A property whose current value equals its declared
+  `default` is simply not written to the DFM.
+- Consequence for hand-editing: a property you add manually that equals its default
+  (or is `stored False`) is **removed again on the next IDE save**. That is documented
+  behaviour, not a bug.
+- `TComponent.Name` is itself published with `stored False`. Renaming a component at
+  runtime invalidates every reference to the old name.
+- Data too complex for automatic streaming (the classic case: `TStrings`) is persisted
+  by overriding **`DefineProperties`** — call `inherited` first, then register your own
+  read/write methods via `DefineProperty` / `DefineBinaryProperty`.
+- A class referenced in a form declaration is registered automatically. Any other class
+  whose instances get streamed must be registered explicitly with **`RegisterClass`**.
+  Registering a *different* class under an already-taken name raises `EFilerError`.
+
+### Owner vs. Parent — two independent relationships
+
+- **Owner** = responsible for **streaming and freeing**. The form owns its designer
+  components: it frees them, and it loads/saves their published properties.
+- **Parent** = the windowed control that **visually contains** the control and writes
+  it to the stream when the form is saved.
+- A control can have a different Parent than Owner. Do not conflate them.
+- ⚡ A component whose Owner is **not** a form or data module is **not streamed with
+  its owner** unless it is explicitly marked via `SetSubComponent`. Rebuilding owner
+  chains by hand without that marking makes properties silently vanish on the next save.
+
+### Loading order and forward references
+
+- After a component has read all its property values, the streaming system calls the
+  virtual **`Loaded`** method — before the form is displayed. When overriding it, call
+  `inherited Loaded` **first**.
+- Anything that only makes sense once *all* sibling components exist (references to
+  other controls on the same form) belongs in `Loaded`, **not** in the constructor.
+  This is the official mechanism against forward-reference problems during load.
+- Property references between components are resolved by `TReader`; references that
+  cannot be satisfied yet are deferred through the fixup list rather than failing.
+  That safety net covers the RTL's own streaming — it does not cover a third-party
+  component that dereferences a referenced object during its own load. If a form dies
+  with an AV inside an RTL/vendor package during creation and none of your code is on
+  the stack, suspect a component reference the vendor resolves eagerly, and check that
+  the referenced object sits where that vendor expects it (inside its repository or
+  collection owner, not free-standing).
+
+### Visual Form Inheritance & Frames — diffs only
+
+- VFI writes **only the differences** to the ancestor (`TFiler.Ancestor`). An
+  `inherited` block in a descendant DFM must contain only the properties that actually
+  deviate. Duplicating the full ancestor property set contradicts the streaming model
+  and gets reduced back to a diff on the next IDE save.
+- Unmodified components of an embedded **frame** belong to the frame, not to the host
+  form, and do **not** appear in the host DFM. Only changed components show up, inside
+  the frame's `inline` block. Copying all frame components into the host DFM is wrong.
+- A validator or edit that pairs DFM objects to `.pas` fields must skip `inherited` /
+  `inline` blocks — those inherit their field from the ancestor or frame class.
+
+### Text DFM is a projection, not a separate model
+
+- Text and binary DFM are the same data. `ObjectTextToBinary` / `ObjectBinaryToText`
+  convert between them, and the **same `TReader`/`TWriter` parser** consumes both.
+- Therefore any structural slip in a hand-edited text DFM (missing `end`, wrong bracket
+  type) is a hard parser error at the next load — never a silent ignore. Bracket types
+  are meaningful: `[...]` set, `<...>` collection, `{...}` binary, `(...)` string list.
+- `{$R *.dfm}` binds the form file to its unit. The compiler only records the name —
+  a missing or broken `.dfm` fails at **link** time, not at parse time.
+
+### What NOT to hand-edit
+
+- Binary blocks (`{ ... }` — glyphs, images) and long string-list blocks (`( ... )`).
+  Their content is arbitrary text and may itself contain the words `object` or `end`;
+  a line-based parser that counts those keywords miscounts across such blocks.
+- Pixel-perfect layout. When adding a control by hand, clone a real sibling of the same
+  type in the same container, give it a unique name, anchor `Left`/`Top` relative to
+  that sibling — and have a human check the result visually.
+- ⚡ When cloning a control, review `OnClick` & friends **and** `Caption`/`Hint`. The
+  designer carries event bindings over verbatim, so the clone silently fires the
+  original's handler; a stale `Caption` holding the original's *name* is invisible on
+  an icon-only button and surfaces much later.
+- Non-visual components (datasets, queries, timers, data sources) carry no layout risk
+  and are the safest thing to add by hand — but the DFM ↔ `.pas` field rule still applies.
+
+### Encoding
+
+Delphi recognizes UTF-8 **only by BOM**; without one it reads the file as ANSI
+(Windows-1252). A UTF-8 file containing literal non-ASCII characters but no BOM is
+misread and the damage is cemented on the next IDE save. Preserve a file's existing
+encoding — do not "repair" it. See `encoding-details.md`.
 
 ---
 

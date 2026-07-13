@@ -9,6 +9,10 @@ Detailed instructions for setting up mxLore on a fresh Windows system.
 - **Windows x64** (Server 2019+, Windows 10/11)
 - **MariaDB 10.6+** (recommended: 11.x for semantic search with VECTOR support)
 - **Claude Code CLI**, claude.ai, Cursor, or any MCP-compatible client
+- **[Node.js](https://nodejs.org/)** — required by 5 of the 8 hooks (Orchestrate,
+  Recall-Gate, Recall-Outcome). Without Node.js the server and all 45 MCP tools work
+  normally, but session state tracking, the Recall-Gate, and the Orchestrator stay
+  inactive — silently. Install it before running `/mxSetup`.
 
 ## Step 1: Install MariaDB
 

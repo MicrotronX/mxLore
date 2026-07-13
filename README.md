@@ -20,7 +20,7 @@ Self-hosted MCP server for AI-assisted software development. Stores architectura
 
 ## Install the Server
 
-**Prerequisites:** Windows x64, MariaDB 10.6+.
+**Prerequisites:** Windows x64, MariaDB 10.6+, [Node.js](https://nodejs.org/) (5 of the 8 hooks are Node scripts — without it the server still runs, but state tracking and Recall-Gate stay silent).
 
 | Step | What | Details |
 |------|------|---------|
