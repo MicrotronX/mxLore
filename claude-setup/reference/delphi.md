@@ -51,6 +51,34 @@ msbuild MyProject.dproj /t:Build /p:Config=Debug /p:Platform=Win32
   exists — but then unit search paths and conditional defines must be passed by hand,
   so the result no longer necessarily matches an IDE build.
 
+### IDE artefacts are not source — never read them
+
+The IDE stores revision backups right next to the code: `__history\` (per-file
+revisions, e.g. `Unit1.pas.~235~`), `__recovery\` (crash recovery), and — depending on
+project settings — the same `.~N~` files directly beside the unit.
+
+- Never read, grep, index, or cite them, and exclude them from every search, refactor
+  and code-generation pass.
+- A `.~235~` file is an **old** revision. Treating it as current silently reintroduces
+  logic that was already fixed — and the failure is invisible, because the stale code
+  looks perfectly plausible.
+- They also poison search results by sheer volume: one grep can return the same routine
+  in a dozen versions and bury the one copy that actually compiles.
+
+A prompt rule alone will not hold — enforce it in `~/.claude/settings.json`:
+
+```json
+"permissions": {
+  "deny": ["Read(**/__history/**)", "Read(**/__recovery/**)", "Read(**/*.~*~)"]
+}
+```
+
+This covers the `Read` tool, and — on a best-effort basis, per the permissions docs —
+Grep, Glob, `@file` mentions and the file commands Claude Code recognises in Bash
+(`cat`, `head`, `tail`, `sed`). It does **not** cover arbitrary subprocesses that open
+files themselves (a Python/Node script, `find -exec cat`). For a hard, process-level
+block, use the sandbox's `denyRead` instead.
+
 ---
 
 ## Ownership & Lifecycle (MOST CRITICAL RULE)

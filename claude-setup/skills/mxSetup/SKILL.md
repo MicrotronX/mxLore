@@ -109,6 +109,14 @@ claude mcp add -s user mxai-knowledge -- "$HOME/.claude/mxMCPProxy"
 "Skill(mxBugChecker)"
 ```
 
+**5a-Deny. Path guards** — Add to `permissions.deny` (create the array if it does not exist yet):
+```json
+"Read(**/__history/**)",
+"Read(**/__recovery/**)",
+"Read(**/*.~*~)"
+```
+Keeps the Delphi IDE's revision backups (`Unit1.pas.~235~`, `__recovery\`) out of context: a stale revision still compiles, so quoting it as current silently reverts already-fixed logic. Covers the `Read` tool plus — best-effort, per the permissions docs — Grep, Glob, `@file` mentions and the Bash file commands Claude Code recognises (`cat`, `head`, `tail`, `sed`); **not** arbitrary subprocesses. ⚡ Use the cwd-relative `**/…` form shown above, not a leading slash — in user settings `Read(/__history/**)` resolves against `~/.claude/`, not against the project. Inert on non-Delphi machines (the patterns simply never match). Rationale → `reference/delphi.md` → "IDE artefacts are not source".
+
 **5b. Hooks** — Check each hook block. If entry missing, add it. If present, do not duplicate.
 
 ⚡ **Node.js check BEFORE hook installation:**
