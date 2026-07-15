@@ -82,6 +82,33 @@ try {
   if (!state.events_log) { state.events_log = []; changed = true; }
   if (state.last_reconciliation === undefined) { state.last_reconciliation = null; changed = true; }
 
+  // --- events_log deterministic cap ---
+  // Guarantees state.json stays lean regardless of whether mxSave Step 4b ran.
+  // The Step 4b prune is a lazy-loaded, silently-skippable instruction; this hook
+  // is code and runs on every SessionStart, so the cap can never be skipped.
+  // synced=true events are mirrored in MCP session_notes -> local copy redundant,
+  // FIFO-drop by ts is safe. synced=false events are LOCAL-ONLY (not yet pushed)
+  // -> never drop; they retry on the next mxSave Step 4a push.
+  const EVENTS_CAP = 30;
+  const evs = state.events_log;
+  const syncedTrue = evs.filter(ev => ev.synced === true);
+  if (syncedTrue.length > EVENTS_CAP) {
+    // Sort by parsed epoch, not raw string: ts precision varies across writers
+    // (minute `...:mmZ` vs seconds `...:ss.sssZ`), and 'Z'(0x5A) > ':'(0x3A) makes
+    // a naive string sort misorder same-minute mixed-precision events at the cutoff.
+    const tsMs = ev => { const t = Date.parse(ev.ts); return Number.isNaN(t) ? 0 : t; };
+    const keep = new Set(
+      syncedTrue.slice()
+        .sort((a, b) => tsMs(a) - tsMs(b))
+        .slice(-EVENTS_CAP)
+    );
+    const before = evs.length;
+    state.events_log = evs.filter(ev => ev.synced !== true || keep.has(ev));
+    state.last_pruned = new Date().toISOString();
+    changed = true;
+    console.log(`[Orchestrate] events_log capped ${before} -> ${state.events_log.length} (kept last ${EVENTS_CAP} synced + all unsynced)`);
+  }
+
   // --- Sanity: remove workflows with missing required fields ---
   // ⚡ Dropping a workflow is data loss. Say so — a stack that silently empties
   // itself looks identical to "no work in progress" on the next resume.

@@ -62,7 +62,7 @@ offset and rewrites, because a genuinely skewed clock is indistinguishable from 
 | Field | Type | Default | Owner | Notes |
 |---|---|---|---|---|
 | `schema_version` | int | `3` | mxSave Step 4b.3 | bumped commit-style after 4b.1+4b.2 succeed |
-| `last_pruned` | ISO 8601 OR null | `null` | mxSave Step 4b.3 | `null` = never pruned (legacy v2 file) |
+| `last_pruned` | ISO 8601 OR null | `null` | mxSave Step 4b.3 + `orchestrate-reconcile.js` | `null` = never pruned. Stamped whenever the SessionStart hook caps `events_log` (last 30 `synced=true`, all `synced=false` kept) or mxSave Step 4b.3 runs. |
 | `adhoc_tasks[*].status` | string OR null | `null` | mxOrchestrate Mode 3 + caller | structured token (prefix ∈ `{fixed,done,archived,later,active,in-progress}` + opt `-<suffix>`); used by mxSave Step 4b.1 for migration triage |
 | `context_cleared_at` | ISO 8601 OR absent | absent | SessionStart hook (`orchestrate-reconcile.js`) writes, mxOrchestrate Init deletes | Set when SessionStart fires with `source ∈ {startup, clear, compact}` — the model has no prior conversation. `source=resume` does NOT set it. Init reads it as the PRIMARY staleness signal and deletes it after `mx_session_start`. The `age`-based check is only the fallback for hooks that predate this field. |
 | `context_cleared_source` | string OR absent | absent | same as above | The raw `source` value, kept for diagnosis. |

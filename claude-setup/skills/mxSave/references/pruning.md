@@ -70,6 +70,10 @@ Idempotent: re-running Pass 2 on a freshly-pruned state is a no-op (all migrated
 
 ## 4b.2 — events_log dual-cap pruning
 
+> ⚡ **Primary enforcement is now the `orchestrate-reconcile.js` SessionStart hook**, which caps `synced=true` to the last 30 (FIFO by parsed epoch of `ts`) on every context reset — code, not a skippable instruction. This 4b.2 pass is the mxSave-time belt-and-suspenders copy; keep the two caps in sync (same 30-cap, same never-drop-`synced=false` rule).
+> - **Order:** the hook uses an order-preserving `filter` (kept events stay in their original chronological positions, `synced=true` and `synced=false` interleaved); the 4b.2 pseudo-code below concatenates (`synced_true_kept ++ synced_false`). Both are valid — readers recompute temporal order from `ts` and never rely on array position (state-schema.md reader protocol).
+> - **schema_version:** the hook stamps `last_pruned` without bumping `schema_version` (it caps migration at v2). A hook-pruned legacy file can therefore sit transiently at `{schema_version:2, last_pruned:<ts>}`; the next /mxSave 4b.3 bumps it to 3. Expected, not a defect.
+
 Two caps, never silently drop `synced=false`:
 
 ```
@@ -125,6 +129,8 @@ Per /mxSave invocation:
 - adhoc_tasks pruned: typically 5-20 entries × ~150 chars each → state.json shrinks by 1-3 KB
 - events_log pruned: typically 30-100 events × ~300 chars each → state.json shrinks by 10-30 KB
 - This file's load cost: ~1500 tokens, ONLY on /mxSave invocations (rare vs every-prompt CLAUDE.md)
+
+⚡ Since the `orchestrate-reconcile.js` hook now caps `events_log` at 30 on every SessionStart, 4b.2 typically operates on an already-capped log and its own savings are near-zero in the common case. The larger events_log savings above apply only when the hook was skipped/disabled (e.g. non-Node environment) and mxSave is the first prune in a long while. adhoc_tasks pruning (4b.1) remains mxSave-only — it needs MCP migration a JS hook cannot do.
 
 Net positive for any session with ≥5 adhoc_tasks or ≥30 events_log entries. Smaller state.json = cheaper Read in subsequent /mxOrchestrate / /mxSave / Edit operations.
 
