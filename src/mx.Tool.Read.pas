@@ -578,9 +578,13 @@ begin
   end;
 
   Query := Trim(Query);
-  // B6.2: query is now optional when using doc_type/tag/status/since filters
-  if (Query = '') and (DocType = '') and (Tag = '') and (StatusFilter = '') and (SinceStr = '') then
-    raise EMxValidation.Create('At least one of query, doc_type, tag, status, or since is required');
+  // B6.2: query is now optional when using doc_type/tag/status/since filters.
+  // GH#16: a bare project listing (project given, no other filter) is now
+  // allowed — "show me everything in this project" is the natural entry point
+  // and the only reliable way to prove a project is empty. limit still caps it.
+  if (Query = '') and (DocType = '') and (Tag = '') and (StatusFilter = '')
+     and (SinceStr = '') and (ProjectSlug = '') then
+    raise EMxValidation.Create('At least one of query, doc_type, tag, status, since, or project is required');
 
   // Bug #549: Pure wildcard queries ('*', '**') are not valid for MySQL FTS.
   if Query <> '' then
@@ -594,8 +598,11 @@ begin
     for I := 0 to High(DocParts) do
     begin
       DocParts[I] := Trim(DocParts[I]);
+      // GH#17: emit the full whitelist — read-only clients (mx_search-only)
+      // have no other way to discover the vocabulary.
       if not IsAllowedDocType(DocParts[I]) then
-        raise EMxValidation.CreateFmt('Invalid doc_type "%s"', [DocParts[I]]);
+        raise EMxValidation.CreateFmt('Invalid doc_type "%s". Allowed: %s',
+          [DocParts[I], AllowedDocTypesList]);
       if I > 0 then DocType := DocType + ',';
       DocType := DocType + DocParts[I];
     end;
@@ -1178,6 +1185,10 @@ begin
     while not Qry.Eof do
     begin
       Row := TJSONObject.Create;
+      // GH#12: without relation_id in the output, relations created in earlier
+      // sessions can never be removed (mx_remove_relation requires the id).
+      Row.AddPair('relation_id',
+        TJSONNumber.Create(Qry.FieldByName('relation_id').AsInteger));
       Row.AddPair('relation_type', Qry.FieldByName('relation_type').AsString);
       Row.AddPair('source_doc_id',
         TJSONNumber.Create(Qry.FieldByName('source_doc_id').AsInteger));
@@ -1196,7 +1207,11 @@ begin
   // Increment access_count (fire-and-forget, for briefing relevance scoring)
   try
     Qry := AContext.CreateQuery(
-      'UPDATE documents SET access_count = access_count + 1 WHERE id = :id');
+      // GH#9: pin updated_at to its current value — otherwise the ON UPDATE
+      // CURRENT_TIMESTAMP column turns every read into a phantom "change",
+      // breaking expected_updated_at optimistic locking and recent_changes.
+      'UPDATE documents SET access_count = access_count + 1, ' +
+      '  updated_at = updated_at WHERE id = :id');
     try
       Qry.ParamByName('id').AsInteger := DocId;
       Qry.ExecSQL;
@@ -1458,8 +1473,10 @@ begin
   // Query 2: List revisions (newest first)
   Revisions := TJSONArray.Create;
   Qry := AContext.CreateQuery(
+    // GH#13: CHAR_LENGTH (characters), not LENGTH (UTF-8 bytes) — must match
+    // the character-based content_length in mx_create_doc/mx_update_doc responses.
     'SELECT id, revision, changed_at, changed_by, change_reason, ' +
-    '  LENGTH(content) AS content_length, LEFT(content, 100) AS content_preview ' +
+    '  CHAR_LENGTH(content) AS content_length, LEFT(content, 100) AS content_preview ' +
     'FROM doc_revisions ' +
     'WHERE doc_id = :doc_id ' +
     'ORDER BY revision DESC ' +
@@ -1545,7 +1562,7 @@ begin
   // Query 2: Load the revision row (full content)
   Qry := AContext.CreateQuery(
     'SELECT id, revision, changed_at, changed_by, change_reason, ' +
-    '  content, LENGTH(content) AS content_length ' +
+    '  content, CHAR_LENGTH(content) AS content_length ' +  // GH#13: chars, not bytes
     'FROM doc_revisions ' +
     'WHERE doc_id = :doc_id AND revision = :rev ' +
     'LIMIT 1');

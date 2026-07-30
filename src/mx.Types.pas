@@ -164,6 +164,9 @@ function MxGetThreadAuth: TMxAuthResult;
 //     mx.Tool.Read/Write/Write.Batch that drifted twice — Bug#3012 + FAIL#7).
 //     Single source of truth; add new doc_types HERE and nowhere else. ---
 function IsAllowedDocType(const AValue: string): Boolean;
+// GH#11/#17: comma-joined whitelist for VALIDATION_ERROR messages — every
+// reject site must emit the full list so read-only clients can discover it.
+function AllowedDocTypesList: string;
 
 // --- TAccessLevel helpers (FR#2936/Plan#3266 M1.2-M1.3) ---
 // IsAtLeast: ordered comparison; alReadWrite >= alReadOnly >= alComment >= alNone
@@ -342,6 +345,15 @@ begin
     if cAllowedDocTypes[I] = AValue then
       Exit(True);
   Result := False;
+end;
+
+function AllowedDocTypesList: string;
+var
+  I: Integer;
+begin
+  Result := cAllowedDocTypes[Low(cAllowedDocTypes)];
+  for I := Low(cAllowedDocTypes) + 1 to High(cAllowedDocTypes) do
+    Result := Result + ', ' + cAllowedDocTypes[I];
 end;
 
 { TAccessLevel helpers (FR#2936/Plan#3266 M1.2-M1.3) }

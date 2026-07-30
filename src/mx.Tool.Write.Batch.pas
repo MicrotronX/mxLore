@@ -90,7 +90,8 @@ begin
           if DocType = '' then
             raise EMxValidation.CreateFmt('Item %d: "doc_type" is required', [I]);
           if not IsAllowedDocType(DocType) then
-            raise EMxValidation.CreateFmt('Item %d: invalid doc_type "%s"', [I, DocType]);
+            raise EMxValidation.CreateFmt('Item %d: invalid doc_type "%s". Allowed: %s',
+              [I, DocType, AllowedDocTypesList]);  // GH#11/#17
           if Title = '' then
             raise EMxValidation.CreateFmt('Item %d: "title" is required', [I]);
 

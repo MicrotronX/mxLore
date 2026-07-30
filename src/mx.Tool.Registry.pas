@@ -267,10 +267,10 @@ begin
   ARegistry
     .Add('mx_search', HandleSearch)
     .Desc('Full-text search across documents. Also replaces mx_list_notes (use doc_type+tag filter).')
-    .Param('query', mptString, False, 'Search query (optional when using doc_type/tag/status/since filters)')
+    .Param('query', mptString, False, 'Search query (optional when using project/doc_type/tag/status/since filters; project alone lists everything in it)')
     .Param('scope', mptString, False, 'project or all (def all)')
     .Param('project', mptString, False, 'Project slug')
-    .Param('doc_type', mptString, False, 'Filter by type (comma-sep)')
+    .Param('doc_type', mptString, False, 'Filter by type (comma-sep): ' + AllowedDocTypesList)  // GH#17 SSoT
     .Param('tag', mptString, False, 'Filter by tag')
     .Param('status', mptString, False, 'Filter by status (e.g. active, archived)')
     .Param('since', mptString, False, 'ISO 8601 cutoff — only docs with updated_at >= since (Bug#3033)')
@@ -321,7 +321,8 @@ begin
     .Add('mx_create_doc', HandleCreateDoc)
     .Desc('Create a new document with initial revision. Also replaces mx_create_note.')
     .Param('project', mptString, True, 'Project slug')
-    .Param('doc_type', mptString, True, 'Type (plan, spec, decision, note, bugreport, feature_request, todo, lesson, ...)')
+    .Param('doc_type', mptString, True, 'Type: ' + AllowedDocTypesList +  // GH#11/#17 SSoT, no drift
+      '. Min body 50 chars for: plan, spec, decision, note, todo, session_note, lesson, bugreport, feature_request, workflow_log')
     .Param('title', mptString, True, 'Title')
     .Param('content', mptString, False, 'Content (markdown). Alias: body')
     .Param('body', mptString, False, 'Alias for content (for mx_create_note compat)')
@@ -371,12 +372,12 @@ begin
     .Desc('Create a relation between documents')
     .Param('source_doc_id', mptInteger, True, 'Source doc ID')
     .Param('target_doc_id', mptInteger, True, 'Target doc ID')
-    .Param('relation_type', mptString, True, 'Type (references, supersedes, ...)');
+    .Param('relation_type', mptString, True, 'Type: leads_to, implements, contradicts, depends_on, supersedes, references, caused_by, rejected_in_favor_of, assumes, review-on, promoted_from');
 
   ARegistry
     .Add('mx_remove_relation', HandleRemoveRelation)
     .Desc('Remove a document relation')
-    .Param('relation_id', mptInteger, True, 'Relation ID');
+    .Param('relation_id', mptInteger, True, 'Relation ID (returned by mx_add_relation and in mx_detail relations[])');
 
   // mx_next_adr_number removed (B6.6) — auto-number in mx_create_doc for doc_type=decision
 

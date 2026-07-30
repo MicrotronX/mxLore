@@ -445,7 +445,8 @@ begin
   if DocType = '' then
     raise EMxValidation.Create('Parameter "doc_type" is required');
   if not IsAllowedDocType(DocType) then
-    raise EMxValidation.CreateFmt('Invalid doc_type "%s". Allowed: plan, spec, decision, status, workflow_log, session_note, finding, reference, snippet, note, bugreport, feature_request, todo, assumption, lesson, skill', [DocType]);
+    raise EMxValidation.CreateFmt('Invalid doc_type "%s". Allowed: %s',
+      [DocType, AllowedDocTypesList]);  // GH#11: SSoT list, no drift
   if Title = '' then
     raise EMxValidation.Create('Parameter "title" is required');
 
@@ -837,7 +838,8 @@ begin
 
   // Validate doc_type if provided (Bug #352, Bug#3034: + skill)
   if (DocType <> '') and not IsAllowedDocType(DocType) then
-    raise EMxValidation.CreateFmt('Invalid doc_type "%s"', [DocType]);
+    raise EMxValidation.CreateFmt('Invalid doc_type "%s". Allowed: %s',
+      [DocType, AllowedDocTypesList]);  // GH#11/#17
 
   // CC-CLI XML-tool-call bug detection on update path (Lesson#4198,
   // Bug#4192/2738/3345). If summary_l1 update payload contains XML tool-call
@@ -953,10 +955,29 @@ begin
         var HasNonContentEdit := (Status <> '') or (Summary1 <> '') or (Summary2 <> '')
           or Verified;
         if not (ContentUntouched and HasNonContentEdit) then
-          raise EMxValidation.Create(
-            'mx_update_doc cannot edit review-notes (doc_type=note). ' +
-            'Use mx_update_note instead — it enforces the 60min author / 24h admin Edit-Window. ' +
-            'Non-content updates (status, summary_l1/summary_l2/verified) are allowed via mx_update_doc.');
+        begin
+          // GH#15: only actual review-notes fall under the Edit-Window regime.
+          // mx_create_note enforces a review-* tag, so that tag is the
+          // discriminator. Plain notes from mx_create_doc(doc_type=note) —
+          // the documented path for long/non-review notes — must stay
+          // editable via mx_update_doc, otherwise the recommended route
+          // produces documents nobody can maintain.
+          var TagQry := AContext.CreateQuery(
+            'SELECT 1 FROM doc_tags WHERE doc_id = :id AND tag LIKE ''review-%'' LIMIT 1');
+          var IsReviewNote: Boolean;
+          try
+            TagQry.ParamByName('id').AsInteger := DocId;
+            TagQry.Open;
+            IsReviewNote := not TagQry.IsEmpty;
+          finally
+            TagQry.Free;
+          end;
+          if IsReviewNote then
+            raise EMxValidation.Create(
+              'mx_update_doc cannot edit review-notes (doc_type=note with review-* tag). ' +
+              'Use mx_update_note instead — it enforces the 60min author / 24h admin Edit-Window. ' +
+              'Non-content updates (status, summary_l1/summary_l2/verified) are allowed via mx_update_doc.');
+        end;
       end;
 
       // ACL: check write access to the document's project

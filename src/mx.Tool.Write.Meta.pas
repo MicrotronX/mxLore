@@ -313,7 +313,7 @@ var
   DocId, I, Removed: Integer;
   TagsVal: TJSONValue;
   TagsArr: TJSONArray;
-  Tag: string;
+  Tag, DocTypeStr: string;
   Data: TJSONObject;
 begin
   DocId := AParams.GetValue<Integer>('doc_id', 0);
@@ -331,7 +331,7 @@ begin
   AContext.StartTransaction;
   try
     Qry := AContext.CreateQuery(
-      'SELECT d.id, d.project_id, p.slug AS project_slug ' +
+      'SELECT d.id, d.doc_type, d.project_id, p.slug AS project_slug ' +
       'FROM documents d JOIN projects p ON d.project_id = p.id ' +
       'WHERE d.id = :id AND d.status <> ''deleted''');
     try
@@ -344,6 +344,7 @@ begin
         Qry.FieldByName('project_id').AsInteger, alReadWrite) then
         raise EMxAccessDenied.Create(
           Qry.FieldByName('project_slug').AsString, alReadWrite);
+      DocTypeStr := Qry.FieldByName('doc_type').AsString;
     finally
       Qry.Free;
     end;
@@ -355,6 +356,16 @@ begin
       Tag := Trim(TagsArr.Items[I].Value);
       if Tag = '' then
         Continue;
+
+      // GH#15 follow-up (DesignChecker WARN): the review-* tag is the
+      // discriminator that keeps review-notes under the mx_update_note
+      // Edit-Window. Allowing its removal would let a review-note be demoted
+      // to a plain note and edited via mx_update_doc, bypassing the window.
+      if SameText(DocTypeStr, 'note')
+         and Tag.ToLower.StartsWith('review-') then
+        raise EMxValidation.CreateFmt(
+          'Cannot remove review-tag "%s" from a note - it anchors the ' +
+          'Edit-Window enforcement (GH#15). Archive the note instead.', [Tag]);
 
       Qry := AContext.CreateQuery(
         'DELETE FROM doc_tags WHERE doc_id = :doc_id AND tag = :tag');
