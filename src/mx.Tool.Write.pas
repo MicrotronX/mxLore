@@ -507,12 +507,19 @@ begin
   if not AContext.AccessControl.CheckProject(ProjectId, alReadWrite) then
     raise EMxAccessDenied.Create(ProjectSlug, alReadWrite);
 
-  // B6.6: Auto-ADR number for doc_type=decision
+  // B6.6: Auto-ADR number for doc_type=decision.
+  // GH#8: the next free number is derived from TITLES AND SLUGS — docs whose
+  // slug froze as 'adr-nnnn-…' (skill placeholder 'ADR-NNNN:' at create time,
+  // title fixed later, slug never regenerated) were invisible to a slug-only
+  // MAX, so the server re-issued already-taken numbers (live evidence:
+  // 0927 issued twice). Title numbers keep those docs countable forever.
   if DocType = 'decision' then
   begin
     Qry := AContext.CreateQuery(
-      'SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(slug, ''-'', 2), ''-'', -1) ' +
-      '  AS UNSIGNED)), 0) AS max_num ' +
+      'SELECT COALESCE(MAX(GREATEST( ' +
+      '  COALESCE(CAST(REGEXP_REPLACE(REGEXP_SUBSTR(LOWER(slug),  ''^adr-[0-9]+''), ''[^0-9]'', '''') AS UNSIGNED), 0), ' +
+      '  COALESCE(CAST(REGEXP_REPLACE(REGEXP_SUBSTR(LOWER(title), ''^adr-[0-9]+''), ''[^0-9]'', '''') AS UNSIGNED), 0) ' +
+      ')), 0) AS max_num ' +
       'FROM documents WHERE project_id = :pid AND doc_type = ''decision'' ' +
       '  AND status <> ''deleted''');
     try
@@ -522,13 +529,25 @@ begin
     finally
       Qry.Free;
     end;
-    // Prepend ADR number to slug if not already present.
-    // Reserve 13 chars: 'adr-NNNN-' (9) + '-99' collision suffix (3) + safety (1).
-    if Pos('adr-', LowerCase(Slug)) <> 1 then
+    // GH#8: a slug only counts as "already numbered" when 'adr-' is followed
+    // by a DIGIT. The skill placeholder 'ADR-NNNN: …' slugs to 'adr-nnnn-…'
+    // and previously blocked numbering entirely. Strip such a placeholder
+    // prefix and number for real; same for the title.
+    var SlugHasRealNum := (Pos('adr-', LowerCase(Slug)) = 1)
+      and (Length(Slug) >= 5) and CharInSet(Slug[5], ['0'..'9']);
+    if not SlugHasRealNum then
     begin
+      if Pos('adr-nnnn-', LowerCase(Slug)) = 1 then
+        Slug := Copy(Slug, 10, MaxInt)   // drop placeholder token
+      else if Pos('adr-nnnn', LowerCase(Slug)) = 1 then
+        Slug := Copy(Slug, 9, MaxInt);
+      // Reserve 13 chars: 'adr-NNNN-' (9) + '-99' collision suffix (3) + safety (1).
       if Length(Slug) > (cMaxSlugLength - 13) then
         Slug := Copy(Slug, 1, cMaxSlugLength - 13);
       Slug := Format('adr-%4.4d-%s', [MaxAdrNum, Slug]);
+      // Keep the title in sync when it carries the literal placeholder.
+      if Pos('adr-nnnn', LowerCase(Title)) = 1 then
+        Title := Format('ADR-%4.4d', [MaxAdrNum]) + Copy(Title, 9, MaxInt);
     end;
   end;
 
@@ -792,7 +811,8 @@ function HandleUpdateDoc(const AParams: TJSONObject;
 var
   Qry: TFDQuery;
   DocId, ProjectId: Integer;
-  Title, Content, AppendContent, OldContent, Status, DocType, Summary1, Summary2,
+  Title, Content, AppendContent, ReplaceOld, ReplaceNew, OldContent, Status,
+    DocType, Summary1, Summary2,
     ChangeReason, ChangedBy, ExpectedUpdatedAt, NewUpdatedAt,
     ProjectSlug, CurrentDocType, CurrentTitle, NewProject: string;
   NewProjectId: Integer;
@@ -811,6 +831,10 @@ begin
   Title := AParams.GetValue<string>('title', '');
   Content := AParams.GetValue<string>('content', '');
   AppendContent := AParams.GetValue<string>('append_content', '');
+  // GH#14: surgical partial update — replace exactly one occurrence of
+  // replace_old with replace_new. Cost scales with the EDIT, not the document.
+  ReplaceOld := AParams.GetValue<string>('replace_old', '');
+  ReplaceNew := AParams.GetValue<string>('replace_new', '');
   Status := AParams.GetValue<string>('status', '');
   DocType := AParams.GetValue<string>('doc_type', '');
   Summary1 := AParams.GetValue<string>('summary_l1', '');
@@ -824,10 +848,14 @@ begin
 
   // Bug#3018: content vs append_content are mutually exclusive. Accepting both
   // forces an arbitrary precedence rule and hides intent from the caller.
-  if (Content <> '') and (AppendContent <> '') then
+  if (Ord(Content <> '') + Ord(AppendContent <> '') + Ord(ReplaceOld <> '')) > 1 then
     raise EMxValidation.Create(
-      'Parameters "content" and "append_content" are mutually exclusive. ' +
-      'Use "content" to REPLACE the body, "append_content" to GROW it.');
+      'Parameters "content", "append_content" and "replace_old" are mutually ' +
+      'exclusive. Use "content" to REPLACE the body, "append_content" to GROW ' +
+      'it, "replace_old"+"replace_new" for a surgical partial edit.');
+  if (ReplaceNew <> '') and (ReplaceOld = '') then
+    raise EMxValidation.Create(
+      'Parameter "replace_new" requires "replace_old" (the exact text to replace).');
 
   // Validate status if provided
   if (Status <> '') and not MatchStr(Status, ['draft', 'active', 'completed',
@@ -870,7 +898,7 @@ begin
   SetParts := '';
   if Title <> '' then
     SetParts := SetParts + 'title = :title, ';
-  if (Content <> '') or (AppendContent <> '') then
+  if (Content <> '') or (AppendContent <> '') or (ReplaceOld <> '') then
     SetParts := SetParts + 'content = :content, ';
   if Status <> '' then
     SetParts := SetParts + 'status = :status, ';
@@ -888,7 +916,7 @@ begin
   // Bug#3018: append_content is also a content change.
   if Verified then
     SetParts := SetParts + 'confidence = 1.00, '
-  else if (Content <> '') or (AppendContent <> '') then
+  else if (Content <> '') or (AppendContent <> '') or (ReplaceOld <> '') then
     SetParts := SetParts + 'confidence = 0.80, ';
 
   if SetParts = '' then
@@ -951,7 +979,7 @@ begin
         // Edit-Window must not gate them. The actual status write + validation
         // happens further down the shared (doc_type-agnostic) UPDATE path.
         var ContentUntouched := (Title = '') and (Content = '') and (AppendContent = '')
-          and (DocType = '') and (NewProject = '');
+          and (ReplaceOld = '') and (DocType = '') and (NewProject = '');
         var HasNonContentEdit := (Status <> '') or (Summary1 <> '') or (Summary2 <> '')
           or Verified;
         if not (ContentUntouched and HasNonContentEdit) then
@@ -1018,7 +1046,7 @@ begin
     // is touching content at all, then either (a) concatenate for append_content
     // or (b) run a length-delta gate for content. Both paths leave `Content`
     // holding the final body to bind below.
-    if (Content <> '') or (AppendContent <> '') then
+    if (Content <> '') or (AppendContent <> '') or (ReplaceOld <> '') then
     begin
       OldContent := '';
       // Bug#3018 W7: FOR UPDATE prevents lost-update race — a concurrent
@@ -1033,6 +1061,37 @@ begin
           OldContent := Qry.FieldByName('content').AsString;
       finally
         Qry.Free;
+      end;
+
+      if ReplaceOld <> '' then
+      begin
+        // GH#14 replace path: replace_old must match EXACTLY ONCE — same
+        // contract as an editor's surgical edit. 0 matches or >1 matches are
+        // caller errors (extend replace_old with more context to disambiguate).
+        var MatchCount := 0;
+        var SearchPos := Pos(ReplaceOld, OldContent);
+        while SearchPos > 0 do
+        begin
+          Inc(MatchCount);
+          if MatchCount > 1 then Break;
+          SearchPos := Pos(ReplaceOld, OldContent, SearchPos + 1);
+        end;
+        if MatchCount = 0 then
+          raise EMxValidation.Create(
+            'replace_old not found in document body (exact match required, ' +
+            'including whitespace/line breaks). Read the doc via mx_detail ' +
+            'first and copy the fragment verbatim.')
+        else if MatchCount > 1 then
+          raise EMxValidation.Create(
+            'replace_old matches more than once - extend it with surrounding ' +
+            'context until it is unique, then retry.');
+        Content := StringReplace(OldContent, ReplaceOld, ReplaceNew, []);
+        if Trim(Content) = '' then
+          raise EMxValidation.Create(
+            'replace would leave the document body empty - use content= with ' +
+            'an explicit rewrite change_reason instead.');
+        // Falls through to the length-delta gate below: a unique-match replace
+        // that still halves the body deserves the same intent check.
       end;
 
       if AppendContent <> '' then
