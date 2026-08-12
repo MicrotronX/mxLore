@@ -6,8 +6,8 @@ Self-hosted MCP server for AI-assisted software development. Stores architectura
 
 ## Features
 
-- **45 MCP Tools** — search, create, update, recall knowledge across projects
-- **Private by design** — coding AIs (Claude Code, Cursor, Windsurf) reach all 45 tools through a local proxy: no third-party connector cloud in the path, no public endpoint, server stays on localhost or your LAN ([details](#private-by-design))
+- **46 MCP Tools** — search, create, update, recall knowledge across projects
+- **Private by design** — coding AIs (Claude Code, Cursor, Windsurf) reach all 46 tools through a local proxy: no third-party connector cloud in the path, no public endpoint, server stays on localhost or your LAN ([details](#private-by-design))
 - **Multi-Project** — one server, many codebases, cross-project search
 - **Skill Evolution** — tracks which AI checker rules actually help, auto-tunes
 - **Institutional Memory** — lessons learned with recall, gate levels, graph-based knowledge links
@@ -88,6 +88,7 @@ Your coding AI connects **directly** to your server — no third-party MCP conne
 - **Stack:** Delphi (RAD Studio) + TMS Sparkle + FireDAC + MariaDB
 - **Protocol:** MCP 2024-11-05 (JSON-RPC 2.0 over HTTP+SSE)
 - **Auth:** PBKDF2-HMAC-SHA256 API keys, per-project ACL
+- **Key convention:** one API key per machine — the key's name is the machine label. Documents record which developer *and* which machine created them (auth attribution).
 - **Units:** 65 Delphi units, dot-notation (`mx.*.pas`), 5 layers
 
 ## Skills

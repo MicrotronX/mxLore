@@ -181,7 +181,7 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 123;
+  MXAI_BUILD   = 124;
   // Build 123 (2026-07-30): Community-API-Review GH#8/#9/#11-#17 — updated_at
   // read-freeze, review-note gate fix, relation_id, CHAR_LENGTH, project-only
   // listing, doc_type SSoT lists, ADR numbering from titles+slugs,

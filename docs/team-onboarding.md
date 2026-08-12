@@ -16,7 +16,7 @@ How to connect AI clients to your mxLore server and onboard team members.
 
 ## Before you start: Get an API key
 
-Every host (laptop, workstation, CI runner) that connects to mxLore needs **its own API key**. Keys are issued by an admin from the Admin UI; one developer can hold multiple keys, one per host, each individually revocable.
+Every host (laptop, workstation, CI runner) that connects to mxLore needs **its own API key**. Keys are issued by an admin from the Admin UI; one developer can hold multiple keys, one per host, each individually revocable. Name each key after the machine it lives on — mxLore records which developer *and* which key (= machine) created every document, so a clean key-per-machine naming gives you a readable audit trail.
 
 ### If you're the admin (or a solo installer)
 
