@@ -902,6 +902,155 @@ begin
       finally
         MigQry.Free;
       end;
+
+      // sql/051 step 1: documents.created_by_client_key_id INT NULL (Spec#13053).
+      // Auth-attribution machine granularity: which client key (= machine, per
+      // the one-key-per-machine convention) created the document. Additive +
+      // NULL default, NO BACKFILL (same rationale as sql/048 — legacy label
+      // strings are not authenticated identity).
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''documents'' ' +
+        '  AND column_name = ''created_by_client_key_id''');
+      try
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/051 step 1 — ADD documents.created_by_client_key_id + idx');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE documents ' +
+            'ADD COLUMN created_by_client_key_id INT DEFAULT NULL AFTER created_by_developer_id');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          var IdxQry := MigCtx.CreateQuery(
+            'CREATE INDEX idx_doc_created_by_key ON documents(created_by_client_key_id)');
+          try IdxQry.ExecSQL; finally IdxQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/051 step 1 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // sql/051 step 2: ADD FK fk_doc_created_by_key (separate check — FK has
+      // no IF NOT EXISTS). ON DELETE SET NULL keeps historical rows when a
+      // client key is revoked/deleted.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.table_constraints ' +
+        'WHERE table_schema = :db AND table_name = ''documents'' ' +
+        '  AND constraint_name = ''fk_doc_created_by_key''');
+      try
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/051 step 2 — ADD fk_doc_created_by_key');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE documents ' +
+            'ADD CONSTRAINT fk_doc_created_by_key ' +
+            '  FOREIGN KEY (created_by_client_key_id) REFERENCES client_keys(id) ' +
+            '  ON DELETE SET NULL');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/051 step 2 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // sql/051 step 3: doc_revisions.changed_by_developer_id INT NULL.
+      // doc_revisions historically carries only the free-form changed_by
+      // VARCHAR label — this adds the authenticated developer identity.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''doc_revisions'' ' +
+        '  AND column_name = ''changed_by_developer_id''');
+      try
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/051 step 3 — ADD doc_revisions.changed_by_developer_id + idx');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE doc_revisions ' +
+            'ADD COLUMN changed_by_developer_id INT DEFAULT NULL AFTER changed_by');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          var IdxQry := MigCtx.CreateQuery(
+            'CREATE INDEX idx_rev_changed_by_dev ON doc_revisions(changed_by_developer_id)');
+          try IdxQry.ExecSQL; finally IdxQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/051 step 3 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // sql/051 step 4: ADD FK fk_rev_changed_by_dev.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.table_constraints ' +
+        'WHERE table_schema = :db AND table_name = ''doc_revisions'' ' +
+        '  AND constraint_name = ''fk_rev_changed_by_dev''');
+      try
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/051 step 4 — ADD fk_rev_changed_by_dev');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE doc_revisions ' +
+            'ADD CONSTRAINT fk_rev_changed_by_dev ' +
+            '  FOREIGN KEY (changed_by_developer_id) REFERENCES developers(id) ' +
+            '  ON DELETE SET NULL');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/051 step 4 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // sql/051 step 5: doc_revisions.changed_by_client_key_id INT NULL.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''doc_revisions'' ' +
+        '  AND column_name = ''changed_by_client_key_id''');
+      try
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/051 step 5 — ADD doc_revisions.changed_by_client_key_id + idx');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE doc_revisions ' +
+            'ADD COLUMN changed_by_client_key_id INT DEFAULT NULL AFTER changed_by_developer_id');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          var IdxQry := MigCtx.CreateQuery(
+            'CREATE INDEX idx_rev_changed_by_key ON doc_revisions(changed_by_client_key_id)');
+          try IdxQry.ExecSQL; finally IdxQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/051 step 5 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // sql/051 step 6: ADD FK fk_rev_changed_by_key.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.table_constraints ' +
+        'WHERE table_schema = :db AND table_name = ''doc_revisions'' ' +
+        '  AND constraint_name = ''fk_rev_changed_by_key''');
+      try
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/051 step 6 — ADD fk_rev_changed_by_key');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE doc_revisions ' +
+            'ADD CONSTRAINT fk_rev_changed_by_key ' +
+            '  FOREIGN KEY (changed_by_client_key_id) REFERENCES client_keys(id) ' +
+            '  ON DELETE SET NULL');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/051 step 6 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
     finally
       MigCtx := nil;
     end;

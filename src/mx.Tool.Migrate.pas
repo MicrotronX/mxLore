@@ -258,9 +258,10 @@ begin
         try
           Qry := AContext.CreateQuery(
             'INSERT INTO documents (project_id, doc_type, slug, title, content, ' +
-            '  summary_l1, summary_l2, status, created_by, created_by_developer_id) ' +
+            '  summary_l1, summary_l2, status, created_by, created_by_developer_id, ' +
+            '  created_by_client_key_id) ' +
             'VALUES (:proj_id, :doc_type, :slug, :title, :content, ' +
-            '  :summary_l1, :summary_l2, :status, ''migration'', :dev_id)');
+            '  :summary_l1, :summary_l2, :status, ''migration'', :dev_id, :key_id)');
           try
             Qry.ParamByName('proj_id').AsInteger := ProjectId;
             Qry.ParamByName('doc_type').AsWideString :=DocType;
@@ -272,11 +273,11 @@ begin
             Qry.ParamByName('summary_l2').AsWideString :=Summary2;
             Qry.ParamByName('status').AsWideString :=DocStatus;
             // FR#2936/Plan#3266 M2.5 prereq — record the dev who initiated migration.
-            var CallerDevId := AContext.AccessControl.GetDeveloperId;
-            if CallerDevId > 0 then
-              Qry.ParamByName('dev_id').AsInteger := CallerDevId
-            else
-              Qry.ParamByName('dev_id').Clear;
+            // Spec#13053: + machine identity (client key).
+            BindAuthId(Qry.ParamByName('dev_id'),
+              AContext.AccessControl.GetDeveloperId);
+            BindAuthId(Qry.ParamByName('key_id'),
+              AContext.AccessControl.GetClientKeyId);
             Qry.ExecSQL;
           finally
             Qry.Free;
@@ -294,12 +295,16 @@ begin
           // INSERT initial revision
           Qry := AContext.CreateQuery(
             'INSERT INTO doc_revisions (doc_id, revision, content, summary_l2, ' +
-            '  changed_by, change_reason) ' +
-            'VALUES (:doc_id, 1, :content, :summary_l2, ''migration'', ''Imported from file'')');
+            '  changed_by, changed_by_developer_id, changed_by_client_key_id, ' +
+            '  change_reason) ' +
+            'VALUES (:doc_id, 1, :content, :summary_l2, ''migration'', :dev_id, ' +
+            '  :key_id, ''Imported from file'')');
           try
             Qry.ParamByName('doc_id').AsInteger := DocId;
             BindLargeText(Qry.ParamByName('content'), Content);
             Qry.ParamByName('summary_l2').AsWideString :=Summary2;
+            BindAuthId(Qry.ParamByName('dev_id'), AContext.AccessControl.GetDeveloperId);
+            BindAuthId(Qry.ParamByName('key_id'), AContext.AccessControl.GetClientKeyId);
             Qry.ExecSQL;
           finally
             Qry.Free;

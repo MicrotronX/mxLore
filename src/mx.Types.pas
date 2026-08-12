@@ -48,6 +48,10 @@ type
   IAccessControl = interface
     ['{D4E5F6A7-B8C9-4123-DEFA-234567890ABC}']
     function GetDeveloperId: Integer;
+    // Spec#13053 auth-attribution: authenticated client_key_id (= machine,
+    // per the one-key-per-machine convention). 0 when unauthenticated
+    // (ACL off / admin-UI bypass) — write paths stamp NULL in that case.
+    function GetClientKeyId: Integer;
     function GetDeveloperName: string;
     function IsAdmin: Boolean;
     function CheckProject(AProjectId: Integer; ALevel: TAccessLevel): Boolean;

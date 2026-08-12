@@ -34,6 +34,11 @@ function ClampChangeReason(const S: string): string;  // doc_revisions.change_re
 // without forcing reparameterisation each call.
 procedure BindLargeText(AParam: TFDParam; const AValue: string);
 
+// Spec#13053 auth-attribution: bind an authenticated identity id
+// (developer_id or client_key_id) — NULL when the caller context carries
+// none (0: server-internal callers, admin-UI bypass, AI-batch).
+procedure BindAuthId(AParam: TFDParam; AId: Integer);
+
 // CRUD (Create/Update/Delete) + Summaries — core document operations
 function HandleCreateDoc(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
@@ -73,6 +78,17 @@ begin
   // doc#3492 showed literal 0x3F bytes stored; after the fix the same body
   // stores 0xE2 0x86 0x92 for '→'.
   AParam.AsWideString := AValue;
+end;
+
+procedure BindAuthId(AParam: TFDParam; AId: Integer);
+begin
+  if AId > 0 then
+    AParam.AsInteger := AId
+  else
+  begin
+    AParam.DataType := ftInteger;
+    AParam.Clear;
+  end;
 end;
 
 // ---------------------------------------------------------------------------
@@ -576,9 +592,11 @@ begin
         // INSERT document (with lesson_data for doc_type=lesson)
         Qry := AContext.CreateQuery(
           'INSERT INTO documents (project_id, doc_type, slug, title, content, ' +
-          '  summary_l1, summary_l2, status, created_by, created_by_developer_id, lesson_data) ' +
+          '  summary_l1, summary_l2, status, created_by, created_by_developer_id, ' +
+          '  created_by_client_key_id, lesson_data) ' +
           'VALUES (:proj_id, :doc_type, :slug, :title, :content, ' +
-          '  :summary_l1, :summary_l2, :status, :created_by, :dev_id, :lesson_data)');
+          '  :summary_l1, :summary_l2, :status, :created_by, :dev_id, ' +
+          '  :key_id, :lesson_data)');
         try
           Qry.ParamByName('proj_id').AsInteger := ProjectId;
           Qry.ParamByName('doc_type').AsWideString :=DocType;
@@ -593,11 +611,11 @@ begin
           // FR#2936/Plan#3266 M2.5 prereq — author-FK for Edit-Window match.
           // Falls back to NULL when called outside an authenticated context
           // (server-internal callers, AI-batch via Tool API, etc.).
-          var CallerDevId := AContext.AccessControl.GetDeveloperId;
-          if CallerDevId > 0 then
-            Qry.ParamByName('dev_id').AsInteger := CallerDevId
-          else
-            Qry.ParamByName('dev_id').Clear;
+          BindAuthId(Qry.ParamByName('dev_id'),
+            AContext.AccessControl.GetDeveloperId);
+          // Spec#13053: machine identity (one-key-per-machine convention)
+          BindAuthId(Qry.ParamByName('key_id'),
+            AContext.AccessControl.GetClientKeyId);
           if LessonData <> '' then
             Qry.ParamByName('lesson_data').AsWideString :=LessonData
           else
@@ -638,13 +656,17 @@ begin
     // INSERT initial revision
     Qry := AContext.CreateQuery(
       'INSERT INTO doc_revisions (doc_id, revision, content, summary_l2, ' +
-      '  changed_by, change_reason) ' +
-      'VALUES (:doc_id, 1, :content, :summary_l2, :changed_by, ''Initial version'')');
+      '  changed_by, changed_by_developer_id, changed_by_client_key_id, ' +
+      '  change_reason) ' +
+      'VALUES (:doc_id, 1, :content, :summary_l2, :changed_by, :dev_id, ' +
+      '  :key_id, ''Initial version'')');
     try
       Qry.ParamByName('doc_id').AsInteger := DocId;
       BindLargeText(Qry.ParamByName('content'), Content);
       Qry.ParamByName('summary_l2').AsWideString := Summary2;
       Qry.ParamByName('changed_by').AsWideString := CreatedBy;
+      BindAuthId(Qry.ParamByName('dev_id'), AContext.AccessControl.GetDeveloperId);
+      BindAuthId(Qry.ParamByName('key_id'), AContext.AccessControl.GetClientKeyId);
       Qry.ExecSQL;
     finally
       Qry.Free;
@@ -1180,14 +1202,18 @@ begin
 
       Qry := AContext.CreateQuery(
         'INSERT INTO doc_revisions (doc_id, revision, content, summary_l2, ' +
-        '  changed_by, change_reason) ' +
-        'VALUES (:doc_id, :rev, :content, :summary_l2, :changed_by, :reason)');
+        '  changed_by, changed_by_developer_id, changed_by_client_key_id, ' +
+        '  change_reason) ' +
+        'VALUES (:doc_id, :rev, :content, :summary_l2, :changed_by, :dev_id, ' +
+        '  :key_id, :reason)');
       try
         Qry.ParamByName('doc_id').AsInteger := DocId;
         Qry.ParamByName('rev').AsInteger := NextRevision;
         BindLargeText(Qry.ParamByName('content'), Content);
         Qry.ParamByName('summary_l2').AsWideString := Summary2;
         Qry.ParamByName('changed_by').AsWideString := ChangedBy;
+        BindAuthId(Qry.ParamByName('dev_id'), AContext.AccessControl.GetDeveloperId);
+        BindAuthId(Qry.ParamByName('key_id'), AContext.AccessControl.GetClientKeyId);
         Qry.ParamByName('reason').AsWideString :=ClampChangeReason(ChangeReason);
         Qry.ExecSQL;
       finally

@@ -255,9 +255,10 @@ begin
         try
           Qry := AContext.CreateQuery(
             'INSERT INTO documents (project_id, slug, title, content, doc_type, status, ' +
-            '  depth, root_parent_doc_id, created_by_developer_id) ' +
+            '  depth, root_parent_doc_id, created_by_developer_id, ' +
+            '  created_by_client_key_id) ' +
             'VALUES (:proj_id, :slug, :title, :content, ''note'', ''draft'', ' +
-            '  :depth, :root_parent, :dev_id)');
+            '  :depth, :root_parent, :dev_id, :key_id)');
           try
             Qry.ParamByName('proj_id').AsInteger := ProjectId;
             Qry.ParamByName('slug').AsWideString :=Slug;
@@ -266,10 +267,10 @@ begin
             Qry.ParamByName('depth').AsInteger := Depth;
             Qry.ParamByName('root_parent').AsInteger := RootParentDocId;
             // FR#2936/Plan#3266 M2.5 prereq — author-FK for Edit-Window match.
-            if AuthCtx.CallerId > 0 then
-              Qry.ParamByName('dev_id').AsInteger := AuthCtx.CallerId
-            else
-              Qry.ParamByName('dev_id').Clear;
+            // Spec#13053: + machine identity (client key).
+            BindAuthId(Qry.ParamByName('dev_id'), AuthCtx.CallerId);
+            BindAuthId(Qry.ParamByName('key_id'),
+              AContext.AccessControl.GetClientKeyId);
             Qry.ExecSQL;
           finally
             Qry.Free;
@@ -620,11 +621,16 @@ begin
 
       Qry := AContext.CreateQuery(
         'INSERT INTO doc_revisions (doc_id, revision, content, summary_l2, ' +
-        '  changed_by, change_reason) ' +
-        'VALUES (:doc_id, :rev, :content, NULL, :changed_by, :reason)');
+        '  changed_by, changed_by_developer_id, changed_by_client_key_id, ' +
+        '  change_reason) ' +
+        'VALUES (:doc_id, :rev, :content, NULL, :changed_by, :dev_id, ' +
+        '  :key_id, :reason)');
       try
         Qry.ParamByName('doc_id').AsInteger := DocId;
         Qry.ParamByName('rev').AsInteger := NextRevision;
+        BindAuthId(Qry.ParamByName('dev_id'), CallerDevId);
+        BindAuthId(Qry.ParamByName('key_id'),
+          AContext.AccessControl.GetClientKeyId);
         if HasBody then
           BindLargeText(Qry.ParamByName('content'), Body)
         else

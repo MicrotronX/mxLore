@@ -74,10 +74,12 @@ begin
   begin
     if (FAclMode = amOff) or (not FAuthResult.Valid) then
       FAccessControl := TMxNullAccessControl.Create(
-        FAuthResult.DeveloperId, FAuthResult.DeveloperName, FAuthResult.IsAdmin)
+        FAuthResult.DeveloperId, FAuthResult.KeyId,
+        FAuthResult.DeveloperName, FAuthResult.IsAdmin)
     else
       FAccessControl := TMxAccessControl.Create(
-        FAuthResult.DeveloperId, FAuthResult.DeveloperName, FAuthResult.IsAdmin,
+        FAuthResult.DeveloperId, FAuthResult.KeyId,
+        FAuthResult.DeveloperName, FAuthResult.IsAdmin,
         FAclMode, FAuthResult.Permissions, FConnection, FLogger);
   end;
   Result := FAccessControl;

@@ -21,6 +21,7 @@ type
   TMxAccessControl = class(TInterfacedObject, IAccessControl)
   private
     FDeveloperId: Integer;
+    FClientKeyId: Integer;   // Spec#13053: authenticated key = machine identity
     FDeveloperName: string;
     FIsAdmin: Boolean;
     FAclMode: TAclMode;
@@ -38,12 +39,14 @@ type
     procedure LoadGlobalProjectId(AConnection: TFDConnection);
     function EffectiveLevel(AProjLevel: TAccessLevel): TAccessLevel;
   public
-    constructor Create(ADeveloperId: Integer; const ADeveloperName: string;
+    constructor Create(ADeveloperId, AClientKeyId: Integer;
+      const ADeveloperName: string;
       AIsAdmin: Boolean; AAclMode: TAclMode; AGlobalRole: TMxPermission;
       AConnection: TFDConnection; ALogger: IMxLogger);
     destructor Destroy; override;
     // IAccessControl
     function GetDeveloperId: Integer;
+    function GetClientKeyId: Integer;
     function GetDeveloperName: string;
     function IsAdmin: Boolean;
     function CheckProject(AProjectId: Integer; ALevel: TAccessLevel): Boolean;
@@ -90,12 +93,14 @@ type
   TMxNullAccessControl = class(TInterfacedObject, IAccessControl)
   private
     FDeveloperId: Integer;
+    FClientKeyId: Integer;   // Spec#13053: 0 in bypass/ACL-off scenarios
     FDeveloperName: string;
     FIsAdmin: Boolean;
   public
-    constructor Create(ADeveloperId: Integer; const ADeveloperName: string;
-      AIsAdmin: Boolean);
+    constructor Create(ADeveloperId, AClientKeyId: Integer;
+      const ADeveloperName: string; AIsAdmin: Boolean);
     function GetDeveloperId: Integer;
+    function GetClientKeyId: Integer;
     function GetDeveloperName: string;
     function IsAdmin: Boolean;
     function CheckProject(AProjectId: Integer; ALevel: TAccessLevel): Boolean;
@@ -382,12 +387,13 @@ end;
 
 { TMxAccessControl }
 
-constructor TMxAccessControl.Create(ADeveloperId: Integer;
+constructor TMxAccessControl.Create(ADeveloperId, AClientKeyId: Integer;
   const ADeveloperName: string; AIsAdmin: Boolean; AAclMode: TAclMode;
   AGlobalRole: TMxPermission; AConnection: TFDConnection; ALogger: IMxLogger);
 begin
   inherited Create;
   FDeveloperId := ADeveloperId;
+  FClientKeyId := AClientKeyId;
   FDeveloperName := ADeveloperName;
   FIsAdmin := AIsAdmin;
   FAclMode := AAclMode;
@@ -500,6 +506,11 @@ begin
   Result := FDeveloperId;
 end;
 
+function TMxAccessControl.GetClientKeyId: Integer;
+begin
+  Result := FClientKeyId;
+end;
+
 function TMxAccessControl.GetDeveloperName: string;
 begin
   Result := FDeveloperName;
@@ -610,11 +621,12 @@ end;
 
 { TMxNullAccessControl }
 
-constructor TMxNullAccessControl.Create(ADeveloperId: Integer;
+constructor TMxNullAccessControl.Create(ADeveloperId, AClientKeyId: Integer;
   const ADeveloperName: string; AIsAdmin: Boolean);
 begin
   inherited Create;
   FDeveloperId := ADeveloperId;
+  FClientKeyId := AClientKeyId;
   FDeveloperName := ADeveloperName;
   FIsAdmin := AIsAdmin;
 end;
@@ -622,6 +634,11 @@ end;
 function TMxNullAccessControl.GetDeveloperId: Integer;
 begin
   Result := FDeveloperId;
+end;
+
+function TMxNullAccessControl.GetClientKeyId: Integer;
+begin
+  Result := FClientKeyId;
 end;
 
 function TMxNullAccessControl.GetDeveloperName: string;

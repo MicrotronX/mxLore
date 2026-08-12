@@ -148,9 +148,10 @@ begin
               // INSERT document
               Qry := AContext.CreateQuery(
                 'INSERT INTO documents (project_id, doc_type, slug, title, content, ' +
-                '  summary_l1, summary_l2, status, created_by, created_by_developer_id) ' +
+                '  summary_l1, summary_l2, status, created_by, created_by_developer_id, ' +
+                '  created_by_client_key_id) ' +
                 'VALUES (:proj_id, :doc_type, :slug, :title, :content, ' +
-                '  :summary_l1, :summary_l2, :status, :created_by, :dev_id)');
+                '  :summary_l1, :summary_l2, :status, :created_by, :dev_id, :key_id)');
               try
                 Qry.ParamByName('proj_id').AsInteger := ProjectId;
                 Qry.ParamByName('doc_type').AsWideString :=DocType;
@@ -163,11 +164,11 @@ begin
                 Qry.ParamByName('status').AsWideString :=Status;
                 Qry.ParamByName('created_by').AsWideString :=CreatedBy;
                 // FR#2936/Plan#3266 M2.5 prereq — author-FK for Edit-Window match.
-                var CallerDevId := AContext.AccessControl.GetDeveloperId;
-                if CallerDevId > 0 then
-                  Qry.ParamByName('dev_id').AsInteger := CallerDevId
-                else
-                  Qry.ParamByName('dev_id').Clear;
+                // Spec#13053: + machine identity (client key).
+                BindAuthId(Qry.ParamByName('dev_id'),
+                  AContext.AccessControl.GetDeveloperId);
+                BindAuthId(Qry.ParamByName('key_id'),
+                  AContext.AccessControl.GetClientKeyId);
                 Qry.ExecSQL;
               finally
                 Qry.Free;
@@ -201,13 +202,17 @@ begin
           // INSERT initial revision
           Qry := AContext.CreateQuery(
             'INSERT INTO doc_revisions (doc_id, revision, content, summary_l2, ' +
-            '  changed_by, change_reason) ' +
-            'VALUES (:doc_id, 1, :content, :summary_l2, :changed_by, ''Initial version'')');
+            '  changed_by, changed_by_developer_id, changed_by_client_key_id, ' +
+            '  change_reason) ' +
+            'VALUES (:doc_id, 1, :content, :summary_l2, :changed_by, :dev_id, ' +
+            '  :key_id, ''Initial version'')');
           try
             Qry.ParamByName('doc_id').AsInteger := DocId;
             BindLargeText(Qry.ParamByName('content'), Content);
             Qry.ParamByName('summary_l2').AsWideString :=Summary2;
             Qry.ParamByName('changed_by').AsWideString :=CreatedBy;
+            BindAuthId(Qry.ParamByName('dev_id'), AContext.AccessControl.GetDeveloperId);
+            BindAuthId(Qry.ParamByName('key_id'), AContext.AccessControl.GetClientKeyId);
             Qry.ExecSQL;
           finally
             Qry.Free;
@@ -418,14 +423,18 @@ begin
 
             Qry := AContext.CreateQuery(
               'INSERT INTO doc_revisions (doc_id, revision, content, summary_l2, ' +
-              '  changed_by, change_reason) ' +
-              'VALUES (:doc_id, :rev, :content, :summary_l2, :changed_by, :reason)');
+              '  changed_by, changed_by_developer_id, changed_by_client_key_id, ' +
+              '  change_reason) ' +
+              'VALUES (:doc_id, :rev, :content, :summary_l2, :changed_by, ' +
+              '  :dev_id, :key_id, :reason)');
             try
               Qry.ParamByName('doc_id').AsInteger := DocId;
               Qry.ParamByName('rev').AsInteger := NextRevision;
               BindLargeText(Qry.ParamByName('content'), Content);
               Qry.ParamByName('summary_l2').AsWideString :=Summary2;
               Qry.ParamByName('changed_by').AsWideString :=ChangedBy;
+              BindAuthId(Qry.ParamByName('dev_id'), AContext.AccessControl.GetDeveloperId);
+              BindAuthId(Qry.ParamByName('key_id'), AContext.AccessControl.GetClientKeyId);
               Qry.ParamByName('reason').AsWideString :=ClampChangeReason(ChangeReason);
               Qry.ExecSQL;
             finally

@@ -1081,6 +1081,9 @@ begin
     'SELECT d.id, d.project_id, p.slug AS project, d.doc_type, d.slug, d.title, ' +
     '  d.status, d.summary_l1, d.summary_l2, d.content, d.token_estimate, ' +
     '  d.confidence, d.created_by, DATEDIFF(NOW(), d.updated_at) AS days_since_update, ' +
+    // Spec#13053 auth-attribution: resolve authenticated identity to display
+    // names. NULL-tolerant LEFT JOINs — legacy docs and bypass writers stay NULL.
+    '  dev.name AS author_developer, ck.name AS author_machine, ' +
     // content_changed_at: last real body revision, NOT every touch (Bug#11815 Defekt 2).
     // updated_at is bumped by any UPDATE incl. access_count-on-read, so it is unusable
     // as a staleness proxy. doc_revisions is only written on body change (Write.pas:1087).
@@ -1089,6 +1092,8 @@ begin
     '  d.created_at, d.updated_at ' +
     'FROM documents d ' +
     'JOIN projects p ON d.project_id = p.id ' +
+    'LEFT JOIN developers dev ON dev.id = d.created_by_developer_id ' +
+    'LEFT JOIN client_keys ck ON ck.id = d.created_by_client_key_id ' +
     'WHERE d.id = :doc_id AND p.is_active = TRUE');
   try
     Qry.ParamByName('doc_id').AsInteger := DocId;
@@ -1142,6 +1147,11 @@ begin
       Data.AddPair('days_since_content_change',
         TJSONNumber.Create(Qry.FieldByName('days_since_content_change').AsInteger));
       Data.AddPair('created_by', Qry.FieldByName('created_by').AsString);
+      // Spec#13053: only emit when resolved — keeps legacy docs' JSON unchanged.
+      if not Qry.FieldByName('author_developer').IsNull then
+        Data.AddPair('author_developer', Qry.FieldByName('author_developer').AsString);
+      if not Qry.FieldByName('author_machine').IsNull then
+        Data.AddPair('author_machine', Qry.FieldByName('author_machine').AsString);
       Data.AddPair('created_at', Qry.FieldByName('created_at').AsString);
       Data.AddPair('updated_at', Qry.FieldByName('updated_at').AsString);
     except
@@ -1475,11 +1485,15 @@ begin
   Qry := AContext.CreateQuery(
     // GH#13: CHAR_LENGTH (characters), not LENGTH (UTF-8 bytes) — must match
     // the character-based content_length in mx_create_doc/mx_update_doc responses.
-    'SELECT id, revision, changed_at, changed_by, change_reason, ' +
-    '  CHAR_LENGTH(content) AS content_length, LEFT(content, 100) AS content_preview ' +
-    'FROM doc_revisions ' +
-    'WHERE doc_id = :doc_id ' +
-    'ORDER BY revision DESC ' +
+    'SELECT dr.id, dr.revision, dr.changed_at, dr.changed_by, dr.change_reason, ' +
+    '  CHAR_LENGTH(dr.content) AS content_length, LEFT(dr.content, 100) AS content_preview, ' +
+    // Spec#13053: resolved authenticated identity per revision (NULL-tolerant).
+    '  dev.name AS author_developer, ck.name AS author_machine ' +
+    'FROM doc_revisions dr ' +
+    'LEFT JOIN developers dev ON dev.id = dr.changed_by_developer_id ' +
+    'LEFT JOIN client_keys ck ON ck.id = dr.changed_by_client_key_id ' +
+    'WHERE dr.doc_id = :doc_id ' +
+    'ORDER BY dr.revision DESC ' +
     'LIMIT :lim');
   try
     Qry.ParamByName('doc_id').AsInteger := DocId;
@@ -1494,6 +1508,10 @@ begin
         TJSONNumber.Create(Qry.FieldByName('revision').AsInteger));
       Row.AddPair('changed_at', Qry.FieldByName('changed_at').AsString);
       Row.AddPair('changed_by', Qry.FieldByName('changed_by').AsString);
+      if not Qry.FieldByName('author_developer').IsNull then
+        Row.AddPair('author_developer', Qry.FieldByName('author_developer').AsString);
+      if not Qry.FieldByName('author_machine').IsNull then
+        Row.AddPair('author_machine', Qry.FieldByName('author_machine').AsString);
       Row.AddPair('change_reason', Qry.FieldByName('change_reason').AsString);
       Row.AddPair('content_length',
         TJSONNumber.Create(Qry.FieldByName('content_length').AsInteger));

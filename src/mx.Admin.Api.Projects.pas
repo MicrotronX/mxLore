@@ -1365,17 +1365,29 @@ begin
     try
       // Archive new revision (schema: doc_id, revision, content, summary_l2,
       // changed_by, change_reason). Revision auto-increments per doc.
+      // Spec#13053: stamp the authenticated admin-session developer.
+      // changed_by_client_key_id stays NULL — the admin UI authenticates via
+      // admin session, not via a client_keys row (no machine identity here).
       Qry := Ctx.CreateQuery(
         'INSERT INTO doc_revisions ' +
-        '  (doc_id, revision, content, summary_l2, changed_by, change_reason) ' +
+        '  (doc_id, revision, content, summary_l2, changed_by, ' +
+        '   changed_by_developer_id, change_reason) ' +
         'SELECT :id, ' +
         '       COALESCE((SELECT MAX(revision) FROM doc_revisions dr2 WHERE dr2.doc_id = :id2), 0) + 1, ' +
-        '       content, summary_l2, ''admin'', :reason ' +
+        '       content, summary_l2, ''admin'', :dev_id, :reason ' +
         'FROM documents WHERE id = :id3');
       try
         Qry.ParamByName('id').AsInteger  := ADocId;
         Qry.ParamByName('id2').AsInteger := ADocId;
         Qry.ParamByName('id3').AsInteger := ADocId;
+        // 0 = break-glass admin without developer row (HasNoDevelopers) -> NULL
+        if ASession.DeveloperId > 0 then
+          Qry.ParamByName('dev_id').AsInteger := ASession.DeveloperId
+        else
+        begin
+          Qry.ParamByName('dev_id').DataType := ftInteger;
+          Qry.ParamByName('dev_id').Clear;
+        end;
         Qry.ParamByName('reason').AsWideString :=Copy(ChangeReason, 1, 500);
         Qry.ExecSQL;
       finally
