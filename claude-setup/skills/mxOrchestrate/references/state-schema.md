@@ -67,6 +67,7 @@ offset and rewrites, because a genuinely skewed clock is indistinguishable from 
 | `context_cleared_at` | ISO 8601 OR absent | absent | SessionStart hook (`orchestrate-reconcile.js`) writes, mxOrchestrate Init deletes | Set when SessionStart fires with `source ∈ {startup, clear, compact}` — the model has no prior conversation. `source=resume` does NOT set it. Init reads it as the PRIMARY staleness signal and deletes it after `mx_session_start`. The `age`-based check is only the fallback for hooks that predate this field. |
 | `context_cleared_source` | string OR absent | absent | same as above | The raw `source` value, kept for diagnosis. |
 | `last_schema_repair` | ISO 8601 OR absent | absent | SessionStart hook | When the hook last normalized fields. ⚡ Deliberately NOT `last_reconciliation`: JS hooks cannot reach MCP, so they must not stamp a field that asserts an MCP reconciliation happened. |
+| `subagent_ran_since_save` | bool OR absent | absent | SubagentStop hook (`orchestrate-subagent-flag.js`) sets, mxSave Step 4a deletes | Boolean, NOT a counter — the hook cannot know whether the subagent wrote to MCP (Explore agents only read). Consumers (mxSave Final Block, mxOrchestrate Mode 5/6) treat `true` like `deltas >= 1` and verify the real magnitude via `mx_session_delta`. Single-writer clear: only mxSave Step 4a removes it. |
 
 ### Migration
 

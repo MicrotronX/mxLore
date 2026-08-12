@@ -72,7 +72,10 @@ try {
   const total = active.total_steps || '?';
   const wfStatus = active.status || '?';
   console.log(`[mxOrchestrate] ${active.id} ${wfName} (${step}/${total} ${wfStatus}) | parked: ${parkedCount}`);
-  console.log(`  adhoc: ${adhocCount} | deltas since save: ${deltas} | team: ${teamStr}`);
+  // SubagentStop-hook flag: a subagent ran since the last save. Boolean, not a
+  // count — surfaced so a deltas=0 line cannot read as "nothing unsaved".
+  const subagentFlag = state.subagent_ran_since_save === true ? ' +subagent' : '';
+  console.log(`  adhoc: ${adhocCount} | deltas since save: ${deltas}${subagentFlag} | team: ${teamStr}`);
   console.log(`  last: "${lastAction}"`);
 
   // Save warning at >= 8 deltas
