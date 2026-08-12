@@ -181,7 +181,10 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 124;
+  MXAI_BUILD   = 125;
+  // Build 125 (2026-08-12): MCP initialize response now serves the
+  //   `instructions` field (MXAI_MCP_INSTRUCTIONS SSoT, also reused by
+  //   mx_onboard) for deferred-tool discovery in Claude Code.
   // MCP initialize `instructions` (SSoT, also reused by mx_onboard). Clients
   // with deferred-tool loading (Claude Code ToolSearch) surface this text as
   // "MCP Server Instructions" — without it the mx_* tools are only
