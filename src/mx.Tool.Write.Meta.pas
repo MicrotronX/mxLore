@@ -18,6 +18,8 @@ function HandleRemoveRelation(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
 function HandleInitProject(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
+function HandleArchiveProject(const AParams: TJSONObject;
+  AContext: IMxDbContext): TJSONObject;
 function HandleNextAdrNumber(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
 
@@ -56,7 +58,9 @@ begin
 
   AContext.StartTransaction;
   try
-    // Bug#2228: only revive soft-deleted projects owned by the caller.
+    // Spec#13054: an archived slug is NOT silently revived (supersedes the
+    // Bug#2228 revive path). The owner gets an explicit restore hint; anyone
+    // else still only sees the generic conflict below (no enumeration leak).
     Qry := AContext.CreateQuery(
       'SELECT id FROM projects WHERE slug = :slug AND is_active = FALSE ' +
       '  AND created_by_developer_id = :caller_dev_id');
@@ -65,28 +69,12 @@ begin
       Qry.ParamByName('caller_dev_id').AsInteger := CallerDevId;
       Qry.Open;
       if not Qry.IsEmpty then
-        ProjectId := Qry.FieldByName('id').AsInteger
-      else
-        ProjectId := 0;
+        raise EMxConflict.Create('Project slug "' + Slug + '" is archived. ' +
+          'Use mx_archive_project with restore=true to reactivate it.');
     finally
       Qry.Free;
     end;
 
-    if ProjectId > 0 then
-    begin
-      Qry := AContext.CreateQuery(
-        'UPDATE projects SET is_active = TRUE, deleted_at = NULL, ' +
-        '  name = :name, path = :path WHERE id = :id');
-      try
-        Qry.ParamByName('name').AsWideString :=Name;
-        Qry.ParamByName('path').AsWideString :=Path;
-        Qry.ParamByName('id').AsInteger := ProjectId;
-        Qry.ExecSQL;
-      finally
-        Qry.Free;
-      end;
-    end
-    else
     begin
       // Bug#2228: pre-check whether slug is taken globally so that we can
       // return a clean EMxConflict instead of a MariaDB
@@ -214,6 +202,110 @@ begin
   Data := TJSONObject.Create;
   try
     Data.AddPair('project_id', TJSONNumber.Create(ProjectId));
+    Result := MxSuccessResponse(Data);
+  except
+    Data.Free;
+    raise;
+  end;
+end;
+
+// ---------------------------------------------------------------------------
+// mx_archive_project — Soft-archive / restore a project (Spec#13054, gh#16.1)
+// ---------------------------------------------------------------------------
+function HandleArchiveProject(const AParams: TJSONObject;
+  AContext: IMxDbContext): TJSONObject;
+var
+  Qry: TFDQuery;
+  Slug, Confirm, Action: string;
+  Restore, IsActive, Changed: Boolean;
+  ProjectId: Integer;
+  Data: TJSONObject;
+begin
+  Slug := AParams.GetValue<string>('project', '');
+  Confirm := AParams.GetValue<string>('confirm', '');
+  Restore := AParams.GetValue<Boolean>('restore', False);
+
+  if Slug = '' then
+    raise EMxValidation.Create('Parameter "project" is required');
+  // Typo guard: confirm must repeat the exact project slug.
+  if Confirm <> Slug then
+    raise EMxValidation.Create(
+      'Parameter "confirm" must exactly match the project slug');
+
+  AContext.StartTransaction;
+  try
+    Qry := AContext.CreateQuery(
+      'SELECT id, is_active FROM projects WHERE slug = :slug FOR UPDATE');
+    try
+      Qry.ParamByName('slug').AsWideString :=Slug;
+      Qry.Open;
+      if Qry.IsEmpty then
+        raise EMxNotFound.Create('Project not found: ' + Slug);
+      ProjectId := Qry.FieldByName('id').AsInteger;
+      IsActive := Qry.FieldByName('is_active').AsBoolean;
+    finally
+      Qry.Free;
+    end;
+
+    Changed := False;
+    if Restore then
+    begin
+      if IsActive then
+        Action := 'already_active'
+      else
+      begin
+        Qry := AContext.CreateQuery(
+          'UPDATE projects SET is_active = TRUE, deleted_at = NULL ' +
+          'WHERE id = :id');
+        try
+          Qry.ParamByName('id').AsInteger := ProjectId;
+          Qry.ExecSQL;
+        finally
+          Qry.Free;
+        end;
+        Action := 'restored';
+        Changed := True;
+      end;
+    end
+    else
+    begin
+      if not IsActive then
+        Action := 'already_archived'
+      else
+      begin
+        Qry := AContext.CreateQuery(
+          'UPDATE projects SET is_active = FALSE, deleted_at = NOW() ' +
+          'WHERE id = :id');
+        try
+          Qry.ParamByName('id').AsInteger := ProjectId;
+          Qry.ExecSQL;
+        finally
+          Qry.Free;
+        end;
+        Action := 'archived';
+        Changed := True;
+      end;
+    end;
+
+    AContext.Commit;
+  except
+    AContext.Rollback;
+    raise;
+  end;
+
+  Data := TJSONObject.Create;
+  try
+    Data.AddPair('project_id', TJSONNumber.Create(ProjectId));
+    Data.AddPair('action', Action);
+    Data.AddPair('changed', TJSONBool.Create(Changed));
+    if Action = 'already_archived' then
+      Data.AddPair('hint', 'Project was already archived (no-op). ' +
+        'Use restore=true to reactivate it.')
+    else if Action = 'already_active' then
+      Data.AddPair('hint', 'Project is not archived (no-op).')
+    else if Action = 'archived' then
+      Data.AddPair('hint', 'Documents are preserved; the project is hidden ' +
+        'from listings and search. Use restore=true to reactivate.');
     Result := MxSuccessResponse(Data);
   except
     Data.Free;

@@ -136,7 +136,7 @@ type
   end;
 
 const
-  MASTER_MAP: array[0..44] of TMasterMapEntry = (
+  MASTER_MAP: array[0..45] of TMasterMapEntry = (
     // --- Read tools (20) ---
     (Tool: 'mx_ping';                     MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: True),
     (Tool: 'mx_search';                   MinLevel: alReadOnly;  AdminOnly: False; ScopeGlobalAllowed: True),
@@ -176,11 +176,12 @@ const
     (Tool: 'mx_ai_batch_log';             MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
     (Tool: 'mx_skill_feedback';           MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
     (Tool: 'mx_skill_manage';             MinLevel: alReadWrite; AdminOnly: False; ScopeGlobalAllowed: False),
-    // --- Admin-only tools (5) ---
+    // --- Admin-only tools (6) ---
     (Tool: 'mx_set_env';                  MinLevel: alReadWrite; AdminOnly: True;  ScopeGlobalAllowed: False),
     (Tool: 'mx_delete_env';               MinLevel: alReadWrite; AdminOnly: True;  ScopeGlobalAllowed: False),
     (Tool: 'mx_onboard_developer';        MinLevel: alReadWrite; AdminOnly: True;  ScopeGlobalAllowed: True),
     (Tool: 'mx_init_project';             MinLevel: alReadWrite; AdminOnly: True;  ScopeGlobalAllowed: False),
+    (Tool: 'mx_archive_project';          MinLevel: alReadWrite; AdminOnly: True;  ScopeGlobalAllowed: False),
     (Tool: 'mx_migrate_project';          MinLevel: alReadWrite; AdminOnly: True;  ScopeGlobalAllowed: False),
     // --- Comment-level tools (2, FR#2936 M2.4 + M2.5) ---
     (Tool: 'mx_create_note';              MinLevel: alComment;   AdminOnly: False; ScopeGlobalAllowed: False),

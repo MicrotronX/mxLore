@@ -506,9 +506,10 @@ begin
   if Slug = '' then
     Slug := 'doc-' + FormatDateTime('yyyymmdd-hhnnss', Now);
 
-  // Resolve project_id
+  // Resolve project_id (Spec#13054: archived projects reject new documents,
+  // consistent with the other is_active-filtered lookups in this unit)
   Qry := AContext.CreateQuery(
-    'SELECT id FROM projects WHERE slug = :slug');
+    'SELECT id FROM projects WHERE slug = :slug AND is_active = TRUE');
   try
     Qry.ParamByName('slug').AsWideString :=ProjectSlug;
     Qry.Open;

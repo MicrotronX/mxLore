@@ -318,6 +318,13 @@ begin
     .Param('svn_url', mptString, False, 'SVN URL');
 
   ARegistry
+    .Add('mx_archive_project', HandleArchiveProject)
+    .Desc('Soft-archive a project (is_active=0, documents preserved, hidden from listings/search) or restore it. Reversible; no hard delete. ACL: admin only.')
+    .Param('project', mptString, True, 'Project slug')
+    .Param('confirm', mptString, True, 'Must exactly match the project slug (typo guard)')
+    .Param('restore', mptBoolean, False, 'true = reactivate an archived project (def false)');
+
+  ARegistry
     .Add('mx_create_doc', HandleCreateDoc)
     .Desc('Create a new document with initial revision. Also replaces mx_create_note.')
     .Param('project', mptString, True, 'Project slug')

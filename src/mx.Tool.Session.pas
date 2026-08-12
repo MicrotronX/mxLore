@@ -50,7 +50,7 @@ begin
   try
     // Look up project
     Qry := AContext.CreateQuery(
-      'SELECT id FROM projects WHERE slug = :slug');
+      'SELECT id, is_active FROM projects WHERE slug = :slug');
     try
       Qry.ParamByName('slug').AsWideString :=ProjectSlug;
       Qry.Open;
@@ -61,6 +61,12 @@ begin
       // ACL: check read access to start a session
       if not AContext.AccessControl.CheckProject(ProjectId, alReadOnly) then
         raise EMxAccessDenied.Create(ProjectSlug, alReadOnly);
+
+      // Spec#13054: archived projects reject new sessions (ACL-checked first,
+      // so the archived state is only revealed to authorized callers).
+      if not Qry.FieldByName('is_active').AsBoolean then
+        raise EMxConflict.Create('Project "' + ProjectSlug + '" is archived. ' +
+          'Use mx_archive_project with restore=true to reactivate it.');
     finally
       Qry.Free;
     end;
