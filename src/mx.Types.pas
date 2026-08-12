@@ -182,6 +182,21 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 const
   MXAI_VERSION = '2.4.0';
   MXAI_BUILD   = 124;
+  // MCP initialize `instructions` (SSoT, also reused by mx_onboard). Clients
+  // with deferred-tool loading (Claude Code ToolSearch) surface this text as
+  // "MCP Server Instructions" — without it the mx_* tools are only
+  // discoverable by guessing names. Keep count-free: hardcoded tool counts rot
+  // (the old onboard text still said "40 tools total" at 46 tools).
+  MXAI_MCP_INSTRUCTIONS =
+    'mxLore project knowledge database (MariaDB + Delphi MCP server). ' +
+    'Search for mx_* tools when working with: project documentation, specs, ' +
+    'plans, decisions (ADRs), session notes, feature requests, bug reports, ' +
+    'lessons, skill evolution findings, cross-project relations, developer ' +
+    'environments, or multi-agent communication. Start sessions with ' +
+    'mx_session_start (briefing) or mx_briefing (project overview); search ' +
+    'with mx_search, read with mx_detail, write with mx_create_doc / ' +
+    'mx_update_doc. Prefer these MCP tools over local files for ' +
+    'specs/plans/decisions/notes.';
   // Build 123 (2026-07-30): Community-API-Review GH#8/#9/#11-#17 — updated_at
   // read-freeze, review-note gate fix, relation_id, CHAR_LENGTH, project-only
   // listing, doc_type SSoT lists, ADR numbering from titles+slugs,

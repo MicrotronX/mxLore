@@ -124,13 +124,22 @@ try {
 
   // --- Context-reset fact (SessionStart source) ---
   // startup | clear | compact all leave the model without the prior conversation.
-  // resume restores it, so it must NOT set the flag. mxOrchestrate Init clears
-  // the field once it has actually run mx_session_start.
+  // resume and fork (v2.1.214+) restore/copy it, so they must NOT set the flag.
+  // mxOrchestrate Init clears the field once it has actually run mx_session_start.
+  // An unrecognized source must not be silently treated as context-present:
+  // warn so the age-heuristic fallback is a conscious degradation, not a blind spot.
   const source = readHookPayload().source || '';
   const contextGone = source === 'startup' || source === 'clear' || source === 'compact';
+  const contextKept = source === 'resume' || source === 'fork';
   if (contextGone) {
     state.context_cleared_at = new Date().toISOString();
     state.context_cleared_source = source;
+  } else if (source && !contextKept) {
+    console.log(
+      `[mxOrchestrate] WARNING: unknown SessionStart source '${source}' — ` +
+      `context state unknown, falling back to the 12h age heuristic. ` +
+      `Update orchestrate-reconcile.js source lists.`
+    );
   }
 
   // --- Write back if anything changed ---

@@ -181,6 +181,10 @@ begin
   ToolsCap := TJSONObject.Create;
   Capabilities.AddPair('tools', ToolsCap);
   Result.AddPair('capabilities', Capabilities);
+
+  // MCP spec: optional server instructions, shown to the client model.
+  // Required for deferred-tool discovery in Claude Code (ToolSearch).
+  Result.AddPair('instructions', MXAI_MCP_INSTRUCTIONS);
 end;
 
 function TMxMcpProtocol.HandleToolsList: TJSONObject;

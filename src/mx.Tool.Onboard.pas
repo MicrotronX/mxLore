@@ -243,18 +243,10 @@ begin
     if IncludeAll or (Scope = 'proxy') then
       Data.AddPair('proxy', ReadProxyInfo(BasePath));
 
-    // MCP server instructions for Tool Search discovery
+    // MCP server instructions for Tool Search discovery (SSoT in mx.Types —
+    // the same text is served in the MCP initialize response).
     if IncludeAll then
-      Data.AddPair('mcp_instructions',
-        'Project knowledge database (MariaDB + Delphi MCP-Server). ' +
-        'Search for mx_* tools when working with: project documentation, ' +
-        'specs, plans, decisions (ADRs), session notes, feature requests, ' +
-        'bug reports, skill evolution findings, cross-project relations, ' +
-        'developer environments, or multi-agent communication. Key tools: ' +
-        'mx_briefing (project overview), mx_search (full-text search), ' +
-        'mx_detail (document content), mx_session_start (begin session), ' +
-        'mx_create_doc/mx_update_doc (write), mx_skill_record_finding ' +
-        '(skill evolution). 40 tools total.');
+      Data.AddPair('mcp_instructions', MXAI_MCP_INSTRUCTIONS);
 
     // mx_rules: CLAUDE.md template with markers for auto-update
     if IncludeAll or (Scope = 'mx_rules') then
