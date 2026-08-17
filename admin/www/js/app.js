@@ -2389,10 +2389,18 @@ var App = (function () {
       var data = await Api.getTokenStats();
       var el = document.getElementById('token-stats-card');
       if (!el) return;
-      var savings = data.savings_pct || 0;
-      var avgProjK = Math.round((data.avg_available_tokens || 0) / 1000);
       var avgAvail = data.avg_available_tokens || 0;
-      var avgSessK = savings > 0 ? Math.round((avgAvail * (1 - savings / 100)) / 1000) : Math.round((data.avg_tokens_per_session || 0) / 1000);
+      var avgProjK = Math.round(avgAvail / 1000);
+      // Delivered comes straight from the server (access_log avg) — never derive it
+      // from the integer-rounded savings_pct: at real savings >= 99.5% that rounds
+      // to 100 and the back-calculation collapses to 0K while savings shows "100%".
+      var avgDelivered = data.avg_tokens_per_session || 0;
+      var avgSessK = avgDelivered >= 1000 ? Math.round(avgDelivered / 1000) : (avgDelivered > 0 ? (avgDelivered / 1000).toFixed(1) : 0);
+      // Savings with 2 decimals, computed client-side from the raw averages;
+      // the server's savings_pct is integer-rounded and only kept as fallback.
+      var savings = (avgAvail > 0 && avgDelivered > 0)
+        ? (Math.max(0, (1 - avgDelivered / avgAvail) * 100)).toFixed(2)
+        : (data.savings_pct || 0);
       el.innerHTML =
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;text-align:center">' +
           '<div><div style="font-size:1.8rem;font-weight:700;color:var(--accent)">' + savings + '%</div>' +

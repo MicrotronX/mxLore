@@ -224,10 +224,7 @@ begin
       Qry.Free;
     end;
 
-    // 5. MCP tools count (36 tools as of Build 66)
-    Json.AddPair('mcp_tools_count', TJSONNumber.Create(36));
-
-    // 6. Installed skills (scan claude-setup/skills/)
+    // 5. Installed skills (scan claude-setup/skills/)
     var InstalledArr := TJSONArray.Create;
     Json.AddPair('installed_skills', InstalledArr);
     var SkillsDir := TPath.Combine(ExtractFilePath(ParamStr(0)), 'claude-setup\skills');
@@ -275,7 +272,7 @@ begin
       end;
     end;
 
-    // 7. AI-Batch Status
+    // 6. AI-Batch Status
     var BatchArr := TJSONArray.Create;
     var BatchObj := TJSONObject.Create;
     Json.AddPair('ai_batch', BatchObj);
@@ -320,7 +317,7 @@ begin
     BatchObj.AddPair('total_calls', TJSONNumber.Create(BatchTotalCalls));
     BatchObj.AddPair('total_tokens', TJSONNumber.Create(BatchTotalTokens));
 
-    // 8. Feature Tracking (non-finding metrics)
+    // 7. Feature Tracking (non-finding metrics)
     var FeatArr := TJSONArray.Create;
     Json.AddPair('features', FeatArr);
 

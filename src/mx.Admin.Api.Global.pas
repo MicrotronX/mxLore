@@ -1090,7 +1090,10 @@ begin
       'SELECT ' +
       '  COUNT(*) AS total_docs, ' +
       '  SUM(CASE WHEN embedding IS NOT NULL THEN 1 ELSE 0 END) AS embedded, ' +
-      '  SUM(CASE WHEN embedding_stale = 1 AND embedding IS NULL THEN 1 ELSE 0 END) AS stale ' +
+      // stale = has an embedding whose source content changed afterwards;
+      // never-embedded docs also carry embedding_stale=1 (default) but are
+      // "pending", not stale — they are already visible via the coverage gap.
+      '  SUM(CASE WHEN embedding_stale = 1 AND embedding IS NOT NULL THEN 1 ELSE 0 END) AS stale ' +
       'FROM documents WHERE status <> ''deleted'' ' +
       'AND doc_type IN (''spec'',''plan'',''decision'',''lesson'',''note'',' +
       '''reference'',''snippet'',''bugreport'',''feature_request'',''todo'',''assumption'',''skill'')');
@@ -1204,8 +1207,10 @@ begin
       var AvgAvailable := Qry.FieldByName('avg_available').AsFloat;
       var AvgDelivered := Qry.FieldByName('avg_delivered').AsFloat;
       if AvgAvailable > 0 then
+        // two decimals — integer rounding collapses real 99.5%+ savings to a
+        // misleading "100" (and back-calculated delivered values to 0)
         Json.AddPair('savings_pct', TJSONNumber.Create(
-          Max(0, Round((1 - (AvgDelivered / AvgAvailable)) * 100))))
+          Max(0.0, Round((1 - (AvgDelivered / AvgAvailable)) * 10000) / 100)))
       else
         Json.AddPair('savings_pct', TJSONNumber.Create(0));
       Json.AddPair('avg_available_tokens', TJSONNumber.Create(Round(AvgAvailable)));
