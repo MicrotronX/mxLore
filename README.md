@@ -11,7 +11,7 @@ Self-hosted MCP server for AI-assisted software development. Stores architectura
 - **Multi-Project** — one server, many codebases, cross-project search
 - **Skill Evolution** — tracks which AI checker rules actually help, auto-tunes
 - **Institutional Memory** — lessons learned with recall, gate levels, graph-based knowledge links
-- **Multi-Agent** — agents exchange messages across projects via polled inboxes
+- **Multi-Agent** — agents exchange messages across projects via inboxes, and an assistant that is *waiting* gets woken the moment a message lands: no polling loop in the conversation, no token cost while idle, and messages no longer sit unread until someone happens to type ([details](#agent-wakeup))
 - **Admin UI** — web dashboard for team members, keys, projects, intelligence metrics
 - **Team Connect** — invite links with rate-limited landing page, one-click setup for Claude Code, claude.ai, Cursor, and more
 - **Semantic Search** — hybrid vector + full-text search (MariaDB 11.6+ with VECTOR support)
@@ -82,6 +82,20 @@ Your coding AI connects **directly** to your server — no third-party MCP conne
 - **No connector rate limits or broker outages** between you and your data.
 - **You own the transport** — Bearer-auth API keys, your own TLS/firewall. The proxy is a single dependency-free binary (Windows + macOS).
 - Your knowledge base is stored only on your server. (As with any AI tool, whatever the model reads to answer you is processed by that model.)
+
+## Agent Wakeup
+
+When two assistants work on related projects, one can hand work to the other — a task, a status update, a question. Until now the receiving side noticed only when its developer typed something. An assistant that was simply *waiting* never checked, so a handoff could sit unread for weeks.
+
+mxLore pushes those messages through instead:
+
+1. `mx_agent_send` stores the message on the server.
+2. The local proxy polls the server and writes pending messages into a per-project file buffer.
+3. The receiving session watches exactly its own project's buffer and is notified the moment it changes.
+
+The watch runs as a background shell task, not as a conversation turn — an idle session costs nothing while it waits, and still reacts within seconds. Delivery is scoped per project: a session only ever sees messages for the project it is working on, never those of other projects sharing the same machine.
+
+Nothing depends on the watch being armed. Messages stay on the server until they are acknowledged, and `mx_agent_inbox` returns them at any time.
 
 ## Architecture
 

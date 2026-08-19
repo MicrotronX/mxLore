@@ -35,6 +35,14 @@ This skill fires on:
      → `mx_session_start(project, include_briefing=true, setup_version=<version>)`→session_id (overwrite cached)+Response into state, `state.last_reconciliation ← now_utc` (`date -u +%Y-%m-%dT%H:%MZ`, Timestamp base), clear `context_cleared_at`/`context_cleared_source`
      → Error=Local(`docs/ops/workflow-log.md`+warning)
    - ⚡ The hook must NEVER stamp `last_reconciliation` — that field means "reconciled against MCP", and JS hooks cannot reach MCP. Stamping it there resets the very signal the fallback reads.
+3a. **Agent-inbox wakeup (Monitor arming) ⚡ Main-only:** a *waiting* instance never submits a prompt, so the `UserPromptSubmit` inbox hook never fires for it and the message sits in the file buffer indefinitely (live 2026-08-19: three undelivered messages, oldest six weeks). Push delivery needs a `Monitor`, armed here.
+   - **Guard (idempotent):** arm only when `state.agent_watch_session_id != state.session_id` (or absent), then write the current `session_id` AND the returned task id (`agent_watch_task_id`) into the state in the same edit. Equal → already armed this session, skip; a second watcher only duplicates every notification.
+   - ⚡ **Tear down before re-arming:** `session_id` rotates *within one process* (STALE ≥12h fallback, explicit-trigger fail-open, `context_cleared_at` after `/clear`). A Monitor is a persistent background task that is NOT tied to the state file, so a re-arm without teardown leaves the previous watcher running — N rotations → N live watchers → N duplicate lines per message. Before arming, if `state.agent_watch_task_id` is set → `TaskStop(that id)`, ignoring failure (already dead is fine).
+   - ⚡ **Slug filter is MANDATORY:** watch EXACTLY `agent_inbox_<slug>.json`, slug from CLAUDE.md `**Slug:**` (step 1). **NEVER** an `agent_inbox_*.json` glob. The inbox dir is machine-wide — every proxy process on the host writes its own project's file there, so a glob drags foreign projects' messages into this session's context (observed live 2026-08-19).
+   - ⚡ **Main-only, NEVER from a subagent:** a Monitor armed inside a subagent notifies THAT subagent, not the main thread — the same main-vs-sub split that sank an earlier response-injection design.
+   - `Monitor(command=<poll loop>, persistent=true)` over `$HOME/.claude/agent_inbox/agent_inbox_<slug>.json`, 5s. ⚡ Signature via `cksum < "$F"` (content, not `stat` mtime+size: 1s mtime granularity plus an unchanged byte count would hide a rewrite). ⚡ Report an already-present file once at arm time — otherwise a message that arrived before arming stays invisible forever.
+   - ⚡ **Fire on DISAPPEARANCE too, never gate on "file exists":** `agent_inbox_check.sh` is keyed by slug, NOT by session — a second session on the same project deletes the buffer the moment its user types, and the proxy then ACKs because the file is gone. A watcher that only fires on a non-empty signature misses that message silently and in full. So: signature changed AND now empty → emit a line saying the buffer was cleared by another delivery path, prompting a confirming `mx_agent_inbox`. A redundant wakeup costs one turn; a silent miss costs the message.
+   - On notification → `mx_agent_inbox(project=<slug>)` → handle → `mx_agent_ack`. Empty inbox on a disappearance event is the expected benign case, not an error. ∅inbox dir → skip silently, no error.
 4. **Auto-Detect: Project Setup** (see below)
 5. → Mode routing by argument
 
@@ -77,7 +85,7 @@ Main loop on premium model (Fable/Opus) → every subagent spawn (Agent-Tool, te
 Schema v2, stack rules, and internal operations → `references/state-schema.md`. Key invariant: `last_save_deltas` is owned by mxSave Step 4 (SSoT, the single-writer rule). All state writes follow Edit-vs-Write discipline (see Tool Budget table above + Rules section).
 
 ## Mode 1: Init
-Forces `mx_session_start` ignoring cached `session_id` (see Init pre-routing step 3); loads workflows from the response into `workflow_stack`; resets `events_log`. Multi-Agent Auto-Listener: response contains `active_peers` -> `/mxAgentListen` background agent.
+Forces `mx_session_start` ignoring cached `session_id` (see Init pre-routing step 3); loads workflows from the response into `workflow_stack`; resets `events_log`. Multi-agent wakeup is armed in Init pre-routing step 3a (slug-filtered Monitor), NOT here — there is no `/mxAgentListen` skill.
 
 ## Mode 2: Start (Create workflow)
 1. Search workflow template: `docs/workflows.md`(project) then `~/.claude/skills/mxOrchestrate/workflows.md`(global). ∅template→?user→ad-hoc

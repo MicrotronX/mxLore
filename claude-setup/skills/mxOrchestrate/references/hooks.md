@@ -16,6 +16,7 @@ mxOrchestrate is hook-driven. The hooks live in `~/.claude/hooks/` and are regis
 - **Line 2:** team status (idle / N running / recent results).
 - **Line 3:** rule reminder. Examples: `NO_WORKFLOW` auto-track hint, `JUST_COMPLETED` warning, staleness nudge.
 - **Auto-tracking signals:** see "Auto-Tracking" section in SKILL.md (Rules 1-3).
+- ⚡ **Delivery gap (agent inbox):** the sibling `agent_inbox_check.sh` hook on this same event is the ONLY prompt-driven delivery path for agent messages — so it never delivers to an instance that is *waiting*, because a waiting instance submits no prompt. That gap is closed by the slug-filtered Monitor armed in SKILL.md Init step 3a, not here. The hook is also keyed by slug, not by session: a second session on the same project consumes and deletes the buffer, which is why the Monitor must fire on disappearance too.
 
 ## PreCompact hook — ⚡ DORMANT
 
