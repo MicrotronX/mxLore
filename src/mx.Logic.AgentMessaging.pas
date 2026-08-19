@@ -42,6 +42,14 @@ type
                                    //   NOT (sender_client_key_id = MyClientKeyId AND sender_pid = ProjectId).
                                    //   KEY-granular (not developer) so two keys of one dev see each other.
                                    //   NULL-guarded: legacy NULL-key rows are never suppressed.
+    FilterTargetClientKey: Boolean;// sql/052 (BR#13641) => (target_client_key_id IS NULL
+                                   //   OR = MyClientKeyId). NULL = broadcast to every instance,
+                                   //   which is what every pre-sql/052 row and every sender that
+                                   //   omits a target instance produces — so this filter only ever
+                                   //   HIDES messages explicitly addressed elsewhere.
+                                   //   ⚡ Set it on every path that has a key identity. Without it
+                                   //   two instances of one developer in one project see (and can
+                                   //   ack) each other's mail — the defect sql/052 exists to fix.
   end;
 
   TAgentInboxRow = record
@@ -61,6 +69,10 @@ type
     HasTargetDeveloperId: Boolean;
     TargetDeveloperName: string;
     HasTargetDeveloperName: Boolean;
+    TargetClientKeyId: Integer;      // sql/052; absent => broadcast to any instance
+    HasTargetClientKeyId: Boolean;
+    TargetClientKeyName: string;
+    HasTargetClientKeyName: Boolean;
   end;
 
   TAgentAckOptions = record
@@ -70,6 +82,14 @@ type
                               // false; MCP-tool path sets true.
     ProjectId: Integer;       // Only meaningful when EnforceOwnership=true.
     NewStatus: string;        // 'read' or 'archived'
+    RestrictToMyClientKey: Boolean;// sql/052 (BR#13641) => add
+                              // AND (target_client_key_id IS NULL OR = MyClientKeyId).
+                              // ⚡ Project ownership alone is NOT enough: two instances of
+                              // one developer in one project both pass it, so either could
+                              // quit the other's mail and the real recipient never saw it.
+                              // Ack must mirror the inbox filter — you may only ack what
+                              // you were allowed to READ.
+    MyClientKeyId: Integer;   // Only meaningful when RestrictToMyClientKey=true.
   end;
 
 /// Archive messages past their expires_at so proxy pollers and MCP-tool callers
@@ -115,11 +135,13 @@ begin
     'SELECT am.id, am.message_type, am.payload, am.ref_doc_id, ' +
     '  am.ref_message_id, am.priority, am.created_at, ' +
     '  am.target_developer_id, td.name AS target_developer_name, ' +
+    '  am.target_client_key_id, tk.name AS target_client_key_name, ' +
     '  p.slug AS sender_project, d.name AS sender_name ' +
     'FROM agent_messages am ' +
     'JOIN projects p ON am.sender_project_id = p.id ' +
     'JOIN developers d ON am.sender_developer_id = d.id ' +
     'LEFT JOIN developers td ON am.target_developer_id = td.id ' +
+    'LEFT JOIN client_keys tk ON am.target_client_key_id = tk.id ' +
     'WHERE am.target_project_id = :pid AND am.status = ''pending''';
 
   if AOpts.FilterTargetDeveloper then
@@ -141,6 +163,31 @@ begin
       '  AND NOT (am.sender_client_key_id IS NOT NULL ' +
       '           AND am.sender_client_key_id = :my_key2 ' +
       '           AND am.sender_project_id = :my_pid2)';
+
+  // sql/052 (BR#13641): receiver-instance filter. A NULL target_client_key_id
+  // means "any instance" — that is every pre-migration row and every send that
+  // omits a target instance — so this clause can only ever hide mail that was
+  // explicitly addressed to a DIFFERENT key. Distinct param name `:my_key3` for
+  // the same FireDAC macro-expansion reason documented above.
+  //
+  // ⚡ DEAD-KEY ESCAPE HATCH (third leg): a key is never DELETEd on the revoke
+  // path — revoke and rotation both flip is_active=FALSE, and rotation then
+  // inserts a NEW key row (new id, SAME name). The FK's ON DELETE SET NULL
+  // therefore never fires for them. Without this leg a message addressed to a
+  // rotated-away key would match no live instance ever again: invisible and
+  // unackable forever — reintroducing exactly the silent loss BR#13641 is
+  // about. Once the target key is no longer active the message degrades to a
+  // broadcast, which is what SET NULL was meant to achieve.
+  // ⚡ This clause is mirrored in AckAgentMessages — same three legs, differing
+  // only in the `am.` prefix and the param name. Read and ack must never
+  // disagree about who may see a message. Change both or neither.
+  if AOpts.FilterTargetClientKey then
+    Result := Result +
+      '  AND (am.target_client_key_id IS NULL ' +
+      '       OR am.target_client_key_id = :my_key3 ' +
+      '       OR NOT EXISTS (SELECT 1 FROM client_keys ak ' +
+      '                      WHERE ak.id = am.target_client_key_id ' +
+      '                        AND ak.is_active = 1))';
 
   Result := Result + ' ORDER BY am.created_at ASC LIMIT :lim';
 end;
@@ -167,6 +214,8 @@ begin
       Qry.ParamByName('my_key2').AsInteger := AOpts.MyClientKeyId;
       Qry.ParamByName('my_pid2').AsInteger := AOpts.ProjectId;
     end;
+    if AOpts.FilterTargetClientKey then
+      Qry.ParamByName('my_key3').AsInteger := AOpts.MyClientKeyId;
     Qry.ParamByName('lim').AsInteger := AOpts.LimitCount;
     Qry.Open;
 
@@ -203,6 +252,14 @@ begin
       Row.HasTargetDeveloperName := not Qry.FieldByName('target_developer_name').IsNull;
       if Row.HasTargetDeveloperName then
         Row.TargetDeveloperName := Qry.FieldByName('target_developer_name').AsString;
+
+      Row.HasTargetClientKeyId := not Qry.FieldByName('target_client_key_id').IsNull;
+      if Row.HasTargetClientKeyId then
+        Row.TargetClientKeyId := Qry.FieldByName('target_client_key_id').AsInteger;
+
+      Row.HasTargetClientKeyName := not Qry.FieldByName('target_client_key_name').IsNull;
+      if Row.HasTargetClientKeyName then
+        Row.TargetClientKeyName := Qry.FieldByName('target_client_key_name').AsString;
 
       Rows[Count] := Row;
       Inc(Count);
@@ -254,10 +311,29 @@ begin
   if AOpts.EnforceOwnership then
     Sql := Sql + ' AND target_project_id = :pid';
 
+  // sql/052 (BR#13641): mirror the inbox visibility rule. A NULL target key is
+  // a broadcast and stays ackable by anyone in the project (unchanged legacy
+  // behaviour); a message addressed to a specific instance can only be quit by
+  // that instance. Without this, ownership stops at the project boundary and
+  // the ack trap remains wide open between two instances of one developer.
+  // ⚡ Mirrored from BuildInboxSql — same three legs including the dead-key
+  // escape hatch, so a message that became visible again after a key rotation
+  // is also ackable again. Read and ack disagreeing about visibility is how the
+  // original defect arose; keep the two clauses semantically identical.
+  if AOpts.RestrictToMyClientKey then
+    Sql := Sql +
+      ' AND (target_client_key_id IS NULL' +
+      '      OR target_client_key_id = :ackkey' +
+      '      OR NOT EXISTS (SELECT 1 FROM client_keys ak' +
+      '                     WHERE ak.id = target_client_key_id' +
+      '                       AND ak.is_active = 1))';
+
   Qry := AContext.CreateQuery(Sql);
   try
     if AOpts.EnforceOwnership then
       Qry.ParamByName('pid').AsInteger := AOpts.ProjectId;
+    if AOpts.RestrictToMyClientKey then
+      Qry.ParamByName('ackkey').AsInteger := AOpts.MyClientKeyId;
     Qry.ExecSQL;
     Result := Qry.RowsAffected;
   finally

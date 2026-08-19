@@ -153,9 +153,10 @@ const
 var
   Auth: TMxAuthResult;
   Qry: TFDQuery;
-  TargetSlug, MsgType, Payload: string;
+  TargetSlug, MsgType, Payload, TargetClientKeyName: string;
   TargetProjectId, SenderProjectId, SenderSessionId, RefDocId, MsgId: Integer;
-  TargetDeveloperId, PayloadLen: Integer;
+  TargetDeveloperId, PayloadLen, TargetClientKeyId: Integer;
+  KeyQry: TFDQuery;
   Data: TJSONObject;
   Warnings: TJSONArray;
   IsSelfTarget, IsAdmin, TargetIsAdmin, TargetHasReadWrite: Boolean;
@@ -170,6 +171,8 @@ begin
   Payload := AParams.GetValue<string>('payload', '');
   RefDocId := AParams.GetValue<Integer>('ref_doc_id', 0);
   TargetDeveloperId := AParams.GetValue<Integer>('target_developer_id', 0);
+  TargetClientKeyName := Trim(AParams.GetValue<string>('target_client_key', ''));
+  TargetClientKeyId := 0;
 
   if TargetSlug = '' then
     raise EMxValidation.Create('Parameter "target_project" is required');
@@ -206,6 +209,75 @@ begin
 
   // Resolve target project (need Read access)
   TargetProjectId := ResolveProject(AContext, TargetSlug, alReadOnly);
+
+  // sql/052 (BR#13641): optional instance addressing. `target_client_key` is
+  // the human-readable key NAME as reported by mx_agent_peers (e.g. "MAC-M4"),
+  // because a sender knows peers by name, not by id. Omitted => NULL => the
+  // message broadcasts to every instance, which is the pre-052 behaviour.
+  //
+  // ⚡ Resolved HERE, before IsSelfTarget and before every ACL gate below, and
+  // it DERIVES target_developer_id when the caller omitted it. Addressing an
+  // instance implies addressing its owner, so deriving the id makes the whole
+  // existing permission apparatus (project access, accept_agent_messages,
+  // send-level rules, self-target handling) apply unchanged — instead of this
+  // new parameter quietly bypassing all of it, which is what happened while the
+  // resolution sat further down next to the INSERT.
+  //
+  // ⚡ Scope: `client_keys.name` has NO unique constraint, not even per
+  // developer. A bare name lookup could resolve to an unrelated developer's key
+  // with no connection to this project — misrouting the message or stranding it
+  // where nobody polls. So the lookup is restricted to keys whose owner holds a
+  // developer_project_access row for the target project, and an ambiguous name
+  // is a hard error rather than a silent pick: delivering to the wrong instance
+  // is precisely the failure this addressing exists to prevent.
+  //
+  // ⚡ NO admin-by-role exemption here, deliberately. The target-validation
+  // block further down checks developer_project_access WITHOUT an admin bypass,
+  // so exempting admins here would resolve a key and then fail the send with
+  // INVALID_TARGET — a key that looks addressable but is not. This lookup
+  // therefore mirrors that block exactly. Consequence: an admin whose account
+  // has no access row for the project cannot be addressed by instance, same as
+  // they cannot be addressed by target_developer_id today. Loosening that rule
+  // is an ACL change and does not belong in this bugfix.
+  if TargetClientKeyName <> '' then
+  begin
+    var KeySql :=
+      'SELECT ck.id, ck.developer_id FROM client_keys ck ' +
+      'JOIN developers d ON ck.developer_id = d.id ' +
+      'WHERE ck.name = :kname AND ck.is_active = 1 AND d.is_active = 1 ' +
+      '  AND EXISTS (' +
+      '        SELECT 1 FROM developer_project_access dpa ' +
+      '        WHERE dpa.developer_id = ck.developer_id ' +
+      '          AND dpa.project_id = :ktpid)';
+    if TargetDeveloperId > 0 then
+      KeySql := KeySql + ' AND ck.developer_id = :kdid';
+    KeyQry := AContext.CreateQuery(KeySql);
+    try
+      KeyQry.ParamByName('kname').AsWideString := TargetClientKeyName;
+      KeyQry.ParamByName('ktpid').AsInteger := TargetProjectId;
+      if TargetDeveloperId > 0 then
+        KeyQry.ParamByName('kdid').AsInteger := TargetDeveloperId;
+      KeyQry.Open;
+      if KeyQry.IsEmpty then
+        raise EMxValidation.Create('No active client key named "' +
+          TargetClientKeyName + '" with access to the target project — use ' +
+          'mx_agent_peers to list reachable instance names (field ' +
+          '"client_key_name")');
+      TargetClientKeyId := KeyQry.FieldByName('id').AsInteger;
+      // Derive the owner so every gate below treats this as a developer-directed
+      // message. Never OVERWRITE an explicit target_developer_id — the query
+      // above already constrained the key to that developer in that case.
+      if TargetDeveloperId = 0 then
+        TargetDeveloperId := KeyQry.FieldByName('developer_id').AsInteger;
+      KeyQry.Next;
+      if not KeyQry.Eof then
+        raise EMxValidation.Create('Client key name "' + TargetClientKeyName +
+          '" is ambiguous — several active keys share it. Add ' +
+          '"target_developer_id" to disambiguate');
+    finally
+      KeyQry.Free;
+    end;
+  end;
 
   // M3.1 asymmetric send-rules per sender effective level on sender project:
   //   admin            -> any project, any target
@@ -332,9 +404,11 @@ begin
   Qry := AContext.CreateQuery(
     'INSERT INTO agent_messages ' +
     '(sender_session_id, sender_project_id, sender_developer_id, sender_client_key_id, ' +
-    ' target_project_id, target_developer_id, message_type, payload, ref_doc_id, ' +
+    ' target_project_id, target_developer_id, target_client_key_id, ' +
+    ' message_type, payload, ref_doc_id, ' +
     ' priority, expires_at) ' +
-    'VALUES (:sid, :spid, :did, :ckid, :tpid, :tdid, :mtype, :payload, :rdid, ' +
+    'VALUES (:sid, :spid, :did, :ckid, :tpid, :tdid, :tckid, ' +
+    ' :mtype, :payload, :rdid, ' +
     ' :prio, DATE_ADD(NOW(), INTERVAL :ttl DAY))');
   try
     Qry.ParamByName('sid').AsInteger := SenderSessionId;
@@ -354,6 +428,14 @@ begin
       Qry.ParamByName('tdid').AsInteger := TargetDeveloperId
     else
       Qry.ParamByName('tdid').Clear;
+    // sql/052: receiver instance. NULL = broadcast to every instance of the
+    // target developer(s) — the pre-052 behaviour and the default whenever the
+    // sender omits "target_client_key".
+    Qry.ParamByName('tckid').DataType := ftInteger;
+    if TargetClientKeyId > 0 then
+      Qry.ParamByName('tckid').AsInteger := TargetClientKeyId
+    else
+      Qry.ParamByName('tckid').Clear;
     Qry.ParamByName('mtype').AsWideString :=MsgType;
     Qry.ParamByName('payload').AsWideString :=Payload;
     Qry.ParamByName('rdid').DataType := ftInteger;
@@ -443,6 +525,10 @@ begin
   Opts.MyClientKeyId := Auth.KeyId;    // sql/050 key-granular self-echo discriminator
   Opts.FilterTargetDeveloper := True;  // Spec #1964 broadcast/direct filter
   Opts.FilterSelfEcho := True;         // Build 105 intra-project self-talk guard
+  // sql/052 (BR#13641) receiver-instance filter. ⚡ Gated on a real key identity:
+  // with KeyId = 0 the clause would degenerate to `= 0` and hide every targeted
+  // message from a caller that simply has no key.
+  Opts.FilterTargetClientKey := Auth.KeyId > 0;
 
   // FR#3836: Logic layer handles archive-expired pre-step + query + filters +
   // record materialisation. Shell only builds the MCP-tool JSON response shape.
@@ -470,6 +556,16 @@ begin
           JRow.AddPair('target_developer_id',
             TJSONNumber.Create(Rows[I].TargetDeveloperId));
           JRow.AddPair('target_developer_name', Rows[I].TargetDeveloperName);
+        end;
+        // sql/052 (BR#13641): receiver instance. Emitted only when the message
+        // was addressed to one — absent means it went to every instance. The
+        // reader needs this to tell "meant for me" from "meant for all of us".
+        if Rows[I].HasTargetClientKeyId then
+        begin
+          JRow.AddPair('target_client_key_id',
+            TJSONNumber.Create(Rows[I].TargetClientKeyId));
+          if Rows[I].HasTargetClientKeyName then
+            JRow.AddPair('target_client_key', Rows[I].TargetClientKeyName);
         end;
         JRow.AddPair('created_at', Rows[I].CreatedAt);
         Messages.Add(JRow);
@@ -530,6 +626,18 @@ begin
   // must specify which project they are acking messages for.
   Opts.EnforceOwnership := True;
   Opts.ProjectId := ResolveProject(AContext, ProjectSlug, alReadOnly);
+
+  // BR#13641 / sql/052: project ownership alone let either instance of one
+  // developer quit the other's mail — the real recipient then never saw it and
+  // the loss was silent. Ack now mirrors the inbox visibility rule: broadcasts
+  // (NULL target key) stay ackable by anyone in the project, but a message
+  // addressed to a specific instance can only be quit by that instance.
+  // ⚡ Gate on a REAL key identity: with KeyId = 0 the clause would degenerate to
+  // `target_client_key_id = 0`, matching nothing, and a caller without key
+  // identity could suddenly ack only broadcasts. No identity => no restriction
+  // (legacy behaviour), never a silently narrowed one.
+  Opts.MyClientKeyId := MxGetThreadAuth.KeyId;
+  Opts.RestrictToMyClientKey := Opts.MyClientKeyId > 0;
 
   SetLength(Ids, MsgIds.Count);
   for I := 0 to MsgIds.Count - 1 do

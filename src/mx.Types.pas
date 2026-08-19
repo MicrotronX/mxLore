@@ -181,7 +181,13 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 125;
+  MXAI_BUILD   = 126;
+  // Build 126 (2026-08-19): agent messages can be addressed to ONE INSTANCE
+  //   of a developer (sql/052 `target_client_key_id`, BR#13641). Two clients
+  //   of one developer in one project used to share a mailbox: each saw the
+  //   other's mail and could ack it away unseen. Also fixes the filter
+  //   asymmetry where the REST poll path read the same table with all filters
+  //   OFF while the MCP tool path had them ON.
   // Build 125 (2026-08-12): MCP initialize response now serves the
   //   `instructions` field (MXAI_MCP_INSTRUCTIONS SSoT, also reused by
   //   mx_onboard) for deferred-tool discovery in Claude Code.

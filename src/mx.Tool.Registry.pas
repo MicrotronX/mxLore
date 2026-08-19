@@ -530,19 +530,20 @@ begin
   // ---- AGENT COMMUNICATION TOOLS ----
   ARegistry
     .Add('mx_agent_send', HandleAgentSend)
-    .Desc('Send message to another project agent or a specific developer in the same project')
+    .Desc('Send message to another project agent, a specific developer, or one instance of a developer')
     .Param('project', mptString, True, 'Sender project slug')
     .Param('target_project', mptString, True, 'Target project slug')
     .Param('message_type', mptString, True, 'task, info, question, response, status, setup_report')
     .Param('payload', mptString, True, 'Message payload (JSON string, max 16KB)')
     .Param('target_developer_id', mptInteger, False, 'Target developer ID (intra-project direct message; empty = broadcast to all devs)')
+    .Param('target_client_key', mptString, False, 'Target INSTANCE: client key name from mx_agent_peers ("client_key_name", e.g. "MAC-M4"). Use when one developer runs several machines/clients in one project and the message is meant for exactly one of them - only that instance sees and can ack it. Empty = every instance of the target developer(s). Ambiguous names are rejected; add target_developer_id to disambiguate')
     .Param('ref_doc_id', mptInteger, False, 'Referenced document ID')
     .Param('priority', mptString, False, 'normal (def) or urgent')
     .Param('ttl_days', mptInteger, False, 'TTL in days (1-30, default 1)');
 
   ARegistry
     .Add('mx_agent_inbox', HandleAgentInbox)
-    .Desc('Get pending messages for a project (filtered by current developer)')
+    .Desc('Get pending messages for a project (filtered by current developer and instance; messages addressed to another instance are not returned and cannot be acked)')
     .Param('project', mptString, True, 'Project slug')
     .Param('limit', mptInteger, False, 'Max messages (def 20, max 50)');
 

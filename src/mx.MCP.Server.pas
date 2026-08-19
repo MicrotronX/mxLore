@@ -460,17 +460,32 @@ begin
       Exit;
     end;
 
-    // FR#3836: delegate fetch to Logic-layer. REST path does not filter by
-    // target_developer (proxy poller has no dev identity) and does not apply
-    // the self-echo guard (proxy is not an agent). Archive-expired runs
-    // inside FetchAgentInbox — fixes the pre-FR#3836 asymmetry where the
-    // REST path left expired messages as 'pending' forever (CC2050 review).
+    // FR#3836: delegate fetch to Logic-layer. Archive-expired runs inside
+    // FetchAgentInbox — fixes the pre-FR#3836 asymmetry where the REST path
+    // left expired messages as 'pending' forever (CC2050 review).
+    //
+    // BR#13641: this path MUST apply the same filters as the mx_agent_inbox
+    // tool. It previously passed identity 0 and both filters False, arguing
+    // "the proxy poller has no dev identity". That was wrong: the poller
+    // authenticates with a developer's API key — the very key CheckProject
+    // above validates — so its identity is right here in Ctx. With the
+    // filters off, the two read paths over agent_messages returned different
+    // sets: the file buffer got every pending row of the project (including
+    // the caller's OWN sent messages and rows addressed to another developer),
+    // while the tool got the filtered subset. A file-watching consumer then
+    // saw self-echo on every send and had to grep the raw buffer to
+    // compensate — a client working around a server defect. Identity comes
+    // from the same accessors the tool path uses, so both stay in lockstep.
     Opts.ProjectId := ProjectId;
-    Opts.MyDeveloperId := 0;
-    Opts.MyClientKeyId := 0;  // sql/050: unused here (FilterSelfEcho=False) — init for hygiene
+    Opts.MyDeveloperId := Ctx.AccessControl.GetDeveloperId;
+    Opts.MyClientKeyId := Ctx.AccessControl.GetClientKeyId;
     Opts.LimitCount := 20;
-    Opts.FilterTargetDeveloper := False;
-    Opts.FilterSelfEcho := False;
+    Opts.FilterTargetDeveloper := True;  // Spec #1964 broadcast/direct filter
+    Opts.FilterSelfEcho := True;         // Build 105 intra-project self-talk guard
+    // sql/052 (BR#13641) receiver-instance filter. ⚡ Gated on a real key identity:
+    // with KeyId = 0 the clause would degenerate to `= 0` and hide every targeted
+    // message from a poller that simply has no key.
+    Opts.FilterTargetClientKey := Opts.MyClientKeyId > 0;
     Rows := FetchAgentInbox(Ctx, Opts);
 
     // Compact REST response shape: {id, type, payload, from, priority, ref}
@@ -613,6 +628,15 @@ begin
     AckOpts.EnforceOwnership := False;
     AckOpts.ProjectId := 0; // unused when EnforceOwnership=false
     AckOpts.NewStatus := 'read';
+    // BR#13641 / sql/052: the proxy acks automatically once its buffer file is
+    // gone. Without this restriction that blind ack could quit a message
+    // addressed to a DIFFERENT instance, which then never received it — the ack
+    // trap reached through the REST path. A caller may only ack what the same
+    // key was allowed to read; broadcasts (NULL target key) stay ackable.
+    // ⚡ Gated on a real key identity — see the inbox path for why `= 0` must
+    // never become the filter value.
+    AckOpts.MyClientKeyId := Ctx.AccessControl.GetClientKeyId;
+    AckOpts.RestrictToMyClientKey := AckOpts.MyClientKeyId > 0;
     AckAgentMessages(Ctx, Ids, AckOpts);
 
     C.Response.StatusCode := 200;
