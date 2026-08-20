@@ -128,7 +128,14 @@ try {
       return !pre.some(t => isEnvToken(t, cwd)) && !/\$\(|`/.test(before);
     }
     if (VCS_VERBS.has(v.verb)) {
-      const sub = (v.words.find((w, i) => i > 0 && !w.startsWith('-')) || '').toLowerCase();
+      // first non-option word, skipping values of `-c k=v` / `-C dir` / `--git-dir x`
+      let sub = '';
+      for (let i = 1; i < v.words.length; i++) {
+        const w = v.words[i];
+        if (/^-(c|C|-git-dir|-work-tree|-namespace)$/.test(w)) { i++; continue; }
+        if (w.startsWith('-')) continue;
+        sub = w.toLowerCase(); break;
+      }
       return VCS_SAFE_SUB.has(sub);
     }
     if (COPY_VERBS.has(v.verb)) {
