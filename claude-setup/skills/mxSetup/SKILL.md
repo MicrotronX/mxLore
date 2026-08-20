@@ -22,7 +22,7 @@ argument-hint: "<api-key> | --update | --update-rules | --update-proxy | --with-
 
 ## Prerequisites
 - **Required CLI tools:** `curl`, `unzip`, `claude` (Claude Code CLI). Git-Bash on Windows includes curl+unzip.
-- **Node.js** — Recommended. Required for 6 of 9 hooks (Orchestrate, Recall-Gate, Recall-Outcome). Without Node.js the session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/
+- **Node.js** — Recommended. Required for 7 of 10 hooks (Orchestrate, Recall-Gate, Recall-Outcome, env-guard). Without Node.js the session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/
 
 ## First Installation (with API key)
 
@@ -113,9 +113,14 @@ claude mcp add -s user mxai-knowledge -- "$HOME/.claude/mxMCPProxy"
 ```json
 "Read(**/__history/**)",
 "Read(**/__recovery/**)",
-"Read(**/*.~*~)"
+"Read(**/*.~*~)",
+"Read(//**/.env)",
+"Read(//**/*.env)",
+"Read(//**/.env.*)"
 ```
-Keeps the Delphi IDE's revision backups (`Unit1.pas.~235~`, `__recovery\`) out of context: a stale revision still compiles, so quoting it as current silently reverts already-fixed logic. Covers the `Read` tool plus — best-effort, per the permissions docs — Grep, Glob, `@file` mentions and the Bash file commands Claude Code recognises (`cat`, `head`, `tail`, `sed`); **not** arbitrary subprocesses. ⚡ Use the cwd-relative `**/…` form shown above, not a leading slash — in user settings `Read(/__history/**)` resolves against `~/.claude/`, not against the project. Inert on non-Delphi machines (the patterns simply never match). Rationale → `reference/delphi.md` → "IDE artefacts are not source".
+⚡ **.env guard (last three, `//**/` = absolute, whole filesystem — not cwd-relative like the IDE patterns; verified live 2026-08-20: `**/.env` left a `.env` outside the project readable).** `.env` files carry secrets; the deny keeps every value out of the context window (Read, Grep, `@file`, and the shell file commands Claude Code recognises — `cat`/`head`/`tail`/`sed`/`awk` were all blocked in the live test). Interpreters (`python -c`, `node -e`, `php -r`), `source`, `while read`, redirects are NOT intercepted by the deny — that is what the `env-guard.js` PreToolUse hook in 5b is for. Key-name / value-length diagnostics stay possible ONLY through `bash ~/.claude/hooks/env-keys.sh <file> [--cmp KEY_A KEY_B]` (allow-listed by the hook): names yes, values never. `.env.example` is caught as well — accepted: it holds no values, and its key names remain readable via the helper. ⚡ Side effect (verified live): Claude Code couples `Write`/`Edit` to a Read deny, so `.env` files can no longer be created or edited with those tools either — creating/appending goes through `echo 'KEY=' >> x.env` / `printf … > x.env`, which the hook allows as long as nothing before the `>` reads an .env.
+
+The first three keep the Delphi IDE's revision backups (`Unit1.pas.~235~`, `__recovery\`) out of context: a stale revision still compiles, so quoting it as current silently reverts already-fixed logic. Covers the `Read` tool plus — best-effort, per the permissions docs — Grep, Glob, `@file` mentions and the Bash file commands Claude Code recognises (`cat`, `head`, `tail`, `sed`); **not** arbitrary subprocesses. ⚡ For the IDE patterns use the cwd-relative `**/…` form shown above, not a single leading slash — in user settings `Read(/__history/**)` resolves against `~/.claude/`, not against the project. Inert on non-Delphi machines (the patterns simply never match). Rationale → `reference/delphi.md` → "IDE artefacts are not source".
 
 **5b. Hooks** — Check each hook block. If entry missing, add it. If present, do not duplicate.
 
@@ -124,11 +129,11 @@ Keeps the Delphi IDE's revision backups (`Unit1.pas.~235~`, `__recovery\`) out o
 node --version 2>/dev/null
 ```
 If `node` not found: show warning:
-> "Node.js not found. 6 of 9 hooks (Orchestrate, Recall-Gate, Recall-Outcome) will not work without Node.js. Session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/"
+> "Node.js not found. 7 of 10 hooks (Orchestrate, Recall-Gate, Recall-Outcome, env-guard) will not work without Node.js. Session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/"
 → Only install Bash hooks, skip JS hooks (PreCompact/PostCompact prompts are DORMANT — see pointer below).
 
 Hooks table (Event → hooks → Requires) — see `references/hooks-table.md` for details.
-⚡ Load-bearing: without Node.js, 6 of 9 hooks degrade (see references file).
+⚡ Load-bearing: without Node.js, 7 of 10 hooks degrade (see references file).
 
 **5b-StatusLine** — Add `statusLine` block at top level of settings.json (NOT inside `hooks`):
 ```json

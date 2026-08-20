@@ -2,7 +2,7 @@
 # IMPORTANT: Content between mx-rules markers is managed by /mxSetup --update.
 # Place your own additions ABOVE or BELOW the marker block. Do NOT edit inside markers.
 
-<!-- mx-rules-start v2026-07-09 -->
+<!-- mx-rules-start v2026-08-20 -->
 # mx* Rules (AI-Steno: !=forbidden →=use/instead ⚡=critical ?=ask)
 
 ## Persist ⚡
@@ -35,6 +35,7 @@ N mirrored files→edit canonical 1x + cp, !N Edit calls
 ## Security ⚡
 !secrets(keys/pw/tokens/logins) in code or external →envvar
 !commit .env/.pem/.key →.claudeignore
+⚡ .env-files(.env,*.env,.env.*)=NEVER read values: !Read/cat/grep/sed/python/source/any dump. !value/prefix/grep-line/excerpt→chat/MCP-doc/agent-msg/error-text. ONLY key-names|empty/filled|value-length|equal/unequal via `bash ~/.claude/hooks/env-keys.sh <file> [--cmp A B]`. !infer meaning from length. create/append=`echo 'KEY=' >> x.env` only (Write/Edit on .env blocked by the deny). enforced: permissions.deny Read(//**/.env…)+PreToolUse env-guard.js(mxSetup 5a-Deny/5b). scope=.env only !extend to pas/dfm
 validate input(sqli,xss,cmdi). !full-files →relevant-excerpts-only
 
 ## Encoding

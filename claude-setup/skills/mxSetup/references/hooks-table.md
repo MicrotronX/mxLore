@@ -9,13 +9,15 @@ Installed into `~/.claude/settings.json` during Phase 5b. Each row lists the eve
 | `SubagentStop` | `node ~/.claude/hooks/orchestrate-subagent-flag.js` (2000ms) | Node.js | Node.js | Sets `subagent_ran_since_save: true` in orchestrate-state.json — tracker-gap bridge: subagent MCP-writes bypass the deltas counter; the flag keeps the save-band from reporting a false "nothing unsaved" |
 | `Stop` | `node ~/.claude/hooks/orchestrate-step-check.js` (3000ms) | Node.js | Node.js | After-turn step-completion check: mark steps done + sync to MCP |
 | `PreToolUse` (matcher: `Edit\|Write`) | `node ~/.claude/hooks/recall-gate.js` (2000ms) | Node.js | Node.js | Recall-Gate: before Edit/Write, check if related lessons/decisions exist and surface them |
+| `PreToolUse` (matcher: `Bash\|PowerShell`) | `node ~/.claude/hooks/env-guard.js` (2000ms) | Node.js | Node.js | .env guard: denies any shell command that could print a VALUE from an `.env`/`*.env`/`.env.*` file (interpreters, `source`, redirects, `git show`, copy-to-stdout …) — the layer `permissions.deny Read(//**/.env…)` (5a-Deny) cannot reach. Allow-listed: `bash ~/.claude/hooks/env-keys.sh <file> [--cmp A B]` (key names + value lengths only) and pure file-management verbs (`ls`, `rm`, `git add/status`, `cp`/`mv` only to an `.env` target or a directory), plus write-only `echo`/`printf` whose `.env` appears solely as `>`/`>>` target (the Read deny also blocks Write/Edit on `.env`, so this is how an `.env` gets created or appended). Fail-closed on globs / `rev:path` / unresolved variables, fail-open on malformed hook input. ⚡ Keep `env-keys.sh` next to it — it is the only sanctioned way to look at an `.env` |
 | `PostToolUse` (matcher: `Edit\|Write`) | `node ~/.claude/hooks/recall-outcome-hook.js` (2000ms) | Node.js | Node.js | Recall-Outcome: after Edit/Write, track whether the recalled item was actually useful |
 
 ## Node.js degradation (load-bearing)
 
-⚡ Without Node.js, **6 of 9 hooks degrade**:
+⚡ Without Node.js, **7 of 10 hooks degrade**:
 - Orchestrate reconcile / status / step-check / subagent-flag (4 hooks) → no workflow state tracking, no step auto-complete, no subagent tracker-gap flag
 - Recall-Gate + Recall-Outcome (2 hooks) → no pre-edit recall, no outcome tracking
+- env-guard (1 hook) → .env values are protected only by `permissions.deny` (Read/Grep/cat…) and the mx-rules text; shell interpreters are no longer intercepted
 
 Only `agent_inbox_check.sh` and the Bash-based `statusline-command.sh` keep working.
 
