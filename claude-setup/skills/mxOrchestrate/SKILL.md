@@ -182,6 +182,9 @@ Full overview:
 ## Auto-Invoke (all workflow modes)
 - Non-optional auto-execute -> step `done` + state update + log event. Optional -> ?user (`skip` -> `skipped`). Conditional -> check, no match -> `skipped`.
 - Analysis skills (mxDesignChecker, mxBugChecker) -> Agent-Tool (`model` per Model Tiering ⚡). Other mx*/superpowers:*/frontend-design -> Skill-Tool. Independent steps -> parallel via Agent-Tool.
+- ⚡ **Spawn a result-returning agent WITHOUT `name`.** The `name` param turns the agent into an addressable mailbox teammate: its final text is then NOT delivered as the call's result — the caller only sees an `idle_notification`, which is indistinguishable from a dead agent and reads like a passed check. Measured with everything else held equal (same prompt, model and output): unnamed → full `result` delivered; named → answer sat in the transcript, nothing arrived. A 62-line report came through unnamed, so length is not the factor. Use `name` ONLY when you deliberately want a long-lived agent to talk to, and then fetch its output yourself via `SendMessage` — silence from a named agent means nothing.
+  - Telltale in the spawn response: `Async agent launched … you will be notified when it completes` (result comes back) vs. `Spawned successfully … will receive instructions via mailbox` (it will not).
+  - Suspect a lost answer? Do NOT re-run the agent — grep its transcript: `~/.claude/projects/<project-dir>/<session-id>/subagents/agent-a<name-or-id>*.jsonl`, last `assistant` entry. Re-running costs a full run and loses the evidence.
 - ⚡ **MCP-First Step-Update (the MCP-first step-update spec):**
   1. `mx_update_doc(doc_id, content with Step=done+Timestamp+Result, change_reason='Step N→done')` → MCP first
   2. Derive state file from MCP response: current_step++, push event to events_log (synced=true)

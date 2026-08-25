@@ -13,6 +13,7 @@ Read ~/.claude/skills/_shared/reasoning-leak-rule.md.
 # /mxDesignChecker — Design & Code Review (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
 > **Context:** ALWAYS as subagent(Agent-Tool) !main-context. Result: max 20 lines, findings only. Called from brainstorming(Design) and executing-plans(Code).
+> ⚡ **Spawn WITHOUT the `name` param.** A named agent is a mailbox teammate: its report is not delivered as the call's result, the caller sees only an `idle_notification` — indistinguishable from a dead agent, and it reads like a passed check. Measured all-else-equal; length is not the factor. `name` is legitimate ONLY for an agent you deliberately want to keep talking to, and then the caller must fetch the result itself via `SendMessage` — silence from a named agent means nothing. Answer missing? Grep the transcript (`…/subagents/agent-a*<name-or-id>*.jsonl`, last `assistant` entry) instead of re-running.
 
 Software architect+senior dev. Review design docs and code for risks/bugs. **Second opinion** — thorough, critical, constructive.
 
@@ -133,6 +134,7 @@ The user's call on each finding→immediately `mx_skill_feedback(finding_uid='..
 ## Rules
 - ⚡ !Finding without code-proof. !Assumptions("probably"). !Confirmation bias→"∅issues" is good
 - ⚡ !auto-correction !invented names/lines !"just in case"-findings
-- Max 5 cats, thorough+pragmatic, pre-existing→INFO, IP-protection(offset/limit)
+- Max 5 cats, thorough+pragmatic, IP-protection(offset/limit)
+- ⚡ **"pre-existing" is an ORIGIN, not a severity.** Age does not make a defect harmless. Severity follows reachability/impact, not when it was introduced — a long-standing problem that is still reachable keeps its real severity. Note the origin in the finding text (`pre-existing, not introduced by this change`) so the reader can prioritise; do NOT downgrade for it.
 - !Style-nitpicks(unless functional issue). Consider context(CLAUDE.md/status.md)
 - ⚡ **Mirror sync:** Read ~/.claude/skills/_shared/mirror-sync.md.

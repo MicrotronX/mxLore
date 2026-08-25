@@ -13,6 +13,7 @@ Read ~/.claude/skills/_shared/reasoning-leak-rule.md.
 # /mxBugChecker — Bug Finder (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
 > **Context:** ALWAYS as subagent(Agent-Tool) !main-context. Result: max 20 lines, findings only (`File:Line — Finding`).
+> ⚡ **Spawn WITHOUT the `name` param.** A named agent is a mailbox teammate: its report is not delivered as the call's result, the caller sees only an `idle_notification` — indistinguishable from a dead agent, and it reads like a passed check. Measured all-else-equal; length is not the factor. `name` is legitimate ONLY for an agent you deliberately want to keep talking to, and then the caller must fetch the result itself via `SendMessage` — silence from a named agent means nothing. Answer missing? Grep the transcript (`…/subagents/agent-a*<name-or-id>*.jsonl`, last `assistant` entry) instead of re-running.
 
 Bug finder agent. Logic errors, runtime issues, security vulnerabilities. Focus: **real bugs** !style-nitpicks.
 
@@ -25,7 +26,7 @@ Bug finder agent. Logic errors, runtime issues, security vulnerabilities. Focus:
 
 ## Phase 1: Load context
 1. `pwd`→working directory
-2. Detect VCS → load a **file index, NEVER a whole-tree diff**. Files named as argument→skip this step, go straight to them. ∅argument: `.git/`→`git log -5 2>/dev/null || echo none` + `git status --porcelain 2>/dev/null || echo none` | `.svn/`→`svn log -l5 2>/dev/null || echo none` + `svn status 2>/dev/null || echo none` | ∅VCS→explicit files only. ⚡ The `|| echo none` is part of the command, not a footnote — an empty/detached repo, or a `.svn/` dir on a machine without the `svn` binary (common on a mounted network share), must degrade to "no index" and continue, never abort the phase.
+2. Detect VCS → load a **file index, NEVER a whole-tree diff**. Files named as argument→skip **the index only** (the `log`/`status` calls below), go straight to them; the per-file size gate further down still applies to every file you diff, argument or not. ∅argument: `.git/`→`git log -5 2>/dev/null || echo none` + `git status --porcelain 2>/dev/null || echo none` | `.svn/`→`svn log -l5 2>/dev/null || echo none` + `svn status 2>/dev/null || echo none` | ∅VCS→explicit files only. ⚡ The `|| echo none` is part of the command, not a footnote — an empty/detached repo, or a `.svn/` dir on a machine without the `svn` binary (common on a mounted network share), must degrade to "no index" and continue, never abort the phase.
    - ⚡ **NEVER an unbounded `git diff` / `svn diff`.** A single generated file can be megabytes; the agent then dies on the tool output before ANY check runs, and reports itself as idle/available — a silent pass (measured in the wild: 7,584,548 bytes of diff, driven by a single 9 MB generated `.dfm`). This applies whether or not an argument was given.
    - Per-file diff, focus files only, size-gated: `git diff -- <file> | wc -c` (`svn diff <file> | wc -c`; the `--` is git-only, svn takes the bare path) → **< 200000 → read the diff, else skip it** and read the file itself instead.  Never pipe a diff into the context without that gate.
    - ⚡ Status `D` (deleted) → do NOT diff and do NOT try to read it: a deleted 9 MB file yields a 9 MB all-minus diff, and the file it tells you to fall back to is gone. Record it as deleted and move on — a removed file holds no bug to find.
@@ -128,7 +129,8 @@ The user's call on each finding→immediately `mx_skill_feedback(finding_uid='..
 - ⚡ !Finding without read code proof. !Exceptions. !Assumptions("probably/likely")
 - ⚡ !Confirmation bias — "No bugs" is a valid result
 - ⚡ !auto-fix !unverified subagent findings !invented names/lines !"just in case" findings
-- Max 5 cat, IP protection(offset/limit), !style-nitpicks, pre-existing→INFO
+- Max 5 cat, IP protection(offset/limit), !style-nitpicks
+- ⚡ **"pre-existing" is an ORIGIN, not a severity.** Age does not make a bug harmless. Severity is decided by the Reachability Gate below (INFO = unreachable/defensive, WARNING/CRITICAL = reachable) — a long-standing defect that IS reachable from a public entry point stays WARNING or CRITICAL. Note the origin in the Root Cause text (`pre-existing, not introduced by this diff`) so the reader can prioritise; do NOT downgrade for it. Only findings that are BOTH pre-existing AND unreachable land in INFO, and then it is reachability doing the work.
 - Respect context(CLAUDE.md/status.md), VCS-agnostic, ANSI encoding for Delphi
 - Read ~/.claude/skills/_shared/mirror-sync.md.
 
