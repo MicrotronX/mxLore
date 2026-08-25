@@ -80,7 +80,11 @@ shopt -u nullglob
 # between a future bundle skill and a private one of the same name, or simply a bug
 # in the ownership logic above. Reversible beats clever.
 if [ "${CLEAN:-0}" = "1" ]; then
-  _quar="$CLAUDE_HOME/.skills-removed/$(date +%Y%m%d-%H%M%S)"
+  # PID suffix, same reasoning as the mktemp paths above: `date` only resolves to
+  # the second, so two CLEAN=1 runs starting together would share one quarantine
+  # dir — and `mv dir "$_quar/dir"` onto an existing dir moves it INSIDE it, so the
+  # path echoed below would no longer be where the files actually are.
+  _quar="$CLAUDE_HOME/.skills-removed/$(date +%Y%m%d-%H%M%S)-$$"
   echo "CLEAN=1 → moving bundle-owned mx*/ dirs out of $CLAUDE_HOME/skills/ (not deleting)"
   _moved=0
   for _d in "${mx_dirs[@]}"; do
