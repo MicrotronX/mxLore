@@ -29,7 +29,7 @@ Bug finder agent. Logic errors, runtime issues, security vulnerabilities. Focus:
    - ⚡ **NEVER an unbounded `git diff` / `svn diff`.** A single generated file can be megabytes; the agent then dies on the tool output before ANY check runs, and reports itself as idle/available — a silent pass (measured in the wild: 7,584,548 bytes of diff, driven by a single 9 MB generated `.dfm`). This applies whether or not an argument was given.
    - Per-file diff, focus files only, size-gated: `git diff -- <file> | wc -c` (`svn diff <file> | wc -c`; the `--` is git-only, svn takes the bare path) → **< 200000 → read the diff, else skip it** and read the file itself instead.  Never pipe a diff into the context without that gate.
    - ⚡ Status `D` (deleted) → do NOT diff and do NOT try to read it: a deleted 9 MB file yields a 9 MB all-minus diff, and the file it tells you to fall back to is gone. Record it as deleted and move on — a removed file holds no bug to find.
-   - Skipped files are NOT silently dropped: name each one in the report header as `not diffed: <file> (<N> bytes) — read directly` (deleted ones as `deleted`).
+   - Skipped files are NOT silently dropped: name each one in the report header as `not diffed: <file> (diff <N> bytes) — read directly`, deleted ones as `deleted`. ⚡ `<N>` is the **diff size the gate just measured**, NOT the file size — that is the number showing whether the gate fired correctly, and the two differ a lot (measured live: 9,059,038-byte file, 5,246,288-byte diff).
    - ⚡ Git safety: `git log` / `git status` / `git diff` are read-only — they only ever print.
 3. CLAUDE.md→project type+conventions+slug. docs/status.md→header+recent changes
 4. MCP(optional): mx_ping()→OK→`mx_search(project, doc_type='spec', query='<relevant>', status='active', include_content=false, limit=5)` + `mx_search(doc_type='plan', status='active', limit=5)` summary_l2 only. For full body re-reads of referenced specs/plans use `mx_detail(doc_id, max_content_tokens=0)` to avoid silent truncation. ⚡ **MCP down → continue with CLAUDE.md + status.md only; never abort Phase 1.**
@@ -69,7 +69,7 @@ Fallback: mxDesignChecker/references missing → proceed without Delphi taxonomy
 ## /mxBugChecker Report
 **Focus:** <Arg or "VCS changes"> | **VCS:** <Git(Branch)|SVN(Rev)|∅>
 **MCP:** <Yes(project=slug)|No> | **Files:** <N> | **Categories:** <3-5 list>
-**Not diffed:** <file (N bytes) — read directly | ∅>   <!-- Phase-1 size gate; omit the line when ∅ -->
+**Not diffed:** <file (diff N bytes) — read directly | ∅>   <!-- Phase-1 size gate; N = measured DIFF size, not file size; omit the line when ∅ -->
 
 ### Findings
 | # | Severity | Cat | File:Line | Code Proof | Root Cause | Fix | Confidence |
