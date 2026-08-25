@@ -62,13 +62,25 @@ mx_dirs=("$SRC"/mx*)
 shopt -u nullglob
 [ ${#mx_dirs[@]} -gt 0 ] || { echo "ERROR: no mx* directories found in $SRC — repo restructure?"; exit 2; }
 
-# Opt-in pre-clean: wipe stale mx*/ dirs before re-copy. Default (CLEAN unset or 0)
-# is additive cp -r so canonical-first edits in ~/.claude/skills/mx*/ are preserved
-# for users who edit there and haven't synced upstream yet. Only enable CLEAN=1
-# when you're sure you have NO local unsynced edits.
+# Opt-in pre-clean: wipe stale files inside the skills THIS BUNDLE SHIPS, before re-copy.
+# Default (CLEAN unset or 0) is additive cp -r so canonical-first edits in
+# ~/.claude/skills/mx*/ are preserved for users who edit there and haven't synced
+# upstream yet. Only enable CLEAN=1 when you're sure you have NO local unsynced edits.
+#
+# The delete list is derived from the bundle ("$mx_dirs"), NEVER from the local mx* glob.
+# A local mx*/ dir that this bundle does not ship is somebody else's skill — private,
+# unpublished, quite possibly the only copy in existence — and is none of this
+# script's business. The old `rm -rf "$CLAUDE_HOME/skills/"mx*` deleted those too:
+# a flag documented as "remove stale files" silently wiped whole unversioned skill
+# trees that this bundle had never installed and knew nothing about.
 if [ "${CLEAN:-0}" = "1" ]; then
-  echo "CLEAN=1 → removing stale mx*/ dirs in $CLAUDE_HOME/skills/ before re-copy"
-  rm -rf "$CLAUDE_HOME/skills/"mx*
+  echo "CLEAN=1 → removing bundle-owned mx*/ dirs in $CLAUDE_HOME/skills/ before re-copy"
+  for _d in "${mx_dirs[@]}"; do
+    _name="$(basename "$_d")"
+    [ -n "$_name" ] && [ "$_name" != "." ] && [ "$_name" != "/" ] || continue
+    rm -rf "$CLAUDE_HOME/skills/$_name"
+  done
+  unset _d _name
 fi
 
 cp -r "${mx_dirs[@]}" "$CLAUDE_HOME/skills/"
@@ -80,6 +92,35 @@ cp -r "${mx_dirs[@]}" "$CLAUDE_HOME/skills/"
 ( cd "$SRC/hooks" && cp -r . "$CLAUDE_HOME/hooks/" )
 [ -d "$SRC/reference" ] || { echo "ERROR: $SRC/reference not found in extracted bundle — repo restructure?" >&2; exit 2; }
 ( cd "$SRC/reference" && cp -r . "$CLAUDE_HOME/reference/" )
+
+# Orphan report: name files that exist locally but are not in this
+# bundle. hooks/ and reference/ are copied additively, so a file removed upstream
+# stays on disk forever — and for a hook that means it also stays REGISTERED in
+# settings.json (Phase 5b owns that file, this script never touches it), i.e. dead
+# code that still executes.
+#
+# Report, NEVER remove. "Not in the bundle" does not mean "stale": the bundle is
+# English-only and public, so German reference files and private skills are absent
+# from it ON PURPOSE (see _shared/mirror-sync.md). Measured on a real install, every
+# single not-in-bundle file turned out to be deliberate — an auto-prune would have
+# been wrong 100% of the time. Visibility is what is missing here, not deletion.
+for _sub in hooks reference; do
+  [ -d "$CLAUDE_HOME/$_sub" ] && [ -d "$SRC/$_sub" ] || continue
+  ( cd "$CLAUDE_HOME/$_sub" && find . -type f | LC_ALL=C sort ) > "$TMP_DIR/orph-local.txt"
+  ( cd "$SRC/$_sub"         && find . -type f | LC_ALL=C sort ) > "$TMP_DIR/orph-bundle.txt"
+  _orph="$(comm -23 "$TMP_DIR/orph-local.txt" "$TMP_DIR/orph-bundle.txt")"
+  if [ -n "$_orph" ]; then
+    echo "NOTE: $CLAUDE_HOME/$_sub/ holds files this bundle does not ship (NOT removed):"
+    echo "$_orph" | sed "s|^\./|  $_sub/|"
+    echo "  → some of these are local on purpose (private/non-English files). Review before deleting anything."
+    # NOTE: `[ ... ] && echo` would return 1 for the reference/ pass and kill the
+    # script under `set -e`. Keep this as a real if.
+    if [ "$_sub" = "hooks" ]; then
+      echo "  ⚡ a leftover hook may still be registered in settings.json — check Phase 5b."
+    fi
+  fi
+done
+unset _sub _orph
 
 # Stage CLAUDE.md for Phase 5c merge (three-branch logic).
 # If the repo lacks CLAUDE.md, clear any stale stage from a previous run so
