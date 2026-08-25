@@ -15,9 +15,14 @@ unit mx.Crypto.Bundle;
 // vice versa. Deliberate differences on the ERP side: cardinal instead of ULONG
 // (drops the Winapi.Windows dependency), zeroing of the expanded key object,
 // and delayed binding of bcrypt.dll.
-// The zero-length buffer guards the ERP side had are no longer a difference:
-// they were ported here (POutput in Encrypt/Decrypt) — an empty payload no
-// longer indexes [0] on an empty array. Still missing here: the other three.
+// Zero-length payloads: both copies are safe, by different means, and they
+// DISAGREE on the outcome. The ERP side rejects them up front (empty
+// plaintext/ciphertext raises, and a size query returning 0 raises), so its
+// [0] accesses are unreachable. This copy guards the pointers instead
+// (PInput/POutput), so an empty payload encrypts to an empty ciphertext
+// rather than raising. A bundle produced here with an empty payload would
+// therefore be refused by the ERP reader. Align the two before relying on
+// empty payloads across the boundary.
 
 interface
 
