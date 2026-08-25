@@ -8,6 +8,16 @@ unit mx.Crypto.Bundle;
 // Auth tag:   16 bytes (GCM standard, full-strength).
 //
 // Callers derive the 32-byte key via PBKDF2 (see mx.Crypto.PBKDF2_SHA256).
+//
+// NOTE: this code has a second copy. It was ported to the ERP component library
+// as ztools_encryption.mxenc_* (V:\Bibliotheken\SpedKomponents\ztools_encryption.pas,
+// region 'AES-256-GCM', see ADR-12174). A fix here has to be mirrored there and
+// vice versa. Deliberate differences on the ERP side: cardinal instead of ULONG
+// (drops the Winapi.Windows dependency), zeroing of the expanded key object,
+// and delayed binding of bcrypt.dll.
+// The zero-length buffer guards the ERP side had are no longer a difference:
+// they were ported here (POutput in Encrypt/Decrypt) — an empty payload no
+// longer indexes [0] on an empty array. Still missing here: the other three.
 
 interface
 
@@ -175,6 +185,7 @@ var
   AuthInfo:      BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO;
   Status:        Integer;
   PInput:        PByte;
+  POutput:       PByte;
   PAAD:          PByte;
 begin
   if Length(AKey) <> MX_BUNDLE_KEY_LEN then
@@ -239,9 +250,16 @@ begin
 
       SetLength(ACiphertext, ResultLen);
 
+      // Empty plaintext yields ResultLen = 0 in GCM, and @ACiphertext[0] would
+      // index an empty dynamic array. Same guard as PInput above.
+      if Length(ACiphertext) > 0 then
+        POutput := @ACiphertext[0]
+      else
+        POutput := nil;
+
       // Actual encrypt pass
       Status := BCryptEncrypt(hKey, PInput, Length(APlaintext),
-        @AuthInfo, nil, 0, @ACiphertext[0], ResultLen, ResultLen, 0);
+        @AuthInfo, nil, 0, POutput, ResultLen, ResultLen, 0);
       if Status <> STATUS_SUCCESS then
         RaiseNT('BCryptEncrypt', Status);
 
@@ -269,6 +287,7 @@ var
   AuthInfo:      BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO;
   Status:        Integer;
   PInput:        PByte;
+  POutput:       PByte;
   PTag:          PByte;
   PAAD:          PByte;
   LocalTag:      TBytes;
@@ -342,8 +361,15 @@ begin
 
       SetLength(Result, ResultLen);
 
+      // An empty payload decrypts to ResultLen = 0, and @Result[0] would index
+      // an empty dynamic array. Same guard as PInput above.
+      if Length(Result) > 0 then
+        POutput := @Result[0]
+      else
+        POutput := nil;
+
       Status := BCryptDecrypt(hKey, PInput, Length(ACiphertext),
-        @AuthInfo, nil, 0, @Result[0], ResultLen, ResultLen, 0);
+        @AuthInfo, nil, 0, POutput, ResultLen, ResultLen, 0);
       if Status = STATUS_AUTH_TAG_MISMATCH then
         raise EMxCryptoAuthFail.Create(
           'Bundle decryption failed — wrong key/passphrase or tampered bundle');
