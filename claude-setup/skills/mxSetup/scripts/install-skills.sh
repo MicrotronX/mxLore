@@ -73,14 +73,29 @@ shopt -u nullglob
 # script's business. The old `rm -rf "$CLAUDE_HOME/skills/"mx*` deleted those too:
 # a flag documented as "remove stale files" silently wiped whole unversioned skill
 # trees that this bundle had never installed and knew nothing about.
+# And it does not delete even those: they are MOVED to a timestamped quarantine dir
+# outside skills/ (so nothing there is ever loaded as a skill again). CLEAN's purpose
+# — "files removed upstream must not linger" — is fully served by moving them out of
+# the way, and the difference matters the day this script is wrong: a name collision
+# between a future bundle skill and a private one of the same name, or simply a bug
+# in the ownership logic above. Reversible beats clever.
 if [ "${CLEAN:-0}" = "1" ]; then
-  echo "CLEAN=1 → removing bundle-owned mx*/ dirs in $CLAUDE_HOME/skills/ before re-copy"
+  _quar="$CLAUDE_HOME/.skills-removed/$(date +%Y%m%d-%H%M%S)"
+  echo "CLEAN=1 → moving bundle-owned mx*/ dirs out of $CLAUDE_HOME/skills/ (not deleting)"
+  _moved=0
   for _d in "${mx_dirs[@]}"; do
     _name="$(basename "$_d")"
     [ -n "$_name" ] && [ "$_name" != "." ] && [ "$_name" != "/" ] || continue
-    rm -rf "$CLAUDE_HOME/skills/$_name"
+    if [ -e "$CLAUDE_HOME/skills/$_name" ]; then
+      mkdir -p "$_quar"
+      mv "$CLAUDE_HOME/skills/$_name" "$_quar/$_name"
+      _moved=$((_moved + 1))
+    fi
   done
-  unset _d _name
+  if [ "$_moved" -gt 0 ]; then
+    echo "  $_moved dir(s) moved to $_quar — delete it yourself once the install looks right."
+  fi
+  unset _d _name _quar _moved
 fi
 
 cp -r "${mx_dirs[@]}" "$CLAUDE_HOME/skills/"

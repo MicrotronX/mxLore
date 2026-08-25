@@ -177,7 +177,7 @@ Optional: /mxSetup --with-superpowers installs the superpowers bridge plugin
 ### `--update` (full refresh)
 Runs Phase 2 (skills + hooks + reference from GitHub), Phase 5 (config + `~/.claude/CLAUDE.md` mx-rules marker block), and proxy version-check (same flow as Phase 3, download only if version differs). Use after upstream `mxLore-skills` changes or when several things are out of date.
 
-Optional: `CLEAN=1 ~/.claude/skills/mxSetup/scripts/install-skills.sh` wipes the `mx*/` skill dirs **that this bundle ships** before re-copying them, so files removed upstream do not linger. It never touches an `mx*/` dir the bundle does not ship — private, unpublished skills of your own are left alone. Use only if you have NO local unsynced edits in the bundled `mx*`-skills.
+Optional: `CLEAN=1 ~/.claude/skills/mxSetup/scripts/install-skills.sh` clears the `mx*/` skill dirs **that this bundle ships** before re-copying them, so files removed upstream do not linger. Two guarantees: it never touches an `mx*/` dir the bundle does not ship (private, unpublished skills of your own are left alone), and it **moves** rather than deletes — everything lands in `~/.claude/.skills-removed/<timestamp>/`, outside `skills/`, so nothing is loaded as a skill again and nothing is lost if the run was wrong. Delete that dir yourself once the install looks right. Use only if you have NO local unsynced edits in the bundled `mx*`-skills.
 
 Every run also lists files in `hooks/` and `reference/` that the bundle does not ship, without deleting them — those dirs are shared, and a leftover hook stays registered in `settings.json` until Phase 5b removes the entry. Review the list; deletion is your call.
 
