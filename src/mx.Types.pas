@@ -181,7 +181,21 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 126;
+  MXAI_BUILD   = 127;
+  // ⚡ This constant, NOT the .dproj VersionInfo, is what the outside world
+  //   reads: mx_ping, /api/global, the project bundle, and — decisively —
+  //   SelfUpdate's CompareBuild against the newest release tag. Bumping only
+  //   VersionInfo ships a server whose file properties say one build and whose
+  //   runtime says the previous one; against a newer tag that is an update
+  //   loop, because installing the release never changes the number it
+  //   compares. Bump BOTH, or the release is wrong in the field that decides.
+  // Build 127 (2026-08-26): agent-message delivery order. The proxy's inbox
+  //   buffer is a mirror of the pending set, but was written as a delta feed —
+  //   an unconsumed buffer lost the rows already in it, which were then never
+  //   acked and resurfaced only after the newer message (BR#14099, verified
+  //   live). Server side gained `am.id` as a tie-break on the second-granular
+  //   `created_at`, so messages created in the same second stop coming back in
+  //   an unstable order.
   // Build 126 (2026-08-19): agent messages can be addressed to ONE INSTANCE
   //   of a developer (sql/052 `target_client_key_id`, BR#13641). Two clients
   //   of one developer in one project used to share a mailbox: each saw the
