@@ -47,6 +47,12 @@ func NewProxy(cfg *Config) *Proxy {
 			p.projectSlug = slug
 			logMsg("[mxProxy] Slug from CLAUDE.md: " + slug)
 			p.startPolling(slug)
+		} else {
+			// ⚡ Say so. A wrong slug used to be silent; an absent one must not
+			// take its place. Both end in "no wakeup ever arrives", and without
+			// this line the log gives no way to tell them apart — which is why
+			// the wrong-slug defect went unnoticed for six weeks.
+			logMsg("[mxProxy] No usable **Slug:** line in CLAUDE.md — agent polling disabled")
 		}
 	}
 	return p
@@ -66,8 +72,21 @@ func parseSlugFromClaudeMd(path string) string {
 	// not exist — silently, for the whole process lifetime, because
 	// startPolling latches the first slug it is given. Observed live on the
 	// macOS build host, 2026-08-26.
+	//
+	// ⚡ The anchor must skip a leading list bullet. Both spellings are in real
+	// use — a bare top-of-file marker and a bullet inside a "## Project" list —
+	// and mxInitProject's claude-md-template.md writes the bullet form, so every
+	// newly initialized project uses it. An anchor that only accepts the bare
+	// form trades a wrong slug for no slug at all: still no wakeup, still
+	// silent. A leading ">" stays rejected — that is quoted prose, not a value.
 	for _, line := range strings.Split(string(data), "\n") {
 		trimmed := strings.TrimSpace(line)
+		// "- ", "* ", "+ " — note "**Slug:**" itself cannot be mistaken for a
+		// "*" bullet, because its second byte is "*" and not a space.
+		if len(trimmed) > 1 && (trimmed[0] == '-' || trimmed[0] == '*' || trimmed[0] == '+') &&
+			(trimmed[1] == ' ' || trimmed[1] == '\t') {
+			trimmed = strings.TrimSpace(trimmed[2:])
+		}
 		if !strings.HasPrefix(trimmed, marker) {
 			continue
 		}

@@ -208,6 +208,11 @@ func (p *Poller) writeInboxFile(jsonStr, ids string) bool {
 	tmp := p.tmpFile()
 	dst := p.inboxFile()
 	if err := os.WriteFile(tmp, []byte(jsonStr), 0644); err != nil {
+		// Leave nothing behind on either failure path — a partial write can
+		// land before the error does. Self-limiting (fixed name, next write
+		// truncates), but the rename path already cleans up and the function
+		// should not keep half of its contract.
+		_ = os.Remove(tmp)
 		logMsg("[mxProxy] write inbox tmp failed: " + err.Error())
 		return false
 	}
