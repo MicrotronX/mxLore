@@ -189,7 +189,13 @@ begin
       '                      WHERE ak.id = am.target_client_key_id ' +
       '                        AND ak.is_active = 1))';
 
-  Result := Result + ' ORDER BY am.created_at ASC LIMIT :lim';
+  // ⚡ `am.id` is a MANDATORY secondary key, not decoration: `created_at` is
+  // second-granular, so two messages sent inside the same second are a tie and
+  // MariaDB may return them in a different relative order on every call. That
+  // makes delivery order nondeterministic exactly for rapid-fire traffic — the
+  // case where ordering matters most (a retraction chasing its own statement).
+  // `id` is insertion order, so it is the correct tie-break.
+  Result := Result + ' ORDER BY am.created_at ASC, am.id ASC LIMIT :lim';
 end;
 
 function FetchAgentInbox(AContext: IMxDbContext;

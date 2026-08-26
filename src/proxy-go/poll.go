@@ -107,8 +107,22 @@ func (p *Poller) pollOnce(url string) {
 		return
 	}
 
-	var newMsgs []json.RawMessage
-	var newIDs []string
+	// The buffer file is a MIRROR of the pending set, not a delta feed.
+	// writeInboxFile REPLACES the file, so rendering only the not-yet-known
+	// rows silently dropped whatever a still-unconsumed buffer held: that
+	// message was therefore never acked, and it reappeared only after
+	// checkAndAck had cleared knownIDs — i.e. it was delivered AFTER the newer
+	// message that retracted it. Ordering defect and delivery gap in one. The
+	// server is not at fault; its inbox query already sorts by created_at ASC.
+	//
+	// So: while an unconsumed buffer exists, re-render the FULL pending set in
+	// server order. Once the hook has consumed the file, fall back to
+	// new-rows-only — that is what keeps knownIDs (the accumulation guard)
+	// meaningful.
+	hasUnconsumed := fileExists(p.inboxFile())
+	newCount := 0
+	var outMsgs []json.RawMessage
+	var outIDs []string
 	for _, m := range parsed.Messages {
 		var idObj struct {
 			ID int `json:"id"`
@@ -116,27 +130,58 @@ func (p *Poller) pollOnce(url string) {
 		if err := json.Unmarshal(m, &idObj); err != nil {
 			continue
 		}
-		if idObj.ID > 0 && !p.knownIDs[idObj.ID] {
+		if idObj.ID <= 0 {
+			continue
+		}
+		isNew := !p.knownIDs[idObj.ID]
+		if isNew {
 			p.knownIDs[idObj.ID] = true
-			newMsgs = append(newMsgs, m)
-			newIDs = append(newIDs, strconv.Itoa(idObj.ID))
+			newCount++
+		}
+		if isNew || hasUnconsumed {
+			outMsgs = append(outMsgs, m)
+			outIDs = append(outIDs, strconv.Itoa(idObj.ID))
 		}
 	}
-	if len(newMsgs) == 0 {
+	if len(outMsgs) == 0 {
 		return
 	}
 
-	idsStr := strings.Join(newIDs, ",")
-	msgsJSON, err := json.Marshal(newMsgs)
+	idsStr := strings.Join(outIDs, ",")
+	// Write when something new arrived, OR when an unconsumed buffer on disk no
+	// longer matches what the pending set says it should hold (repairs a stale
+	// file across a restart, where knownIDs is reloaded but writtenIDs is not).
+	//
+	// ⚡ Compare the ROW COUNT, never the id string. The server orders by
+	// created_at, which is second-granular; messages tied on the same second can
+	// come back in a different order on each poll. A string compare would then
+	// differ every 5s and rewrite the buffer forever — and since the wakeup
+	// watcher keys on the file signature, that is a notification every 5 seconds.
+	// The count is order-insensitive and still sufficient: any set change that
+	// keeps the count equal also brings a new row in, which newCount catches.
+	// (The server-side query now adds `am.id` as a tie-break, but this proxy
+	// must not assume it has been rebuilt.)
+	writtenCount := 0
+	if p.writtenIDs != "" {
+		writtenCount = strings.Count(p.writtenIDs, ",") + 1
+	}
+	if newCount == 0 && !(hasUnconsumed && len(outMsgs) != writtenCount) {
+		return
+	}
+	msgsJSON, err := json.Marshal(outMsgs)
 	if err != nil {
 		logMsg("[poll] marshal messages failed: " + err.Error())
 		return
 	}
 	fileObj := fmt.Sprintf(`{"v":1,"ts":%q,"ids":%q,"messages":%s}`,
 		time.Now().Format("2006-01-02T15:04:05"), idsStr, string(msgsJSON))
+	// writtenIDs now covers EVERY row in the file, so checkAndAck acks all of
+	// them instead of just the last delta — the other half of the ordering fix.
 	p.writeInboxFile(fileObj, idsStr)
-	// Persist FKnownIds so a restart does not re-consider these IDs "new".
-	p.saveKnownIDs()
+	// Persist knownIDs so a restart does not re-consider these IDs "new".
+	if newCount > 0 {
+		p.saveKnownIDs()
+	}
 }
 
 // writeInboxFile writes atomically: .tmp first (no BOM — bash hooks can't

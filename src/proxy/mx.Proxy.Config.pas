@@ -5,6 +5,14 @@ interface
 uses
   System.SysUtils, System.IniFiles, System.IOUtils;
 
+const
+  // Single source of truth for the proxy version. Lives in a UNIT, not in the
+  // .dpr, so every unit can read it — the initialize handshake used to carry a
+  // hardcoded literal that had drifted four releases behind, which made the
+  // version the server sees useless for exactly the kind of proxy-version
+  // diagnosis it is there for. Keep in sync with VerInfo_Keys in the .dproj.
+  MXPROXY_VERSION = '1.0.7';
+
 type
   TMxProxyConfig = class
   private

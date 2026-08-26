@@ -3,7 +3,7 @@ name: mxSave
 description: Use when the user says "save state", "/mxSave", "session end", "before /compact", "wrap up", or otherwise wants to persist the current mx-project state (clean settings, update CLAUDE.md + docs/status.md, create session notes in MCP-DB, sync orchestrate-state deltas, emit clear-cycle tip). Loop-capable. Fires at natural session-end boundaries.
 user-invocable: true
 effort: medium
-allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion
+allowed-tools: Read, Write, Edit, Grep, Glob, Bash, Task, AskUserQuestion, Monitor, TaskStop
 argument-hint: "[optional-notes] [--loop] [--delta-check]"
 ---
 
@@ -22,6 +22,7 @@ Save agent. Persists project state for seamless session continuation.
 3. **Main (synchronous):** Step 5 — `mx_create_doc(session_note)` issued from Main; subagent may build the body string but Main issues the call and captures the doc_id (skill runtime has no await-subagent primitive — running Step 5 in background would regress the deferred-write fix).
 4. **Main:** Step 4b — single deferred Write applying ALL 4a + 4b mutations (incl. `last_save_summary` + `last_save_session_note_doc_id` from Step 5's return).
 5. **Parallel phase B (fire-and-forget):** Step 6 Peer Notify — no join, errors logged not aborted.
+6. **Main (terminal):** re-arm the agent-inbox watcher (see Terminal section) — always last, after Step 6, so the watcher stays down for the whole save.
 
 Degraded path: Step 5 MCP call fails → Step 4b writes `last_save_summary` (local) + `last_save_session_note_doc_id=null`.
 
@@ -29,6 +30,10 @@ Degraded path: Step 5 MCP call fails → Step 4b writes `last_save_summary` (loc
 1. CLAUDE.md→`**Slug:**`=project slug. ∅slug→?user
 2. mx_ping()→check MCP availability. Set `mcp_available = (ping == ok)`. Steps 3, 5, 6 reference this flag for fallback decisions instead of repeating "MCP error→fallback" inline.
 3. ⚡ State file safety: If `.claude/orchestrate-state.json` is missing or unparseable, treat as empty state per the mxOrchestrate `loadState()` contract: `state_deltas=0`, `last_save_deltas=0`, `workflow_stack=[]`, `mcp_available` still set from ping result. Warn user inline ("orchestrate-state.json missing/corrupt — proceeding with empty state"). The `--delta-check` mode in this case emits nothing (N==0 silent path).
+4. ⚡ **Init-Q — Quiesce the agent-inbox watcher (skip in `--delta-check`).** (Referred to as **Init-Q** everywhere else: Init numbers its own steps 1-4 and the sequential Steps do the same, so a bare "step 4" would be ambiguous next to Step 4a/4b.) The `Monitor` armed by mxOrchestrate Init 3a keeps firing during a save and pushes peer notifications into the middle of the step sequence — in a message-heavy session that interrupts repeatedly, and a late peer message can overtake the session note being written. Read `agent_watch_task_id` → `TaskStop(id)`, ignore failure (already dead is fine) → clear **both** `agent_watch_task_id` and `agent_watch_session_id`. Procedure + rationale: `~/.claude/skills/_shared/agent-watch.md` (**Stop** section).
+   - ⚡ **No mode detection. Do not try to tell a pre-`/clear` save from an intermediate one** — it is neither knowable nor needed. Not knowable: the `/clear` decision is made by the Final Block at the END of the save and `no, keep working` is a valid answer, and no flag carries session-end semantics (see Delta-Check Mode: the difference between save modes is cleanup DEPTH, never session end). Not needed: the watcher is a wakeup, not a transport — stopping it loses nothing and re-arming it risks nothing (`_shared/agent-watch.md`, "What this watcher is"). Guessing "pre-`/clear`" on a session that continues would kill peer delivery for the rest of it, silently — the exact failure this step exists to avoid.
+   - Clearing the fields is not cosmetic: if the save aborts before the terminal re-arm, the cleared `agent_watch_session_id` makes the next mxOrchestrate call arm a fresh watcher instead of trusting a dead task id.
+
 
 ## Steps (sequential)
 
@@ -224,11 +229,22 @@ Mode-agnostic threshold emit consuming `N` (normal: `last_save_deltas` set by St
 
 ⚡ PreCompact/PostCompact hooks dormant (prompt-type hooks blocked upstream); `/clear` + manual `mx_briefing` is the active path. Re-activation: `~/.claude/hooks/dormant-pre-post-compact.md`.
 
+## Terminal — Re-arm the agent-inbox watcher
+
+⚡ **Runs last, always, in every mode that ran **Init-Q** (i.e. every mode except `--delta-check`) — including the degraded `!mcp_available` path and including a save that ended in errors. Re-arm per `~/.claude/skills/_shared/agent-watch.md` (**Arm** section), then write the new `agent_watch_task_id` + the current `agent_watch_session_id` into the state as a single 2-field `Edit`.
+
+- ⚡ **Not folded into Step 4b.** Step 4b lands before Steps 5 and 6, so re-arming there would put the watcher back on the air during the session-note write — the interruption this whole change exists to prevent. The extra 2-field write is explicitly sanctioned by the state-write discipline (Edit for 1-5 fields).
+- ⚡ **Unconditional re-arm, no mode branch.** A watcher armed just before a `/clear` costs nothing: the next context's mxOrchestrate Init 3a tears it down by `agent_watch_task_id` before arming its own. Skipping the re-arm to "save" that is a silent zero-benefit trade against a real risk (a session that continues loses peer delivery).
+- Anything that landed in the buffer while the watcher was down is surfaced by the arm-time present-file report in the shared poll-loop contract. Nothing is lost by the quiet window — only delayed.
+- Output: one line, `Agent-inbox watcher re-armed (<task-id>)`. Failure to re-arm → `⚠ agent-inbox watcher NOT re-armed — peer messages will not wake this session; run /mxOrchestrate to restore`. ⚡ Fail LOUD: a missing watcher is invisible until a peer message goes unanswered.
+
 ## Delta-Check Mode (`--delta-check`)
 
 ⚡ **Not a save:** `--delta-check` runs ONLY the Final Block (the "/clear worthwhile?" deltas recommendation). It writes no session note, no CLAUDE.md/status.md pointer, and no state. The full resume-capable save is the DEFAULT `/mxSave` (Steps 1-6, incl. the ⚡ALWAYS Quickstart + Tooling-gotchas sections in Step 5). Difference between save modes is Cleanup-DEPTH (loop = light, full = pre-clear), never "resume-capable or not" — every real save is resume-capable.
 
 ⚡ **Legacy flag:** `--clear-cycle` was the former name. It falsely implied the flag performed the Clear-Cycle *save*; it never did. Accept `--clear-cycle` as a deprecated alias for `--delta-check` and warn once (`--clear-cycle is deprecated, use --delta-check`). Do NOT silently ignore it — a dropped flag looks like a completed check.
+
+⚡ Touches the agent-inbox watcher not at all — neither **Init-Q** (stop) nor the Terminal re-arm run in this mode. It writes nothing and finishes in seconds, so there is no step sequence to protect.
 
 ⚡ Manual replacement for dormant PreCompact/PostCompact hooks. Skips Steps 1-6 and runs ONLY the Final Block, using **`N = state.state_deltas`** (in-flight, NOT the stale `last_save_deltas` — Step 4 snapshot is skipped in this mode). Flag precedence: `--delta-check` — and its deprecated `--clear-cycle` alias, which resolves to `--delta-check` BEFORE precedence is evaluated — wins over `--loop`.
 

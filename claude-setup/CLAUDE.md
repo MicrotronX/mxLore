@@ -32,6 +32,12 @@ tail -15 default for logs. wider only on need
 status.md max10L pointer-only(MCP IDs) !duplicate-content
 N mirrored files→edit canonical 1x + cp, !N Edit calls
 
+## Agent-Messages ⚡ (content, !transport — cross-project)
+mx_agent_send payload = POINTER !document. line1 = the point(claim/ask/answer), 1 sentence. then evidence only: `file:line`, doc-id, msg-id, command-output. !restate the peer's message !re-derive !recap what both already know →reference by id
+⚡ >1000 chars(soft limit) = the CONTENT is wrong, !the limit. detail→mx_create_doc, send `ref_doc_id`(param exists, comes back in the inbox) →the message stays a pointer
+!split into [1/2][2/2] — delivery order is NOT guaranteed, a part can arrive before the part it depends on. needing to split = proof the payload belonged in a doc
+correction→name the retracted msg-id verbatim. content-bearing msg→ask for a 1-line receipt if you need one (silence means done, !read — asking is the sender's job)
+
 ## Security ⚡
 !secrets(keys/pw/tokens/logins) in code or external →envvar
 !commit .env/.pem/.key →.claudeignore

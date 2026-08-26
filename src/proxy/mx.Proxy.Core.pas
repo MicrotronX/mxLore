@@ -294,26 +294,75 @@ begin
                 var MsgArr := (Parsed as TJSONObject).GetValue('messages');
                 if (MsgArr <> nil) and (MsgArr is TJSONArray) then
                 begin
-                  // Filter duplicates
-                  var NewArr := TJSONArray.Create;
+                  // The buffer file is a MIRROR of the pending set, not a delta
+                  // feed. Rendering only the FKnownIds-new rows was wrong,
+                  // because WriteInboxFile REPLACES the file: a still-unconsumed
+                  // buffer lost the rows already sitting in it. Observed live —
+                  // an older message dropped out of the buffer, was therefore
+                  // never acked, and reappeared only after CheckAndAck had
+                  // cleared FKnownIds, i.e. it was delivered AFTER the newer
+                  // message that retracted it. That is both the ordering defect
+                  // and a delivery gap; the server side was never at fault (its
+                  // query already sorts by created_at ASC).
+                  //
+                  // So: while an unconsumed buffer exists, re-render the FULL
+                  // pending set in server order. Once the hook has consumed the
+                  // file, fall back to new-rows-only — that is what keeps the
+                  // accumulation-gap guard (FKnownIds) meaningful.
+                  var HasUnconsumed := FileExists(GetInboxFilePath);
+                  var NewCount := 0;
+                  var OutArr := TJSONArray.Create;
                   NewIds := '';
                   try
                     for var I := 0 to (MsgArr as TJSONArray).Count - 1 do
                     begin
                       var MsgId := ((MsgArr as TJSONArray).Items[I] as TJSONObject)
                         .GetValue<Integer>('id', 0);
-                      if (MsgId > 0) and not FKnownIds.Contains(MsgId) then
+                      if MsgId <= 0 then Continue;
+
+                      var IsNew := not FKnownIds.Contains(MsgId);
+                      if IsNew then
                       begin
                         FKnownIds.Add(MsgId);
-                        NewArr.AddElement(
+                        Inc(NewCount);
+                      end;
+
+                      if IsNew or HasUnconsumed then
+                      begin
+                        OutArr.AddElement(
                           (MsgArr as TJSONArray).Items[I].Clone as TJSONValue);
                         if NewIds <> '' then NewIds := NewIds + ',';
                         NewIds := NewIds + IntToStr(MsgId);
                       end;
                     end;
 
-                    // Write file if new messages
-                    if NewArr.Count > 0 then
+                    // Write when something new arrived, OR when an unconsumed
+                    // buffer on disk no longer matches what the pending set says
+                    // it should hold (repairs a stale file across a Proxy
+                    // restart, where FKnownIds is reloaded but FWrittenIds is not).
+                    //
+                    // ⚡ Compare the ROW COUNT, never the id string. The server
+                    // orders by created_at, which is second-granular; messages
+                    // tied on the same second can come back in a different order
+                    // on each poll. A string compare would then differ every 5s
+                    // and rewrite the buffer forever — and since the wakeup
+                    // watcher keys on the file signature, that is a notification
+                    // every 5 seconds. The count is order-insensitive and still
+                    // sufficient: any set change that keeps the count equal also
+                    // brings a new row in, which NewCount already catches.
+                    // (The server-side query now adds `am.id` as a tie-break,
+                    // but this proxy must not assume it has been rebuilt.)
+                    var WrittenCount := 0;
+                    if FWrittenIds <> '' then
+                    begin
+                      WrittenCount := 1;
+                      for var Ch in FWrittenIds do
+                        if Ch = ',' then Inc(WrittenCount);
+                    end;
+
+                    if (NewIds <> '') and
+                       ((NewCount > 0) or
+                        (HasUnconsumed and (OutArr.Count <> WrittenCount))) then
                     begin
                       FileJson := TJSONObject.Create;
                       try
@@ -321,17 +370,21 @@ begin
                         FileJson.AddPair('ts',
                           FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', Now));
                         FileJson.AddPair('ids', NewIds);
-                        FileJson.AddPair('messages', NewArr.Clone as TJSONArray);
+                        FileJson.AddPair('messages', OutArr.Clone as TJSONArray);
+                        // FWrittenIds now covers EVERY row in the file, so
+                        // CheckAndAck acks all of them instead of just the last
+                        // delta — the other half of the ordering fix.
                         WriteInboxFile(FileJson.ToJSON, NewIds);
                       finally
                         FileJson.Free;
                       end;
                       // Persist FKnownIds so a Proxy restart does not re-
                       // consider these IDs "new" and re-write the same rows.
-                      SaveKnownIds;
+                      if NewCount > 0 then
+                        SaveKnownIds;
                     end;
                   finally
-                    NewArr.Free;
+                    OutArr.Free;
                   end;
                 end;
               end;

@@ -11,7 +11,9 @@ uses
   mx.Proxy.Core in 'mx.Proxy.Core.pas';
 
 const
-  PROXY_VERSION = '1.0.6';
+  // Mirrors mx.Proxy.Config.MXPROXY_VERSION so the banner, the log header and
+  // the initialize handshake can never disagree about which build is running.
+  PROXY_VERSION = MXPROXY_VERSION;
 
 function GetExeDir: string;
 var

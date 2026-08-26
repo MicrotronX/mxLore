@@ -6,7 +6,7 @@ uses
   System.SysUtils, System.Classes, System.JSON,
   System.Net.HttpClient, System.Net.URLClient, System.NetConsts,
   System.Generics.Collections,
-  mx.Proxy.Log;
+  mx.Proxy.Log, mx.Proxy.Config;
 
 type
   TMxProxyHttpClient = class
@@ -136,7 +136,7 @@ begin
   InitBody := TStringStream.Create(
     '{"jsonrpc":"2.0","id":"_reinit","method":"initialize","params":{' +
     '"protocolVersion":"2024-11-05","capabilities":{},' +
-    '"clientInfo":{"name":"mxMCPProxy","version":"1.0.2"}}}',
+    '"clientInfo":{"name":"mxMCPProxy","version":"' + MXPROXY_VERSION + '"}}}',
     TEncoding.UTF8);
   try
     FClient.CustomHeaders['Content-Type'] := 'application/json';
