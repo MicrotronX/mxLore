@@ -584,7 +584,12 @@ begin
         Log('[mxProxy] Agent polling auto-started for ' + FProjectSlug);
       end
       else
-        LogDebug('[stdio] No anchored **Slug:** line in CLAUDE.md, no thread started');
+        // ⚡ Log, NOT LogDebug: LogDebug returns immediately unless the level is
+        // llDebug, and llInfo is the default — so this branch was silent in
+        // normal operation while the success path above logs unconditionally.
+        // Success loud, failure quiet is the worst pairing for diagnosis, and it
+        // is why the original prose-match defect sat undetected for six weeks.
+        Log('[mxProxy] No usable **Slug:** line in CLAUDE.md — agent polling disabled');
     except
       on E: Exception do
         Log('[mxProxy] CLAUDE.md read failed: ' + E.ClassName + ': ' + E.Message);
