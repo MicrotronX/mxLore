@@ -23,7 +23,9 @@ type
     function GetInboxFilePath: string;
     function GetTmpFilePath: string;
     function GetKnownIdsFilePath: string;
-    procedure WriteInboxFile(const AJson: string; const AIds: string);
+    // Returns True only when the buffer file is actually on disk under its
+    // final name. The caller must not record anything as "rendered" on False.
+    function WriteInboxFile(const AJson: string; const AIds: string): Boolean;
     procedure CheckAndAck;
     procedure LoadKnownIds;
     procedure SaveKnownIds;
@@ -179,18 +181,37 @@ begin
   end;
 end;
 
-procedure TMxAgentPollThread.WriteInboxFile(const AJson: string;
-  const AIds: string);
+function TMxAgentPollThread.WriteInboxFile(const AJson: string;
+  const AIds: string): Boolean;
 var
   TmpPath, JsonPath: string;
   Retry: Integer;
 begin
+  Result := False;
   TmpPath := GetTmpFilePath;
   JsonPath := GetInboxFilePath;
 
-  // Write to .tmp first (no BOM — bash scripts can't handle it)
-  var Bytes := TEncoding.UTF8.GetBytes(AJson);
-  TFile.WriteAllBytes(TmpPath, Bytes);
+  // Write to .tmp first (no BOM — bash scripts can't handle it).
+  // Swallowing the I/O error here is deliberate: this routine reports failure
+  // through its result, so the poll loop stays alive and retries next round.
+  try
+    var Bytes := TEncoding.UTF8.GetBytes(AJson);
+    TFile.WriteAllBytes(TmpPath, Bytes);
+  except
+    on E: Exception do
+    begin
+      // Same best-effort cleanup as the rename-failure path below: a partially
+      // written .tmp must not be left lying in the user-visible inbox dir just
+      // because the failure happened one step earlier.
+      try
+        TFile.Delete(TmpPath);
+      except
+        // ignore
+      end;
+      Log('[mxProxy] Failed to write inbox tmp file: ' + E.Message);
+      Exit(False);
+    end;
+  end;
 
   // Atomic rename .tmp -> .json (retry on sharing violation)
   for Retry := 1 to 3 do
@@ -199,14 +220,19 @@ begin
       MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then
     begin
       FWrittenIds := AIds;
-      Exit;
+      Exit(True);
     end;
     if Retry < 3 then
       Sleep(50);
   end;
 
-  // Rename failed after retries — clean up tmp
-  TFile.Delete(TmpPath);
+  // Rename failed after retries — clean up tmp (best effort; a stale .tmp is
+  // harmless, the next round overwrites it)
+  try
+    TFile.Delete(TmpPath);
+  except
+    // ignore
+  end;
   Log('[mxProxy] Failed to write inbox file after 3 retries');
 end;
 
@@ -312,6 +338,10 @@ begin
                   var HasUnconsumed := FileExists(GetInboxFilePath);
                   var NewCount := 0;
                   var OutArr := TJSONArray.Create;
+                  // Staging area for the "already rendered" claim. It is only
+                  // merged into FKnownIds once the write is proven — see the
+                  // commit block below.
+                  var PendingNew := TList<Integer>.Create;
                   NewIds := '';
                   try
                     for var I := 0 to (MsgArr as TJSONArray).Count - 1 do
@@ -323,7 +353,7 @@ begin
                       var IsNew := not FKnownIds.Contains(MsgId);
                       if IsNew then
                       begin
-                        FKnownIds.Add(MsgId);
+                        PendingNew.Add(MsgId);
                         Inc(NewCount);
                       end;
 
@@ -364,6 +394,7 @@ begin
                        ((NewCount > 0) or
                         (HasUnconsumed and (OutArr.Count <> WrittenCount))) then
                     begin
+                      var Written := False;
                       FileJson := TJSONObject.Create;
                       try
                         FileJson.AddPair('v', TJSONNumber.Create(1));
@@ -374,16 +405,39 @@ begin
                         // FWrittenIds now covers EVERY row in the file, so
                         // CheckAndAck acks all of them instead of just the last
                         // delta — the other half of the ordering fix.
-                        WriteInboxFile(FileJson.ToJSON, NewIds);
+                        Written := WriteInboxFile(FileJson.ToJSON, NewIds);
                       finally
                         FileJson.Free;
                       end;
-                      // Persist FKnownIds so a Proxy restart does not re-
-                      // consider these IDs "new" and re-write the same rows.
-                      if NewCount > 0 then
-                        SaveKnownIds;
+
+                      // ⚡ Record the IDs as "rendered" ONLY after the write is
+                      // proven. Committing first was a closed trap: a failed
+                      // write leaves no buffer and no FWrittenIds, so CheckAndAck
+                      // exits at once and never acks — while FKnownIds already
+                      // claims the row was handled. The next poll then computes
+                      // IsNew=False and HasUnconsumed=False, so the row enters
+                      // neither OutArr nor NewIds, NewIds stays empty and the
+                      // write condition is never true again. SaveKnownIds had
+                      // meanwhile persisted that dead state, so a restart did not
+                      // heal it either: the message stayed pending server-side,
+                      // undeliverable and unackable, forever. Reported for the Go
+                      // twin from the macOS host 2026-08-26 (msg#2030, r3971) and
+                      // confirmed identical here.
+                      //
+                      // Leaving FKnownIds untouched on failure is what makes the
+                      // next poll retry the very same rows.
+                      if Written then
+                      begin
+                        for var PendingId in PendingNew do
+                          FKnownIds.Add(PendingId);
+                        // Persist FKnownIds so a Proxy restart does not re-
+                        // consider these IDs "new" and re-write the same rows.
+                        if NewCount > 0 then
+                          SaveKnownIds;
+                      end;
                     end;
                   finally
+                    PendingNew.Free;
                     OutArr.Free;
                   end;
                 end;
@@ -413,6 +467,61 @@ begin
       Log('[poll] FATAL in Execute: ' + E.ClassName + ': ' + E.Message);
   end;
   LogDebug('[poll] Execute return');
+end;
+
+// Extract the project slug from a CLAUDE.md body.
+//
+// The marker must be ANCHORED to the start of a line. A plain substring scan
+// over the whole file also matches the marker inside prose or a code span: a
+// CLAUDE.md carrying the note "Kein `**Slug:**` hier" yielded the slug "hier,"
+// and the proxy then polled an agent inbox for a project that does not exist —
+// silently, for the whole process lifetime, because the slug is latched once.
+// Observed live on the macOS build host 2026-08-26 (BR#14128); the Go port had
+// the identical defect and was fixed in r3971.
+//
+// A leading list bullet MUST be tolerated. The canonical CLAUDE.md template
+// writes `- **Slug:** <slug>`, and 4 of the 5 real project files on the author
+// machine use that form. Anchoring on the bare marker alone therefore trades a
+// wrong slug for no slug at all — the same silent failure one step further
+// along. A leading `>` is deliberately NOT stripped: a blockquote is the prose
+// case this fix exists to reject.
+//
+// A bare marker line carrying no value does not abort the scan; it keeps
+// looking, so a template placeholder cannot mask the real entry below it.
+function ParseSlugFromClaudeMd(const AContent: string): string;
+const
+  Marker = '**Slug:**';
+var
+  Line, Rest: string;
+begin
+  Result := '';
+  for Line in AContent.Split([#10]) do
+  begin
+    Rest := Trim(Line);
+
+    // optional markdown list bullet ("- ", "* ", "+ ")
+    if (Length(Rest) >= 2) and CharInSet(Rest[1], ['-', '*', '+']) and
+       CharInSet(Rest[2], [' ', #9]) then
+      Rest := Trim(Copy(Rest, 3, MaxInt));
+
+    if not Rest.StartsWith(Marker) then
+      Continue;
+
+    Rest := Trim(Copy(Rest, Length(Marker) + 1, MaxInt));
+    Rest := StringReplace(Rest, '`', '', [rfReplaceAll]);
+    Rest := Trim(Rest);
+
+    // first whitespace-delimited token
+    for var I := 1 to Length(Rest) do
+      if CharInSet(Rest[I], [' ', #9, #13]) then
+      begin
+        Rest := Copy(Rest, 1, I - 1);
+        Break;
+      end;
+
+    if Rest <> '' then
+      Exit(Rest);
+  end;
 end;
 
 { TMxStdioProxy }
@@ -457,41 +566,25 @@ begin
     try
       var ClaudeMd := TFile.ReadAllText('CLAUDE.md', TEncoding.UTF8);
       LogDebug('[stdio] CLAUDE.md read. length=' + IntToStr(Length(ClaudeMd)));
-      var SlugPos := Pos('**Slug:**', ClaudeMd);
-      LogDebug('[stdio] SlugPos=' + IntToStr(SlugPos));
-      if SlugPos > 0 then
+      var AfterSlug := ParseSlugFromClaudeMd(ClaudeMd);
+      LogDebug('[stdio] Parsed slug=' + AfterSlug);
+      if AfterSlug <> '' then
       begin
-        var AfterSlug := Copy(ClaudeMd, SlugPos + 9, 100);
-        // Trim spaces, backticks, newlines
-        AfterSlug := Trim(AfterSlug);
-        AfterSlug := StringReplace(AfterSlug, '`', '', [rfReplaceAll]);
-        // Take first word
-        var SpacePos := Pos(' ', AfterSlug);
-        var NlPos := Pos(#10, AfterSlug);
-        var CrPos := Pos(#13, AfterSlug);
-        if (SpacePos > 0) then AfterSlug := Copy(AfterSlug, 1, SpacePos - 1);
-        if (NlPos > 0) and (NlPos < Length(AfterSlug)) then AfterSlug := Copy(AfterSlug, 1, NlPos - 1);
-        if (CrPos > 0) and (CrPos < Length(AfterSlug)) then AfterSlug := Copy(AfterSlug, 1, CrPos - 1);
-        AfterSlug := Trim(AfterSlug);
+        FProjectSlug := AfterSlug;
+        Log('[mxProxy] Slug from CLAUDE.md: ' + FProjectSlug);
 
-        if AfterSlug <> '' then
-        begin
-          FProjectSlug := AfterSlug;
-          Log('[mxProxy] Slug from CLAUDE.md: ' + FProjectSlug);
-
-          // Auto-start polling thread
-          LogDebug('[stdio] About to call TMxAgentPollThread.Create');
-          FAgentThread := TMxAgentPollThread.Create(
-            FConfig.ServerUrl, FConfig.ApiKey,
-            FProjectSlug, FConfig.InboxDir,
-            FConfig.AgentPollInterval);
-          LogDebug('[stdio] TMxAgentPollThread.Create OK, about to Start');
-          FAgentThread.Start;
-          Log('[mxProxy] Agent polling auto-started for ' + FProjectSlug);
-        end
-        else
-          LogDebug('[stdio] AfterSlug empty after parse, no thread started');
-      end;
+        // Auto-start polling thread
+        LogDebug('[stdio] About to call TMxAgentPollThread.Create');
+        FAgentThread := TMxAgentPollThread.Create(
+          FConfig.ServerUrl, FConfig.ApiKey,
+          FProjectSlug, FConfig.InboxDir,
+          FConfig.AgentPollInterval);
+        LogDebug('[stdio] TMxAgentPollThread.Create OK, about to Start');
+        FAgentThread.Start;
+        Log('[mxProxy] Agent polling auto-started for ' + FProjectSlug);
+      end
+      else
+        LogDebug('[stdio] No anchored **Slug:** line in CLAUDE.md, no thread started');
     except
       on E: Exception do
         Log('[mxProxy] CLAUDE.md read failed: ' + E.ClassName + ': ' + E.Message);

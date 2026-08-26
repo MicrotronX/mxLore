@@ -58,20 +58,32 @@ func parseSlugFromClaudeMd(path string) string {
 		logMsg("[mxProxy] CLAUDE.md read failed: " + err.Error())
 		return ""
 	}
-	content := string(data)
 	const marker = "**Slug:**"
-	idx := strings.Index(content, marker)
-	if idx < 0 {
-		return ""
+	// ⚡ Anchor the marker at the start of a line. A plain substring scan over
+	// the whole file also matches the marker inside prose or a code span: a
+	// CLAUDE.md carrying the note "Kein `**Slug:**` hier" yielded the slug
+	// "hier," and the proxy then polled an agent inbox for a project that does
+	// not exist — silently, for the whole process lifetime, because
+	// startPolling latches the first slug it is given. Observed live on the
+	// macOS build host, 2026-08-26.
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, marker) {
+			continue
+		}
+		after := strings.TrimSpace(trimmed[len(marker):])
+		after = strings.ReplaceAll(after, "`", "")
+		after = strings.TrimSpace(after)
+		// take the first whitespace-delimited token
+		if i := strings.IndexAny(after, " \t"); i >= 0 {
+			after = after[:i]
+		}
+		// keep scanning on a bare marker with no value after it
+		if after != "" {
+			return after
+		}
 	}
-	after := strings.TrimSpace(content[idx+len(marker):])
-	after = strings.ReplaceAll(after, "`", "")
-	after = strings.TrimSpace(after)
-	// take the first whitespace-delimited token
-	if i := strings.IndexAny(after, " \t\r\n"); i >= 0 {
-		after = after[:i]
-	}
-	return strings.TrimSpace(after)
+	return ""
 }
 
 func (p *Proxy) startPolling(slug string) {

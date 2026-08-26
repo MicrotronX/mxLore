@@ -120,7 +120,10 @@ func (p *Poller) pollOnce(url string) {
 	// new-rows-only — that is what keeps knownIDs (the accumulation guard)
 	// meaningful.
 	hasUnconsumed := fileExists(p.inboxFile())
-	newCount := 0
+	// ⚡ Collect the new ids, do NOT mark them known yet — knownIDs is the
+	// "already handed over" ledger and may only be committed once the buffer
+	// file has actually landed. See the commit point below writeInboxFile.
+	var freshIDs []int
 	var outMsgs []json.RawMessage
 	var outIDs []string
 	for _, m := range parsed.Messages {
@@ -135,14 +138,14 @@ func (p *Poller) pollOnce(url string) {
 		}
 		isNew := !p.knownIDs[idObj.ID]
 		if isNew {
-			p.knownIDs[idObj.ID] = true
-			newCount++
+			freshIDs = append(freshIDs, idObj.ID)
 		}
 		if isNew || hasUnconsumed {
 			outMsgs = append(outMsgs, m)
 			outIDs = append(outIDs, strconv.Itoa(idObj.ID))
 		}
 	}
+	newCount := len(freshIDs)
 	if len(outMsgs) == 0 {
 		return
 	}
@@ -177,7 +180,20 @@ func (p *Poller) pollOnce(url string) {
 		time.Now().Format("2006-01-02T15:04:05"), idsStr, string(msgsJSON))
 	// writtenIDs now covers EVERY row in the file, so checkAndAck acks all of
 	// them instead of just the last delta — the other half of the ordering fix.
-	p.writeInboxFile(fileObj, idsStr)
+	//
+	// ⚡ Commit to knownIDs only after the file is on disk. Marking an id known
+	// up front loses the message for good when the write fails: the next poll
+	// finds no buffer (hasUnconsumed=false) and isNew=false, so the row is never
+	// rendered again; checkAndAck bails on the empty writtenIDs, so knownIDs is
+	// never cleared either; and saveKnownIDs would persist that dead end across
+	// a restart. Never delivered, never acked, no way back. Same failure class
+	// the mirror fix above addresses, one layer down.
+	if !p.writeInboxFile(fileObj, idsStr) {
+		return
+	}
+	for _, id := range freshIDs {
+		p.knownIDs[id] = true
+	}
 	// Persist knownIDs so a restart does not re-consider these IDs "new".
 	if newCount > 0 {
 		p.saveKnownIDs()
@@ -186,19 +202,21 @@ func (p *Poller) pollOnce(url string) {
 
 // writeInboxFile writes atomically: .tmp first (no BOM — bash hooks can't
 // handle it), then rename to .json (retry on transient failure).
-func (p *Poller) writeInboxFile(jsonStr, ids string) {
+// Reports whether the file actually landed; the caller must not record the
+// messages as delivered otherwise.
+func (p *Poller) writeInboxFile(jsonStr, ids string) bool {
 	tmp := p.tmpFile()
 	dst := p.inboxFile()
 	if err := os.WriteFile(tmp, []byte(jsonStr), 0644); err != nil {
 		logMsg("[mxProxy] write inbox tmp failed: " + err.Error())
-		return
+		return false
 	}
 	var renameErr error
 	for retry := 1; retry <= 3; retry++ {
 		renameErr = os.Rename(tmp, dst)
 		if renameErr == nil {
 			p.writtenIDs = ids
-			return
+			return true
 		}
 		if retry < 3 {
 			time.Sleep(50 * time.Millisecond)
@@ -206,6 +224,7 @@ func (p *Poller) writeInboxFile(jsonStr, ids string) {
 	}
 	_ = os.Remove(tmp)
 	logMsg("[mxProxy] Failed to write inbox file after 3 retries: " + renameErr.Error())
+	return false
 }
 
 // checkAndAck sends an ACK once the hook has consumed (deleted) the inbox file.
