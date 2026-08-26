@@ -11,7 +11,7 @@ const
   // hardcoded literal that had drifted four releases behind, which made the
   // version the server sees useless for exactly the kind of proxy-version
   // diagnosis it is there for. Keep in sync with VerInfo_Keys in the .dproj.
-  MXPROXY_VERSION = '1.0.7';
+  MXPROXY_VERSION = '1.0.8';
 
 type
   TMxProxyConfig = class
