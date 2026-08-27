@@ -62,6 +62,13 @@ mx_dirs=("$SRC"/mx*)
 shopt -u nullglob
 [ ${#mx_dirs[@]} -gt 0 ] || { echo "ERROR: no mx* directories found in $SRC — repo restructure?"; exit 2; }
 
+# _shared/ is bundle-owned like the mx* skills but invisible to the mx* glob —
+# the skills hard-reference ~/.claude/skills/_shared/*.md, so an install without
+# it ships skills that cannot follow their own procedures. Appending it here
+# (instead of a second cp) also routes it through the CLEAN quarantine above.
+[ -d "$SRC/_shared" ] || { echo "ERROR: $SRC/_shared not found in extracted bundle — repo restructure?" >&2; exit 2; }
+mx_dirs+=("$SRC/_shared")
+
 # Opt-in pre-clean: wipe stale files inside the skills THIS BUNDLE SHIPS, before re-copy.
 # Default (CLEAN unset or 0) is additive cp -r so canonical-first edits in
 # ~/.claude/skills/mx*/ are preserved for users who edit there and haven't synced
