@@ -2,7 +2,7 @@
 # IMPORTANT: Content between mx-rules markers is managed by /mxSetup --update.
 # Place your own additions ABOVE or BELOW the marker block. Do NOT edit inside markers.
 
-<!-- mx-rules-start v2026-08-20 -->
+<!-- mx-rules-start v2026-08-28 -->
 # mx* Rules (AI-Steno: !=forbidden →=use/instead ⚡=critical ?=ask)
 
 ## Persist ⚡
@@ -64,7 +64,9 @@ delphi→~/.claude/reference/delphi.md | php/web→~/.claude/reference/php-web.m
 
 ## Docs
 ~/.claude/CLAUDE.md=global(all projects, via /mxSetup)
-<project>/CLAUDE.md=project-only(slug,stack,arch) max100L !duplicate-global
+<project>/CLAUDE.md=project-only(slug,stack,arch) !duplicate-global
+⚡ CLAUDE.md-Gewicht=BYTES !Zeilen: `wc -c`≤40KB UND längste-Zeile≤4KB(`awk '{print length}'|sort -rn|head -1`). Zeilenzahl ist blind für Chronik die in Zeilen-LÄNGE wächst (gemessen: 212 Zeilen=163KB, 53 Zeilen=32KB/80% in 1 Zeile). Datei lädt in JEDE Session + JEDEN Subagent-Fork
+⚡ Status/Chronik in CLAUDE.md = GENAU 1 Eintrag (aktuell, voll) + Zeiger `History→mx_search(doc_type='session_note')`. Vorgänger wird ENTFERNT !eingedampft (trägt eigenen note#, SSoT ist die Note). !Top-N-Regel — N 1-Zeiler sind wieder Duplikat + Eindampfen pro Save = Drift
 docs/reference/=on-demand. mx*-skills→auto-generate !manual-create
 
 ## Superpowers→mx* Bridge (mx* priority in docs/-projects)

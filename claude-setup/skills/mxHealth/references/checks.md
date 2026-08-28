@@ -81,8 +81,18 @@ entirely from output).
 
 - **Trigger:** Always.
 - **Checks:**
-  - CLAUDE.md > 200 lines -> `WARNING`; > 300 lines -> `ERROR` (urgently
-    offload).
+  - CLAUDE.md weight in BYTES, not lines (`wc -c`): > 40 KB -> `WARNING`;
+    > 80 KB -> `ERROR` (urgently offload). Report the measured byte count.
+  - Longest single line (`awk '{print length}' CLAUDE.md | sort -rn | head -1`):
+    > 4 KB -> `WARNING`. (critical) A line-count gate is blind to a chronicle that
+    grows in line LENGTH — measured live 2026-08-28, a 212-line CLAUDE.md held
+    163 KB / ~41k tokens with a 12.5 KB single entry, and a 53-line one held
+    32 KB with 80% of the file in one line. Both pass any 200/300-line gate.
+    The file is loaded into every session and every subagent fork, so bytes
+    are the cost.
+  - A single oversized line is a chronicle accumulating in place: recommend
+    the mxSave status-entry rule (one current entry + `mx_search` pointer,
+    older entries removed, not condensed) -> `WARNING`, not just "offload".
   - `docs/reference/` files without reference in CLAUDE.md -> `WARNING`.
   - Dead markdown links -> `ERROR` (local files) | `INFO` (migrated docs/).
 - **Severity:** `ERROR | WARNING | INFO`.
@@ -141,8 +151,11 @@ entirely from output).
   3. No steno markers found -> `WARNING`: "CLAUDE.md not in AI-Steno format.
      ~50% token savings possible. Recommendation: convert manually or re-run
      `/mxInitProject`."
-  4. Steno present but > 200 lines (global) or > 100 lines (project) ->
-     `WARNING`: "AI-Steno CLAUDE.md too long".
+  4. Steno present but over the P7 byte budget (`wc -c` > 40 KB, or any
+     single line > 4 KB) -> `WARNING`: "AI-Steno CLAUDE.md too heavy —
+     <N> KB, longest line <M> KB". (critical) Measure bytes here too, for the
+     same reason as P7: steno compresses wording, not accumulation, so a
+     steno file can be both perfectly formatted and far too heavy.
 - **Severity:** `WARNING`.
 - **Reference:** ADR-0010 (AI-Steno standard format).
 - **Persistence:** Phase 3b note + Phase 4 bugreport.
