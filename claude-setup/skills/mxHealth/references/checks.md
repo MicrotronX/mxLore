@@ -83,7 +83,7 @@ entirely from output).
 - **Checks:**
   - CLAUDE.md weight in BYTES, not lines (`wc -c`): > 40 KB -> `WARNING`;
     > 80 KB -> `ERROR` (urgently offload). Report the measured byte count.
-  - Longest single line (`awk '{print length}' CLAUDE.md | sort -rn | head -1`):
+  - Longest single line (`LC_ALL=C awk '{print length}' CLAUDE.md | sort -rn | head -1` — ⚡ `LC_ALL=C` is mandatory: GNU awk counts CHARACTERS in a UTF-8 locale and BYTES in the C locale, while `wc -c` always counts bytes. Measured 2026-08-28: a line with two umlauts, an eszett and an arrow reads 19 bytes but 14 characters, so a UTF-8-locale run under-reports German files by ~26 % and passes an oversized line as healthy):
     > 4 KB -> `WARNING`. (critical) A line-count gate is blind to a chronicle that
     grows in line LENGTH — measured live 2026-08-28, a 212-line CLAUDE.md held
     163 KB / ~41k tokens with a 12.5 KB single entry, and a 53-line one held

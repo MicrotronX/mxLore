@@ -29,7 +29,7 @@ mx_search include_content=false limit=3-5. mx_briefing token_budget=1000-1500
 mx_skill_findings_list paginate(limit=10) !full-list
 Edit surgical 1-5L. multi-line→Write or background-subagent
 tail -15 default for logs. wider only on need
-status.md max10L pointer-only(MCP IDs) !duplicate-content
+status.md ≤4KB UND Zeile≤1KB (gleiche Byte-Einheit wie CLAUDE.md, !Zeilenzahl) pointer-only(MCP IDs) !duplicate-content. Block ohne #NNNN wird !geloescht →erst nach MCP schreiben
 N mirrored files→edit canonical 1x + cp, !N Edit calls
 
 ## Agent-Messages ⚡ (content, !transport — cross-project)
@@ -65,7 +65,7 @@ delphi→~/.claude/reference/delphi.md | php/web→~/.claude/reference/php-web.m
 ## Docs
 ~/.claude/CLAUDE.md=global(all projects, via /mxSetup)
 <project>/CLAUDE.md=project-only(slug,stack,arch) !duplicate-global
-⚡ CLAUDE.md-Gewicht=BYTES !Zeilen: `wc -c`≤40KB UND längste-Zeile≤4KB(`awk '{print length}'|sort -rn|head -1`). Zeilenzahl ist blind für Chronik die in Zeilen-LÄNGE wächst (gemessen: 212 Zeilen=163KB, 53 Zeilen=32KB/80% in 1 Zeile). Datei lädt in JEDE Session + JEDEN Subagent-Fork
+⚡ CLAUDE.md-Gewicht=BYTES !Zeilen: `wc -c`≤40KB UND längste-Zeile≤4KB(`LC_ALL=C awk '{print length}'|sort -rn|head -1` — LC_ALL=C zwingend, gawk zählt sonst ZEICHEN statt Bytes und meldet deutsche Dateien ~26% zu klein). Zeilenzahl ist blind für Chronik die in Zeilen-LÄNGE wächst (gemessen: 212 Zeilen=163KB, 53 Zeilen=32KB/80% in 1 Zeile). Datei lädt in JEDE Session + JEDEN Subagent-Fork
 ⚡ Status/Chronik in CLAUDE.md = GENAU 1 Eintrag (aktuell, voll) + Zeiger `History→mx_search(doc_type='session_note')`. Vorgänger wird ENTFERNT !eingedampft (trägt eigenen note#, SSoT ist die Note). !Top-N-Regel — N 1-Zeiler sind wieder Duplikat + Eindampfen pro Save = Drift
 docs/reference/=on-demand. mx*-skills→auto-generate !manual-create
 
