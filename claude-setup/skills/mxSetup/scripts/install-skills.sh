@@ -110,6 +110,37 @@ if [ "${CLEAN:-0}" = "1" ]; then
 fi
 
 cp -r "${mx_dirs[@]}" "$CLAUDE_HOME/skills/"
+
+# Bundle manifest: the ONLY runtime proof of which skills this bundle owns.
+# $SRC is a temp dir that disappears after the install, so without this file no
+# later tool can tell a delivered process-skill from a private one — and a name
+# glob is not proof of ownership — that assumption caused the CLEAN=1 data loss.
+# mxKnowledge reads it to refuse migrating a delivered skill into the DB, which
+# would create a bootstrap deadlock: the empty delivered DB cannot hand back the
+# very skill you need to reach the DB (knowledge-dossier spec, R19f).
+# Written from "${mx_dirs[@]}" — the same array that was actually copied, never
+# from a hand-kept list that would drift from what ships.
+{
+  echo '{'
+  echo '  "_comment": "Skills owned by the mxLore bundle, written by install-skills.sh at install time. Ownership proof for tools that must not treat a delivered skill as private. Do not edit by hand.",'
+  echo "  \"installed_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
+  echo '  "skills": ['
+  _first=1
+  for _d in "${mx_dirs[@]}"; do
+    _n="$(basename "$_d")"
+    [ "$_first" = 1 ] && _first=0 || echo ','
+    printf '    "%s"' "$_n"
+  done
+  echo ''
+  echo '  ]'
+  echo '}'
+} > "$CLAUDE_HOME/skills/_shared/bundle-manifest.json" || {
+  echo "ERROR: could not write bundle-manifest.json — migration guards cannot work without it" >&2
+  exit 2
+}
+unset _first _d _n
+echo "Bundle manifest written: ${#mx_dirs[@]} skill(s)."
+
 # Subshell + cp -r . avoids the unquoted-glob word-split footgun of "$SRC/hooks/"*
 # (the trailing * was outside quotes and would split on spaces in filenames).
 # Pre-existence guards: fail loud if a repo restructure removes hooks/ or reference/

@@ -1,9 +1,20 @@
 #!/usr/bin/env node
 // Institutional Memory PreToolUse Gate
-// Fires before Edit/Write on source files.
-// Cooldown: max 1 recall per file:intent per session.
+// Two branches, one file (knowledge-dossier spec R16 — a second hook file would duplicate
+// the cooldown and perf mechanics, and two copies drift apart):
+//   default        -> recall gate, fires before Edit/Write on source files.
+//   --knowledge    -> knowledge dossier hint, fires before Read/Grep on a path
+//                     covered by a dossier in the _knowledge project.
+// Cooldown: max 1 trigger per file:intent per session.
 // Gate-Level interpretation: INFO/WARN/BLOCK.
-// Performance target: <50ms.
+// Performance: ~120ms per invocation, measured 2026-08-31 (10 runs). Almost all of
+// it is the node process start itself — an empty `node -e ""` costs ~115ms on this
+// machine. The "<50ms" target in the dossier spec R17 is unreachable for ANY node-based
+// PreToolUse hook and was corrected in the spec rather than quietly missed.
+// What IS optimised is everything after the process start: the --knowledge branch
+// never reads CLAUDE.md, and on a non-matching path it returns after a single
+// existsSync — no project lookup, no cooldown I/O. Read/Grep are the hottest tool
+// path there is, so nothing avoidable may run there.
 
 const fs = require('fs');
 const path = require('path');
@@ -12,6 +23,12 @@ const os = require('os');
 // Cooldown file persists across hook invocations within a session
 const COOLDOWN_FILE = path.join(os.tmpdir(), 'claude-recall-cooldown.json');
 const COOLDOWN_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8h session max
+
+// Watch list for the --knowledge branch. Derived from the mandatory "file location"
+// field of each dossier (dossier spec R8/R15) — it is never hand-maintained.
+// Absent file = no dossiers = fresh install: the branch costs one existsSync and exits.
+// That is the bootstrap invariant (R4): nothing needed to operate mxLore comes from the DB.
+const KNOWLEDGE_CACHE = path.join(os.homedir(), '.claude', 'knowledge-paths.json');
 
 function loadCooldown() {
   try {
@@ -42,6 +59,37 @@ try {
   }
 
   if (!filePath) process.exit(0);
+
+  // --- Knowledge branch (Read|Grep matcher) -------------------------------
+  // Deliberately placed before the CLAUDE.md read: on a non-matching path this
+  // returns after a single existsSync, with no project lookup and no cooldown I/O.
+  if (process.argv.includes('--knowledge')) {
+    let entries;
+    try {
+      if (!fs.existsSync(KNOWLEDGE_CACHE)) process.exit(0);
+      entries = JSON.parse(fs.readFileSync(KNOWLEDGE_CACHE, 'utf8')).entries;
+    } catch { process.exit(0); }
+    if (!Array.isArray(entries) || entries.length === 0) process.exit(0);
+
+    const kPath = filePath.replace(/\\/g, '/').toLowerCase();
+    const hit = entries.find(e => e && e.prefix && kPath.startsWith(e.prefix));
+    if (!hit) process.exit(0);
+
+    const kKey = `${path.basename(filePath)}:knowledge`;
+    const kCache = loadCooldown();
+    if (kCache[kKey]) process.exit(0);
+    kCache[kKey] = Date.now();
+    saveCooldown(kCache);
+
+    console.log(`[Knowledge] "${path.basename(filePath)}" is covered by a knowledge dossier.
+1. Call mx_detail(doc_id=${hit.doc_id}) before reasoning about ${hit.title || 'this component'}.
+2. The dossier carries manufacturer, proven capabilities with file:line evidence, known landmines
+   and active call sites. Prefer it over deriving the same facts from the sources again.
+3. If the dossier contradicts what you find in the code, the CODE wins — then say so and update
+   the dossier via mx_update_doc, so the next session does not re-derive the correction.`);
+    process.exit(0);
+  }
+  // --- End knowledge branch ------------------------------------------------
 
   // Only trigger for source files
   const normPath = filePath.replace(/\\/g, '/').toLowerCase();

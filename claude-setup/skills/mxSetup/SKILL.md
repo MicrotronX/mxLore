@@ -22,7 +22,7 @@ argument-hint: "<api-key> | --update | --update-rules | --update-proxy | --with-
 
 ## Prerequisites
 - **Required CLI tools:** `curl`, `unzip`, `claude` (Claude Code CLI). Git-Bash on Windows includes curl+unzip.
-- **Node.js** — Recommended. Required for 7 of 10 hooks (Orchestrate, Recall-Gate, Recall-Outcome, env-guard). Without Node.js the session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/
+- **Node.js** — Recommended. Required for 8 of 11 hooks (Orchestrate, Recall-Gate, Knowledge-Gate, Recall-Outcome, env-guard). Without Node.js the session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/
 
 ## First Installation (with API key)
 
@@ -129,11 +129,11 @@ The first three keep the Delphi IDE's revision backups (`Unit1.pas.~235~`, `__re
 node --version 2>/dev/null
 ```
 If `node` not found: show warning:
-> "Node.js not found. 7 of 10 hooks (Orchestrate, Recall-Gate, Recall-Outcome, env-guard) will not work without Node.js. Session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/"
+> "Node.js not found. 8 of 11 hooks (Orchestrate, Recall-Gate, Knowledge-Gate, Recall-Outcome, env-guard) will not work without Node.js. Session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/"
 → Only install Bash hooks, skip JS hooks (PreCompact/PostCompact prompts are DORMANT — see pointer below).
 
 Hooks table (Event → hooks → Requires) — see `references/hooks-table.md` for details.
-⚡ Load-bearing: without Node.js, 7 of 10 hooks degrade (see references file).
+⚡ Load-bearing: without Node.js, 8 of 11 hooks degrade (see references file).
 
 **5b-StatusLine** — Add `statusLine` block at top level of settings.json (NOT inside `hooks`):
 ```json
