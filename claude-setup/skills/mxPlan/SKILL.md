@@ -19,7 +19,7 @@ Plan agent. Creates/updates plans in Knowledge-DB via MCP.
 
 ## Init
 1. CLAUDE.md→`**Slug:**`=project-param. ∅slug→?user
-2. mx_ping()→OK=MCP-mode | error=local(`docs/plans/PLAN-<slug>.md`+warning→/mxMigrateToDb)
+2. ⚡ tools deferred? → load first per `~/.claude/skills/_shared/mcp-tools-load.md` (tool-missing ≠ server-down). mx_ping()→OK=MCP-mode | error=local(`docs/plans/PLAN-<slug>.md`+warning→/mxMigrateToDb)
 
 ## Input
 Slug from command argument. ∅arg→?user.

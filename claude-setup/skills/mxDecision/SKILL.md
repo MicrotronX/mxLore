@@ -13,7 +13,7 @@ ADR-Agent. Creates decisions as ADR in Knowledge-DB via MCP.
 
 ## Init
 1. CLAUDE.md→`**Slug:**`=project_slug. ∅slug→?user
-2. mx_ping()→OK=MCP-mode | Error=Local(`docs/decisions/ADR-NNNN-<slug>.md`+Warning→/mxMigrateToDb)
+2. ⚡ tools deferred? → load first per `~/.claude/skills/_shared/mcp-tools-load.md` (tool-missing ≠ server-down). mx_ping()→OK=MCP-mode | Error=Local(`docs/decisions/ADR-NNNN-<slug>.md`+Warning→/mxMigrateToDb)
 
 ## Input
 Title from command argument. ∅arg→?user.

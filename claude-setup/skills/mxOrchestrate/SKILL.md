@@ -24,6 +24,7 @@ This skill fires on:
 - Automatic: SessionStart, UserPromptSubmit (every prompt, 3-line context), [DORMANT] PreCompact/PostCompact (see `references/hooks.md` for reactivation path)
 
 ## Init (Pre-Routing, EVERY call)
+0. ⚡ MCP tools deferred? → load first per `~/.claude/skills/_shared/mcp-tools-load.md` (tool-missing ≠ server-down; `Local` mode only after a real ping/session_start error).
 1. CLAUDE.md parse: if file missing OR no `**Slug:**` line is present → ?user. If `**Slug:**` line is present → use that value as project slug.
 2. Load state: `.claude/orchestrate-state.json`→parse. ∅file or corrupt→mode `init`
 3. **Ensure session:**

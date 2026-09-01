@@ -45,7 +45,7 @@ This skill fires on:
 ## Phase 1: Load context
 1. CLAUDE.md→project type+slug. Keywords: Delphi/VCL/FMX→`references/delphi-rules.md` | PHP/HTML/JS/TS→`references/web-rules.md` | Always: `references/general-rules.md` | Mode 3: +`references/spec-review.md`. ⚡ **Canonical source is `references/` only.** A `rules/` folder may still exist for backward-compat on older installs, but it is STALE — never read from it, never write to it, and surface a warning if found during Phase 1.
 2. docs/status.md→header+recent changes
-3. **Load document:** MCP(Slug)→`mx_search(project, doc_type='spec,plan,decision', query='<slug>', status='active', include_content=false, limit=5)` then `mx_detail(doc_id, max_content_tokens=0)` for the full body. ⚡ **`max_content_tokens=0` is REQUIRED** — the 600-token default silently truncates and causes false "not found" / "section missing" findings. Local fallback → Read file directly.
+3. **Load document:** ⚡ MCP tools deferred? → load first per `~/.claude/skills/_shared/mcp-tools-load.md`, then `mx_ping()` and state its result in the report (tool-missing ≠ server-down — a checker that mistakes the two persists nothing and looks green). MCP(Slug)→`mx_search(project, doc_type='spec,plan,decision', query='<slug>', status='active', include_content=false, limit=5)` then `mx_detail(doc_id, max_content_tokens=0)` for the full body. ⚡ **`max_content_tokens=0` is REQUIRED** — the 600-token default silently truncates and causes false "not found" / "section missing" findings. Local fallback → Read file directly.
 4. ⚡ **MCP down → continue with CLAUDE.md + status.md + local files only; never abort Phase 1.**
 
 ## Phase 2: Analysis (max 5 categories from rules files)

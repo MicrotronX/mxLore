@@ -22,7 +22,7 @@ This skill fires on:
 
 ## Init
 1. CLAUDE.md→`**Slug:**`=project. ∅slug→?user
-2. mx_ping()→OK=continue | Error→"MCP unreachable — /mxHealth requires MCP." ABORT
+2. ⚡ tools deferred? → load first per `~/.claude/skills/_shared/mcp-tools-load.md` (tool-missing ≠ server-down; ABORT only on a real ping error). mx_ping()→OK=continue | Error→"MCP unreachable — /mxHealth requires MCP." ABORT
 
 ## Phase 1: Load Inventory
 Execute in parallel:

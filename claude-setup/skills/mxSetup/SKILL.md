@@ -35,7 +35,7 @@ argument-hint: "<api-key> | --update | --update-rules | --update-proxy | --with-
 ```bash
 claude mcp add -s user --transport http mxai-knowledge "<SERVER-URL>" --header "Authorization: Bearer <API-KEY>"
 ```
-4. `mx_ping()` → Success? Note admin_port. Error? → Abort.
+4. ⚡ Tools deferred? → load first per `~/.claude/skills/_shared/mcp-tools-load.md` (tool-missing ≠ server-down). `mx_ping()` → Success? Note admin_port. Error? → Abort.
 
 ### Phase 2: Install Skills from GitHub (~5 seconds)
 

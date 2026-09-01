@@ -32,7 +32,7 @@ Migration agent. Import local `docs/*.md` files of a project into the central Kn
 
 ## Check prerequisites
 
-1. **MCP server reachable?** — Call `mx_ping()`. On error: Up to 3 retries with short pause (5s). Only after 3 failures: abort.
+1. **MCP server reachable?** — ⚡ tools deferred? → load first per `~/.claude/skills/_shared/mcp-tools-load.md` (tool-missing ≠ server-down; retries are for ping errors only). Call `mx_ping()`. On error: Up to 3 retries with short pause (5s). Only after 3 failures: abort.
 2. **Project registered?** — Call `mx_briefing(project='<slug>')`.
    - If "Project not found": Ask the user for the **project name** (e.g. "Project name for `<slug>`? (e.g. 'My Project — Short description')"). Then call `mx_init_project(slug='<slug>', project_name='<answer>')`. ⚡ The `slug` parameter is REQUIRED per `mx.Tool.Write.Meta.pas:46-47` — server raises `EMxValidation('Parameter "slug" is required')` if omitted. Param name is literally `slug` (NOT `project_slug`).
    - **NEVER** use the slug as project name without asking!

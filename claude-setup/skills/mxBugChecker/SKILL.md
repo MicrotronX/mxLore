@@ -37,7 +37,7 @@ Bug finder agent. Logic errors, runtime issues, security vulnerabilities. Focus:
    - Skipped files are NOT silently dropped: name each one in the report header as `not diffed: <file> (diff <N> bytes) — read directly`, deleted ones as `deleted`. ⚡ `<N>` is the **diff size the gate just measured**, NOT the file size — that is the number showing whether the gate fired correctly, and the two differ a lot (measured live: 9,059,038-byte file, 5,246,288-byte diff).
    - ⚡ Git safety: `git log` / `git status` / `git diff` are read-only — they only ever print.
 3. CLAUDE.md→project type+conventions+slug. docs/status.md→header+recent changes
-4. MCP(optional): mx_ping()→OK→`mx_search(project, doc_type='spec', query='<relevant>', status='active', include_content=false, limit=5)` + `mx_search(doc_type='plan', status='active', limit=5)` summary_l2 only. For full body re-reads of referenced specs/plans use `mx_detail(doc_id, max_content_tokens=0)` to avoid silent truncation. ⚡ **MCP down → continue with CLAUDE.md + status.md only; never abort Phase 1.**
+4. MCP(optional): ⚡ tools deferred? → load first per `~/.claude/skills/_shared/mcp-tools-load.md` (tool-missing ≠ server-down; report the `mx_ping` result). mx_ping()→OK→`mx_search(project, doc_type='spec', query='<relevant>', status='active', include_content=false, limit=5)` + `mx_search(doc_type='plan', status='active', limit=5)` summary_l2 only. For full body re-reads of referenced specs/plans use `mx_detail(doc_id, max_content_tokens=0)` to avoid silent truncation. ⚡ **MCP down → continue with CLAUDE.md + status.md only; never abort Phase 1.**
 
 ## Phase 2: Determine focus
 - **With argument:** Focus on specified files/directories/functions. Grep to find, Read to read.

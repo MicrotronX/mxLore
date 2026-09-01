@@ -43,7 +43,7 @@ This skill is **safe for repeated invocation**. Pre-flight check BEFORE all step
 
 MCP availability is checked as follows (in this order):
 
-1. **Call `mx_ping()`** — if successful: MCP mode (server configured globally or per project)
+1. ⚡ Tools deferred? → load first per `~/.claude/skills/_shared/mcp-tools-load.md` (tool-missing ≠ server-down). **Call `mx_ping()`** — if successful: MCP mode (server configured globally or per project)
 2. If mx_ping fails: check `.mcp.json` in project directory (fallback)
 3. If both negative: non-MCP mode (local files)
 

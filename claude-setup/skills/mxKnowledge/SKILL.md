@@ -33,6 +33,8 @@ this skill silently useless.
    the next session re-derives the same correction.
 4. **Zero hits is a fork, not an answer.** Distinguish the three cases and say which one it is:
    - `mx_ping` fails → MCP is unreachable. Report it, continue working without the dossier.
+     ⚡ Only a real ping error counts: tools deferred → load first per
+     `~/.claude/skills/_shared/mcp-tools-load.md` (tool-missing ≠ server-down).
      Never block on this (dossier spec R14).
    - `mx_ping` succeeds but `_knowledge` is absent from `mx_search(project=None)` results
      entirely → likely **no access** rather than no content: `_knowledge` is invisible to a
