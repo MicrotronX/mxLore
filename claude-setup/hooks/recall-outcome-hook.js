@@ -30,16 +30,24 @@ function saveJson(filePath, data) {
   } catch { /* best-effort */ }
 }
 
-try {
-  const toolInput = process.env.CLAUDE_TOOL_INPUT || '';
-
-  let filePath = '';
+// Hook payload arrives as JSON on STDIN (tool arguments under tool_input); the
+// env var is only a fallback for manual tests. Same fix as recall-gate.js
+// (2026-09-01): the env-only read left this hook silent on every live call.
+function readHookInput() {
   try {
-    const parsed = JSON.parse(toolInput);
-    filePath = parsed.file_path || parsed.path || '';
-  } catch {
-    process.exit(0);
-  }
+    if (!process.stdin.isTTY) {
+      const raw = fs.readFileSync(0, 'utf8');
+      if (raw && raw.trim()) return JSON.parse(raw);
+    }
+  } catch { /* fall through */ }
+  try { return JSON.parse(process.env.CLAUDE_TOOL_INPUT || ''); } catch { return null; }
+}
+
+try {
+  const parsed = readHookInput();
+  if (!parsed) process.exit(0);
+  const args = (parsed.tool_input && typeof parsed.tool_input === 'object') ? parsed.tool_input : parsed;
+  const filePath = args.file_path || args.path || '';
 
   if (!filePath) process.exit(0);
 

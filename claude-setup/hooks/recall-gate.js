@@ -47,16 +47,28 @@ function saveCooldown(cache) {
   } catch { /* best-effort */ }
 }
 
-try {
-  const toolInput = process.env.CLAUDE_TOOL_INPUT || '';
-
-  let filePath = '';
+// Hook payload arrives as JSON on STDIN ({session_id, tool_name, tool_input,
+// cwd, ...}) — the same channel env-guard.js and orchestrate-reconcile.js read.
+// The former env-only read (CLAUDE_TOOL_INPUT) is kept as a fallback for manual
+// tests; live it was always empty, JSON.parse('') threw, and BOTH branches of
+// this hook exited silently on every call (found 2026-09-01 by the first
+// no-prior-knowledge test run: no hint, no cooldown file ever written).
+function readHookInput() {
   try {
-    const parsed = JSON.parse(toolInput);
-    filePath = parsed.file_path || parsed.path || '';
-  } catch (e) {
-    process.exit(0);
-  }
+    if (!process.stdin.isTTY) {
+      const raw = fs.readFileSync(0, 'utf8');
+      if (raw && raw.trim()) return JSON.parse(raw);
+    }
+  } catch { /* fall through */ }
+  try { return JSON.parse(process.env.CLAUDE_TOOL_INPUT || ''); } catch { return null; }
+}
+
+try {
+  const parsed = readHookInput();
+  if (!parsed) process.exit(0);
+  // stdin shape nests the tool arguments under tool_input; the env shape is flat.
+  const args = (parsed.tool_input && typeof parsed.tool_input === 'object') ? parsed.tool_input : parsed;
+  const filePath = args.file_path || args.path || '';
 
   if (!filePath) process.exit(0);
 
