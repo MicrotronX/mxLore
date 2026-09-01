@@ -26,6 +26,7 @@ this skill silently useless.
 
 ## Retrieve
 
+0. ⚡ MCP tools deferred? → load first per `~/.claude/skills/_shared/mcp-tools-load.md` (tool-missing ≠ server-down).
 1. `mx_search(doc_type='skill', query='<artefact>', limit=5)` — no `project`.
 2. Hit → `mx_detail(doc_id)`. Use it before deriving the same facts from the sources again.
 3. ⚡ **The code always wins over the dossier.** A dossier carries a date, not a guarantee.
@@ -33,8 +34,7 @@ this skill silently useless.
    the next session re-derives the same correction.
 4. **Zero hits is a fork, not an answer.** Distinguish the three cases and say which one it is:
    - `mx_ping` fails → MCP is unreachable. Report it, continue working without the dossier.
-     ⚡ Only a real ping error counts: tools deferred → load first per
-     `~/.claude/skills/_shared/mcp-tools-load.md` (tool-missing ≠ server-down).
+     ⚡ Only a real ping error counts (step 0 above rules out the tool-missing case).
      Never block on this (dossier spec R14).
    - `mx_ping` succeeds but `_knowledge` is absent from `mx_search(project=None)` results
      entirely → likely **no access** rather than no content: `_knowledge` is invisible to a
