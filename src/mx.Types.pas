@@ -199,6 +199,11 @@ const
   //   future — that cutoff can only come from a mislabelled local stamp and
   //   made total_changes=0 read as "all saved" (tracker-gap guard blind twice).
   //   Zone-stamping every field (proposal A) deferred: contract change.
+  //   Also BR#14368: mx_create_doc repairs a summary_l1 that carries the
+  //   parameters following it as leaked tool-call markup (`</summary_l1>` /
+  //   `<parameter name="…"`) — cut at the first fragment, tags recovered from
+  //   the tail, warning in the response. mx_update_doc rejects that shape
+  //   like the content-leak shape it already rejected.
   // Build 127 (2026-08-26): agent-message delivery order. The proxy's inbox
   //   buffer is a mirror of the pending set, but was written as a delta feed —
   //   an unconsumed buffer lost the rows already in it, which were then never

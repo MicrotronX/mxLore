@@ -407,6 +407,51 @@ end;
 // Bug#3348: Cross-project doc_changed auto-notifications removed — Agent-Inbox
 // is for explicit messages only. Spec#785 archived, ADR documents rationale.
 
+// BR#14368: a second shape of the CC-CLI serializer defect. The parameters
+// that FOLLOW summary_l1 in the tool call (summary_l2, tags, status) are folded
+// INTO its value as raw markup — `…real summary</summary_l1>\n<parameter
+// name="tags">["a","b"]` — while content arrives intact, so the content-empty
+// guard in HandleCreateDoc does not fire. The record is then stored with a
+// polluted summary and NO tags, i.e. invisible to every tag search. Root cause
+// is client-side and tracked separately; this repair keeps the data clean:
+//   * summary_l1 is cut at the first markup fragment;
+//   * a `<parameter name="tags">[…]` JSON array in the tail is recovered so the
+//     caller's tags still land on the document.
+// Returns True when markup was found. ARecoveredTags is a NEW array (nil when
+// none) — ownership passes to the caller.
+function RepairLeakedSummary(var ASummary1: string;
+  out ARecoveredTags: TJSONArray): Boolean;
+var
+  P, B, E: Integer;
+  Tail: string;
+  V: TJSONValue;
+begin
+  Result := False;
+  ARecoveredTags := nil;
+  P := Pos('</summary_l1>', ASummary1);
+  if P = 0 then
+    P := Pos('<parameter name="', ASummary1);
+  if P = 0 then
+    Exit;
+  Tail := Copy(ASummary1, P, MaxInt);
+  ASummary1 := TrimRight(Copy(ASummary1, 1, P - 1));
+  Result := True;
+  B := Pos('<parameter name="tags">', Tail);
+  if B = 0 then
+    Exit;
+  B := PosEx('[', Tail, B);
+  if B = 0 then
+    Exit;
+  E := PosEx(']', Tail, B);
+  if E = 0 then
+    Exit;
+  V := TJSONObject.ParseJSONValue(Copy(Tail, B, E - B + 1));
+  if V is TJSONArray then
+    ARecoveredTags := TJSONArray(V)
+  else
+    V.Free;
+end;
+
 function HandleCreateDoc(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
 var
@@ -416,9 +461,9 @@ var
   Slug, BaseSlug, SuffixStr: string;
   ProjectId, DocId, MaxAdrNum, I, Attempt: Integer;
   Data: TJSONObject;
-  TagsArr: TJSONArray;
+  TagsArr, RecoveredTags: TJSONArray;
   TagVal: TJSONValue;
-  Inserted: Boolean;
+  Inserted, SummaryRepaired: Boolean;
 begin
   ProjectSlug := AParams.GetValue<string>('project', '');
   DocType := AParams.GetValue<string>('doc_type', '');
@@ -484,6 +529,17 @@ begin
       'tool-call internally on a different code path. See mxLore Lesson#4198 + ' +
       'TODO#4197 (Anthropic CC-CLI issue).',
       [Length(Trim(Content))]);
+
+  // BR#14368: content intact but summary_l1 carries the parameters that
+  // followed it — repair instead of reject (see RepairLeakedSummary). The
+  // recovered array is parked on AParams so it is freed with the request.
+  SummaryRepaired := RepairLeakedSummary(Summary1, RecoveredTags);
+  if RecoveredTags <> nil then
+  begin
+    AParams.AddPair('_tags_recovered', RecoveredTags);
+    if (TagsArr = nil) or (TagsArr.Count = 0) then
+      TagsArr := RecoveredTags;
+  end;
 
   // Spec#4427 AC1+AC2 (Bug#4378): high-signal doc types MUST carry substantive
   // content. Defense-in-depth against caller-side body-drop (subagent crash,
@@ -777,6 +833,22 @@ begin
     Data.Free;
     raise;
   end;
+
+  // BR#14368: make the repair visible — a silent fix hides the client defect.
+  // Outside the try/except above: Data is owned by Result from here on.
+  if SummaryRepaired then
+  begin
+    if RecoveredTags <> nil then
+      (Result.GetValue('warnings') as TJSONArray).Add(Format(
+        'summary_l1 carried leaked tool-call markup (client serializer defect) ' +
+        '-- stripped at the first fragment; %d tag(s) recovered from the tail. ' +
+        'Verify summary_l1 via mx_detail.', [RecoveredTags.Count]))
+    else
+      (Result.GetValue('warnings') as TJSONArray).Add(
+        'summary_l1 carried leaked tool-call markup (client serializer defect) ' +
+        '-- stripped at the first fragment; no tags found in the tail. ' +
+        'Verify summary_l1 and tags via mx_detail.');
+  end;
 end;
 
 // ---------------------------------------------------------------------------
@@ -901,7 +973,10 @@ begin
   if (Summary1 <> '')
      and ((Pos('<parameter name="content"', Summary1) > 0)
        or (Pos('</parameter>', Summary1) > 0)
-       or (Pos('</invoke>', Summary1) > 0)) then
+       or (Pos('</invoke>', Summary1) > 0)
+       or (Pos('</summary_l1>', Summary1) > 0)) then  // BR#14368 shape — the
+       // closing tag is the distinctive marker; a bare `<parameter name="` is
+       // legitimate in a summary that documents the defect itself
     raise EMxValidation.Create(
       'Claude-Code-CLI XML-tool-call bug detected on update: summary_l1 contains ' +
       'XML tool-call markup, indicating content leaked during main-context ' +
