@@ -53,6 +53,17 @@ function saveCooldown(cache) {
 // tests; live it was always empty, JSON.parse('') threw, and BOTH branches of
 // this hook exited silently on every call (found 2026-09-01 by the first
 // no-prior-knowledge test run: no hint, no cooldown file ever written).
+// PreToolUse plain stdout goes to the debug log ONLY — the model never sees it
+// (docs: only UserPromptSubmit/SessionStart promote plain stdout to context).
+// Context injection needs this JSON shape. Found 2026-09-01 on the second
+// no-prior-knowledge run: the hook ran, wrote its cooldown key, and the model
+// still saw nothing.
+function emitContext(text) {
+  process.stdout.write(JSON.stringify({
+    hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: text }
+  }));
+}
+
 function readHookInput() {
   try {
     if (!process.stdin.isTTY) {
@@ -93,7 +104,7 @@ try {
     kCache[kKey] = Date.now();
     saveCooldown(kCache);
 
-    console.log(`[Knowledge] "${path.basename(filePath)}" is covered by a knowledge dossier.
+    emitContext(`[Knowledge] "${path.basename(filePath)}" is covered by a knowledge dossier.
 1. Call mx_detail(doc_id=${hit.doc_id}) before reasoning about ${hit.title || 'this component'}.
 2. The dossier carries manufacturer, proven capabilities with file:line evidence, known landmines
    and active call sites. Prefer it over deriving the same facts from the sources again.
@@ -140,7 +151,7 @@ try {
   saveCooldown(cache);
 
   // B3.2 + B3.3 + C1.1 + C1.2: Recall prompt with gate interpretation
-  console.log(`[Recall Gate] Before you modify "${fileName}":
+  emitContext(`[Recall Gate] Before you modify "${fileName}":
 1. Call mx_recall(project='${project}', query='${fileName}', intent='${intent}', target_file='${filePath}').
 2. Remember the recall_id from the response for later outcome update.
 3. Interpret the gate object:

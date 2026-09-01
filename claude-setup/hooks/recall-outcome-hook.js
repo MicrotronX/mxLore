@@ -86,7 +86,14 @@ try {
   saveJson(OUTCOME_FILE, outcomes);
 
   // Prompt Claude to call mx_recall_outcome
-  console.log(`[Recall Outcome] File "${fileName}" was successfully edited. If you have an active recall_id from a previous mx_recall call for this file, call mx_recall_outcome(recall_id=<ID>, outcome='edited_after_recall') now.`);
+  // PostToolUse plain stdout is debug-log only; context needs this JSON shape
+  // (same finding as recall-gate.js, 2026-09-01).
+  process.stdout.write(JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: 'PostToolUse',
+      additionalContext: `[Recall Outcome] File "${fileName}" was successfully edited. If you have an active recall_id from a previous mx_recall call for this file, call mx_recall_outcome(recall_id=<ID>, outcome='edited_after_recall') now.`
+    }
+  }));
 
 } catch {
   process.exit(0);
