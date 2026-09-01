@@ -407,7 +407,7 @@ begin
     .Param('project', mptString, True, 'Project slug')
     .Param('include_briefing', mptBoolean, False, 'Include doc_type_counts+recent+workflows (def true)')
     .Param('include_notes', mptBoolean, False, 'Include notes/bugreports/feature_requests with tags (def false)')
-    .Param('since', mptString, False, 'ISO timestamp — only return changes after this time, adds unchanged_count')
+    .Param('since', mptString, False, 'ISO timestamp — only return changes after this time, adds unchanged_count. Response carries server_now_utc + server_now_local: all other timestamps are DB-local without zone')
     .Param('setup_version', mptString, False, 'Client setup version from ~/.claude/setup-version.json (Spec#1302)');
 
   // mx_session_save removed (B6.3) — session end handled by mxSave skill

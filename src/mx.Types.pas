@@ -181,7 +181,7 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 127;
+  MXAI_BUILD   = 128;
   // ⚡ This constant, NOT the .dproj VersionInfo, is what the outside world
   //   reads: mx_ping, /api/global, the project bundle, and — decisively —
   //   SelfUpdate's CompareBuild against the newest release tag. Bumping only
@@ -189,6 +189,16 @@ const
   //   runtime says the previous one; against a newer tag that is an update
   //   loop, because installing the release never changes the number it
   //   compares. Bump BOTH, or the release is wrong in the field that decides.
+  // Build 128 (2026-09-01): FR#14550 — server clock in both bases.
+  //   mx_session_start + mx_session_delta return `server_now_utc` (ISO, Z) and
+  //   `server_now_local` (DB base of every updated_at). Every other timestamp
+  //   in every response is DB-local WITHOUT a zone marker, and clients keep
+  //   copying the last one they saw as "now" with a Z appended; the pair gives
+  //   them the offset instead of a guess. mx_session_delta additionally emits
+  //   a `warnings` entry when an explicit `since` lies >1 min in the server's
+  //   future — that cutoff can only come from a mislabelled local stamp and
+  //   made total_changes=0 read as "all saved" (tracker-gap guard blind twice).
+  //   Zone-stamping every field (proposal A) deferred: contract change.
   // Build 127 (2026-08-26): agent-message delivery order. The proxy's inbox
   //   buffer is a mirror of the pending set, but was written as a delta feed —
   //   an unconsumed buffer lost the rows already in it, which were then never

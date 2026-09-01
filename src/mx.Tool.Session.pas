@@ -20,6 +20,25 @@ implementation
 // ---------------------------------------------------------------------------
 // mx_session_start — Start a new session for a project
 // ---------------------------------------------------------------------------
+// FR#14550 (B): every session-boundary response carries the server clock in
+// BOTH bases, so a client never has to guess which zone a timestamp is in.
+//   server_now_utc   — ISO 8601 with Z (what orchestrate-state / `since` expect)
+//   server_now_local — DB-local 'yyyy-mm-dd hh:nn:ss' (the base of updated_at,
+//                      created_at, content_changed_at in every response)
+// The pair is the contract: local minus utc == the offset every DB timestamp
+// in this response carries.
+procedure AddServerClock(AData: TJSONObject);
+var
+  NowLocal: TDateTime;
+begin
+  NowLocal := Now;
+  AData.AddPair('server_now_utc',
+    FormatDateTime('yyyy-mm-dd"T"hh:nn:ss"Z"',
+      TTimeZone.Local.ToUniversalTime(NowLocal)));
+  AData.AddPair('server_now_local',
+    FormatDateTime('yyyy-mm-dd hh:nn:ss', NowLocal));
+end;
+
 function HandleSessionStart(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
 var
@@ -117,6 +136,7 @@ begin
     Data.AddPair('session_id', TJSONNumber.Create(SessionId));
     Data.AddPair('instance_id', InstanceId);
     Data.AddPair('project', ProjectSlug);
+    AddServerClock(Data); // FR#14550 (B)
 
     // #12: Compound — include briefing + active workflows (saves 2-3 calls)
     if IncludeBriefing then
@@ -734,6 +754,7 @@ begin
       Data.AddPair('project', ProjectSlug);
       Data.AddPair('since',
         FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', Cutoff));
+      AddServerClock(Data); // FR#14550 (B)
       Data.AddPair('limit', TJSONNumber.Create(MaxLimit));
       Data.AddPair('total_changes',
         TJSONNumber.Create(TotalChanges));
@@ -758,6 +779,24 @@ begin
       Data.Free;
       raise;
     end;
+
+    // FR#14550 (C): fail LOUD on a future cutoff. A DB-local timestamp sent
+    // with a Z suffix lands UTC_OFFSET hours ahead of server time; the query
+    // then legitimately matches nothing and total_changes=0 reads as "all
+    // saved" (observed twice, mxSave tracker-gap guard blind). Only an
+    // explicit `since` can do this — session started_at is server-stamped.
+    // Tolerance 1 min covers clock skew between client and server.
+    // Sits OUTSIDE the try/except above on purpose: Data is owned by Result
+    // from MxSuccessResponse on, so a raise here must not reach `Data.Free`.
+    if (SinceStr <> '') and (Cutoff > IncMinute(Now, 1)) then
+      (Result.GetValue('warnings') as TJSONArray).Add(Format(
+        'since %s lies %d min in the FUTURE of server local time %s -- ' +
+        'total_changes=%d is meaningless. Likely a DB-local timestamp ' +
+        'labelled Z; derive since from server_now_utc.',
+        [FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', Cutoff),
+         MinutesBetween(Cutoff, Now),
+         FormatDateTime('yyyy-mm-dd hh:nn:ss', Now),
+         TotalChanges]));
   finally
     Qry.Free;
   end;
