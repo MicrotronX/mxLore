@@ -506,9 +506,12 @@ begin
               'file', TargetFile, ProjectId);
           var LessonNodeId := TMxGraphData.FindOrCreateNode(AContext,
             'lesson', Items[I].Title, ProjectId, Items[I].DocId);
+          // TODO#14654: weight 1.0 like mx.Tool.Write — the edge states a
+          // proven file/symbol relation, not a ranking. Score/100 (build<=129)
+          // is the marker the boot cleanup in mx.Server.Boot uses to find and
+          // drop the blind top-5 edges; new edges must not look like them.
           TMxGraphData.FindOrCreateEdge(AContext,
-            LessonNodeId, FileNodeId, 'applies_to',
-            Items[I].Score / 100);
+            LessonNodeId, FileNodeId, 'applies_to', 1.0);
           Inc(Linked);
         end;
       end;

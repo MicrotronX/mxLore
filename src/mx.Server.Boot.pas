@@ -1104,6 +1104,48 @@ begin
           try DdlQry.ExecSQL; finally DdlQry.Free; end;
           FLogger.Log(mlInfo, 'Auto-migrate: sql/052 step 2 done');
         end;
+
+        // TODO#14654 (FR#14640 AC3): data cleanup — drop the blind lesson->file
+        // applies_to edges mx_recall wrote up to build 129 (top-5 by score, no
+        // relation check, weight = score/100). Every deliberate writer
+        // (mx.Tool.Write, mx_recall since build 130) uses weight 1.0, so
+        // weight <> 1.0 on this edge shape is exactly the legacy set.
+        // ONE-SHOT, guarded by app_settings 'migration.todo14654_done': a
+        // permanent per-boot DELETE would also sweep edges a user sets later
+        // via mx_graph_link with a deliberate weight (mxBugChecker finding).
+        // Legit relations lost by an early recall binding are recreated on the
+        // next recall that names the file.
+        var DoneQry := MigCtx.CreateQuery(
+          'SELECT 1 FROM app_settings WHERE setting_key = ''migration.todo14654_done''');
+        try
+          DoneQry.Open;
+          if DoneQry.IsEmpty then
+          begin
+            var CleanQry := MigCtx.CreateQuery(
+              'DELETE e FROM graph_edges e ' +
+              'JOIN graph_nodes s ON s.id = e.source_node_id ' +
+              'JOIN graph_nodes t ON t.id = e.target_node_id ' +
+              'WHERE e.edge_type = ''applies_to'' ' +
+              'AND s.node_type = ''lesson'' AND t.node_type = ''file'' ' +
+              'AND e.weight <> 1.0');
+            try
+              CleanQry.ExecSQL;
+              FLogger.Log(mlInfo, Format(
+                'Auto-migrate: TODO#14654 — %d legacy lesson->file applies_to edge(s) (weight<>1.0) removed (one-shot)',
+                [CleanQry.RowsAffected]));
+            finally
+              CleanQry.Free;
+            end;
+            // Mark AFTER the proven DELETE (lesson#14142: no done-marker before
+            // the work it stands for has succeeded).
+            var MarkQry := MigCtx.CreateQuery(
+              'INSERT INTO app_settings (setting_key, setting_value) ' +
+              'VALUES (''migration.todo14654_done'', ''build 130'')');
+            try MarkQry.ExecSQL; finally MarkQry.Free; end;
+          end;
+        finally
+          DoneQry.Free;
+        end;
       finally
         MigQry.Free;
       end;
