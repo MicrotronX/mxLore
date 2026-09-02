@@ -30,6 +30,9 @@ type
     Scope: string;        // project, shared-domain, global
     Severity: string;     // low, medium, high, critical
     AppliesTo: string;    // comma-sep patterns
+    AppliesToFiles: string;   // comma-sep from lesson_data.applies_to_files (FR#14640)
+    AppliesToSymbols: string; // comma-sep from applies_to_functions + applies_to_patterns
+    MatchKind: string;    // file | symbol | title | none — relevance to query/target_file
     RecommendedAction: string;
     AvoidAction: string;
     Tags: string;         // comma-sep from doc_tags
@@ -50,6 +53,66 @@ type
   end;
 
 // ---------------------------------------------------------------------------
+// Relevance (FR#14640): which lesson field the query / target file actually hits.
+// Before this, applies_to_files/functions/patterns were never read and the gate
+// fired on severity alone — every first edit of any source file produced a WARN.
+// ---------------------------------------------------------------------------
+function JsonArrayToCsv(AObj: TJSONObject; const AKey: string): string;
+var
+  Val: TJSONValue;
+  I: Integer;
+begin
+  Result := '';
+  Val := AObj.GetValue(AKey);
+  if (Val = nil) or not (Val is TJSONArray) then Exit;
+  for I := 0 to TJSONArray(Val).Count - 1 do
+  begin
+    if Result <> '' then Result := Result + ',';
+    Result := Result + TJSONArray(Val).Items[I].Value;
+  end;
+end;
+
+// True when one CSV element equals AName or ends with '\' + AName (path boundary).
+// Plain Pos() would let `types.pas` hit `mx.types.pas` (mxBugChecker, 2026-09-02).
+function CsvHasFileName(const ACsv, AName: string): Boolean;
+var
+  Parts: TArray<string>;
+  P, N: string;
+begin
+  Result := False;
+  if (AName = '') or (ACsv = '') then Exit;
+  N := LowerCase(StringReplace(AName, '/', '\', [rfReplaceAll]));
+  Parts := ACsv.Split([',']);
+  for P in Parts do
+  begin
+    var E := LowerCase(StringReplace(Trim(P), '/', '\', [rfReplaceAll]));
+    if (E = N) or E.EndsWith('\' + N) then
+      Exit(True);
+  end;
+end;
+
+function DetermineMatchKind(const AItem: TRecallItem; const AQuery: string;
+  const ATargetFile: string): string;
+var
+  Q, BaseName, Files, Symbols: string;
+begin
+  Q := LowerCase(AQuery);
+  BaseName := ExtractFileName(StringReplace(ATargetFile, '/', '\', [rfReplaceAll]));
+  Files := AItem.AppliesToFiles + ',' + AItem.AppliesTo;
+  Symbols := LowerCase(AItem.AppliesToSymbols + ',' + AItem.AppliesTo);
+
+  // file: target basename (or the query as a file name) listed in applies_to_files / applies_to
+  if CsvHasFileName(Files, BaseName) or CsvHasFileName(AItem.AppliesToFiles, AQuery) then
+    Exit('file');
+  // symbol: query hits applies_to_functions / applies_to_patterns / applies_to
+  if (Q <> '') and (Pos(Q, Symbols) > 0) then
+    Exit('symbol');
+  if (Q <> '') and (Pos(Q, LowerCase(AItem.Title)) > 0) then
+    Exit('title');
+  Result := 'none';
+end;
+
+// ---------------------------------------------------------------------------
 // Scoring: Calculate relevance score for a lesson
 // ---------------------------------------------------------------------------
 function CalculateScore(const AItem: TRecallItem; const AQuery: string;
@@ -61,10 +124,10 @@ var
 begin
   Score := 0;
 
-  // --- File/Pattern match (highest weight) ---
-  if (AQuery <> '') and (Pos(LowerCase(AQuery), LowerCase(AItem.AppliesTo)) > 0) then
-    Score := Score + 50;
-  if (AQuery <> '') and (Pos(LowerCase(AQuery), LowerCase(AItem.Title)) > 0) then
+  // --- File/Pattern match (highest weight) — weights unchanged, basis is MatchKind ---
+  if (AItem.MatchKind = 'file') or (AItem.MatchKind = 'symbol') then
+    Score := Score + 50
+  else if AItem.MatchKind = 'title' then
     Score := Score + 20;
 
   // --- Severity weight ---
@@ -156,6 +219,11 @@ begin
 
   for I := 0 to Min(ACount, 10) - 1 do
   begin
+    // FR#14640: only lessons with a real relation to the query/target file may
+    // raise the gate. Unrelated ones stay in the response as INFO material.
+    if AItems[I].MatchKind = 'none' then
+      Continue;
+
     // BLOCK: critical + (rule|integration_fact) + violation_count>=2 + block-tag
     if (AItems[I].Severity = 'critical') and
        ((AItems[I].LessonType = 'rule') or (AItems[I].LessonType = 'integration_fact')) and
@@ -204,8 +272,9 @@ begin
     end;
   end;
 
-  // INFO: fill action from top item if not set
-  if (Result.Level = 'INFO') and (ACount > 0) then
+  // INFO: hint from the top item — only when it actually relates to the query
+  // (FR#14640 R5: no ids/patterns from unrelated lessons, on any gate level)
+  if (Result.Level = 'INFO') and (ACount > 0) and (AItems[0].MatchKind <> 'none') then
   begin
     Result.Action := AItems[0].RecommendedAction;
     Result.AvoidAction := AItems[0].AvoidAction;
@@ -251,6 +320,7 @@ begin
   ProjectSlug := AParams.GetValue<string>('project', '');
   Scope := AParams.GetValue<string>('scope', 'project');
   Intent := AParams.GetValue<string>('intent', 'general');
+  TargetFile := AParams.GetValue<string>('target_file', '');
 
   if ProjectSlug = '' then
     raise EMxValidation.Create('Parameter "project" is required');
@@ -328,6 +398,10 @@ begin
             Items[ItemCount].Scope := LessonData.GetValue<string>('scope', 'project');
             Items[ItemCount].Severity := LessonData.GetValue<string>('severity', 'medium');
             Items[ItemCount].AppliesTo := LessonData.GetValue<string>('applies_to', '');
+            Items[ItemCount].AppliesToFiles := JsonArrayToCsv(LessonData, 'applies_to_files');
+            Items[ItemCount].AppliesToSymbols :=
+              JsonArrayToCsv(LessonData, 'applies_to_functions') + ',' +
+              JsonArrayToCsv(LessonData, 'applies_to_patterns');
             Items[ItemCount].RecommendedAction := LessonData.GetValue<string>('recommended_action', '');
             Items[ItemCount].AvoidAction := LessonData.GetValue<string>('avoid_action', '');
           end;
@@ -345,7 +419,8 @@ begin
         Items[ItemCount].AvoidAction := '';
       end;
 
-      // Calculate score
+      // Relevance first, score second (score reads MatchKind)
+      Items[ItemCount].MatchKind := DetermineMatchKind(Items[ItemCount], Query, TargetFile);
       Items[ItemCount].Score := CalculateScore(Items[ItemCount], Query, Intent);
 
       Inc(ItemCount);
@@ -383,11 +458,14 @@ begin
         Items[ItemCount].Scope := 'project';
         Items[ItemCount].Severity := Qry.FieldByName('severity').AsString;
         Items[ItemCount].AppliesTo := Qry.FieldByName('rule_id').AsString;
+        Items[ItemCount].AppliesToFiles := '';
+        Items[ItemCount].AppliesToSymbols := '';
         Items[ItemCount].RecommendedAction := '';
         Items[ItemCount].Confidence := 0.8;
         Items[ItemCount].ViolationCount := 0;
         Items[ItemCount].SuccessCount := 0;
         Items[ItemCount].CreatedAt := Qry.FieldByName('created_at').AsDateTime;
+        Items[ItemCount].MatchKind := DetermineMatchKind(Items[ItemCount], Query, TargetFile);
         Items[ItemCount].Score := CalculateScore(Items[ItemCount], Query, Intent);
 
         Inc(ItemCount);
@@ -409,23 +487,29 @@ begin
       end;
 
   // --- Lazy Graph-Population (Phase 2: populate nodes+edges on recall) ---
-  TargetFile := AParams.GetValue<string>('target_file', '');
+  // FR#14640: only lessons that actually name the file/symbol get an edge.
+  // Blind top-5 linking bound unrelated lessons to the file and the +15
+  // neighbor bonus below then re-elected them on every later recall.
   if (TargetFile <> '') and (ItemCount > 0) then
   begin
     try
-      // Create file node for the queried file
-      var FileNodeId := TMxGraphData.FindOrCreateNode(AContext,
-        'file', TargetFile, ProjectId);
-      // Link top lessons to this file via applies_to edges (max 5)
-      for I := 0 to Min(5, ItemCount) - 1 do
+      var FileNodeId: Integer := 0;
+      var Linked: Integer := 0;
+      for I := 0 to ItemCount - 1 do
       begin
-        if Items[I].DocId > 0 then
+        if Linked >= 5 then Break;
+        if (Items[I].DocId > 0) and
+           ((Items[I].MatchKind = 'file') or (Items[I].MatchKind = 'symbol')) then
         begin
+          if FileNodeId = 0 then
+            FileNodeId := TMxGraphData.FindOrCreateNode(AContext,
+              'file', TargetFile, ProjectId);
           var LessonNodeId := TMxGraphData.FindOrCreateNode(AContext,
             'lesson', Items[I].Title, ProjectId, Items[I].DocId);
           TMxGraphData.FindOrCreateEdge(AContext,
             LessonNodeId, FileNodeId, 'applies_to',
             Items[I].Score / 100);
+          Inc(Linked);
         end;
       end;
     except
@@ -564,6 +648,7 @@ begin
       if Items[I].RecommendedAction <> '' then
         ItemObj.AddPair('action', Copy(Items[I].RecommendedAction, 1, 200));
       ItemObj.AddPair('severity', Items[I].Severity);
+      ItemObj.AddPair('relevance', Items[I].MatchKind);
       ItemObj.AddPair('score', TJSONNumber.Create(Round(Items[I].Score)));
 
       // Route to appropriate section
@@ -636,7 +721,6 @@ begin
     if ItemCount > 0 then
       TopScore := Items[0].Score;
     SessionId := AParams.GetValue<Integer>('session_id', 0);
-    TargetFile := AParams.GetValue<string>('target_file', '');
     RecallId := 0;
 
     // --- Cooldown: skip INSERT if identical query within 5 min (Bug#1288) ---

@@ -181,7 +181,7 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 128;
+  MXAI_BUILD   = 129;
   // ⚡ This constant, NOT the .dproj VersionInfo, is what the outside world
   //   reads: mx_ping, /api/global, the project bundle, and — decisively —
   //   SelfUpdate's CompareBuild against the newest release tag. Bumping only
@@ -189,6 +189,10 @@ const
   //   runtime says the previous one; against a newer tag that is an update
   //   loop, because installing the release never changes the number it
   //   compares. Bump BOTH, or the release is wrong in the field that decides.
+  // Build 129 (2026-09-02): FR#14640 — mx_recall relevance cut. Gate WARN/BLOCK
+  //   and lesson->file graph edges only from lessons whose applies_to_files /
+  //   applies_to_functions / applies_to_patterns / title hit the query or target
+  //   file; unrelated lessons stay INFO material. Item field `relevance` added.
   // Build 128 (2026-09-01): FR#14550 — server clock in both bases.
   //   mx_session_start + mx_session_delta return `server_now_utc` (ISO, Z) and
   //   `server_now_local` (DB base of every updated_at). Every other timestamp
