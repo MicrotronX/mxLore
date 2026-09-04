@@ -83,6 +83,24 @@ Your coding AI connects **directly** to your server — no third-party MCP conne
 - **You own the transport** — Bearer-auth API keys, your own TLS/firewall. The proxy is a single dependency-free binary (Windows + macOS).
 - Your knowledge base is stored only on your server. (As with any AI tool, whatever the model reads to answer you is processed by that model.)
 
+## Where It Sits Next to Claude Code Self-Hosted Environments
+
+Claude Code's self-hosted environments (public beta since August 2026, Team and Enterprise plans) decide **where a session runs**: `claude self-hosted-runner` turns your machines or containers into the runtime, so repository checkouts, build artifacts, secrets and files a session creates stay on infrastructure you provision. Prompts, responses and tool results are still processed by Anthropic for inference, and the session transcript is stored by Anthropic so a session can be resumed from any surface. ([Anthropic announcement](https://claude.com/blog/run-claude-code-sessions-on-your-own-compute), [Claude Code docs, week 32](https://code.claude.com/docs/en/whats-new/2026-w32))
+
+mxLore decides **where the knowledge lives** that outlives any single session: specs, decisions, plans, lessons, the graph between them, and messages between sessions. It is the same layer under a cloud session, a self-hosted runner and a local terminal, on any plan.
+
+| Layer | Claude Code cloud session | Claude Code self-hosted environment | mxLore |
+|-------|---------------------------|-------------------------------------|--------|
+| Model inference | Anthropic | Anthropic | Does not run a model |
+| Session runtime (checkout, artifacts, secrets) | Anthropic-managed | Your infrastructure | Outside its scope |
+| Conversation transcript | Stored by Anthropic | Stored by Anthropic | Not collected; session notes only if your AI writes them |
+| Specs, ADRs, lessons, recall, graph | Outside the feature's scope | Outside the feature's scope | Your MariaDB, per project and developer |
+| Messages between sessions | Same machine, macOS/Linux (v2.1.224) | Same machine, macOS/Linux (v2.1.224) | Via your server, across machines, acknowledged |
+
+The two are complementary: a session inside your network on a self-hosted runner reads the decisions your team recorded before it started, and the session after that starts from what was decided rather than from what was said. Full comparison with sources: [mxlore.dev/compare.html](https://www.mxlore.dev/compare.html).
+
+mxLore is an independent project, not affiliated with, sponsored by, or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic, PBC. Claude Code statements above reflect Anthropic's public documentation as of September 4, 2026.
+
 ## Agent Wakeup
 
 When two assistants work on related projects, one can hand work to the other — a task, a status update, a question. Until now the receiving side noticed only when its developer typed something. An assistant that was simply *waiting* never checked, so a handoff could sit unread for weeks.
