@@ -21,7 +21,8 @@ stdio ↔ HTTP-Bridge für MCP:
 4. Optionaler Hintergrund-Thread: pollt `?agent_inbox=<slug>`, liefert neue
    Nachrichten direkt in die laufende Claude-Code-Session via
    `CLAUDE_CODE_MESSAGING_SOCKET` (ab Proxy 1.0.9, kein Datei-Puffer mehr)
-   und ACKt via `?agent_ack=<ids>`.
+   und schreibt sie direkt in die Claude-Code-Session-Inbox (`CLAUDE_CODE_MESSAGING_SOCKET`);
+   das ACK setzt das Modell selbst per `mx_agent_ack`, der Proxy ackt nie.
 
 ## Bauen (auf dem Mac M4)
 
@@ -112,7 +113,7 @@ Logs: `mxMCPProxy.log` neben der Binary (+ stderr).
 | `logx.go`     | Logging (Datei + stderr, thread-safe)             |
 | `httpfwd.go`  | HTTP-Forward, SSE-Parsing, Session-Re-Init        |
 | `proxy.go`    | stdio-Loop, Slug-/Projekt-Detection               |
-| `poll.go`     | Agent-Inbox-Polling, atomare File-Writes, ACK     |
+| `inbox.go`    | Agent-Inbox-Polling, Zustellung in die Session-Inbox (Unix-Socket / Named Pipe) |
 | `util.go`     | Helfer                                            |
 
 Parität-Referenz: `src/proxy/*.pas` (Delphi-Original, v1.0.6).

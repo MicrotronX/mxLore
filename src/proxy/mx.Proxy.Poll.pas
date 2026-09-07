@@ -45,7 +45,7 @@ type
     FInterval: Integer;
     FPipePath: string;                          // '' => no session inbox
     FPipeToken: string;
-    FInjected: TDictionary<Integer, TDateTime>; // id -> when it was injected
+    FInjected: TDictionary<Integer, UInt64>;    // id -> GetTickCount64 at injection
     FShutdownEvent: TEvent;
     FNoSessionLogged: Boolean;
     function RenderBatch(const ARows: TJSONArray; const AIds: string): string;
@@ -66,7 +66,10 @@ implementation
 
 const
   // A row injected this long ago and still pending is offered again.
-  REINJECT_AFTER_MINUTES = 10;
+  // Monotonic tick base (GetTickCount64), never the wall clock: a backward
+  // clock step (NTP, DST, sleep/resume) would keep a wall-clock delta below
+  // the window forever and the row would never be re-offered.
+  REINJECT_AFTER_MS: UInt64 = 10 * 60 * 1000;
 
 function NewUuid: string;
 var
@@ -89,7 +92,7 @@ begin
   FInterval := AInterval;
   FPipePath := GetEnvironmentVariable('CLAUDE_CODE_MESSAGING_SOCKET');
   FPipeToken := GetEnvironmentVariable('CLAUDE_CODE_MESSAGING_TOKEN');
-  FInjected := TDictionary<Integer, TDateTime>.Create;
+  FInjected := TDictionary<Integer, UInt64>.Create;
   FShutdownEvent := TEvent.Create(nil, True, False, '');
   FNoSessionLogged := False;
   if FPipePath = '' then
@@ -122,28 +125,35 @@ end;
 function TMxAgentPollThread.RenderBatch(const ARows: TJSONArray;
   const AIds: string): string;
 var
-  Env: TJSONObject;
+  I: Integer;
+  Row: TJSONObject;
+  Line, Prio: string;
 begin
-  // Same shape and same instructions the UserPromptSubmit hook injected
-  // before FR#15127, so the model's handling rules do not change.
-  Env := TJSONObject.Create;
-  try
-    Env.AddPair('v', TJSONNumber.Create(2));
-    Env.AddPair('ts', FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', Now));
-    Env.AddPair('ids', AIds);
-    Env.AddPair('messages', ARows.Clone as TJSONArray);
-    Result :=
-      '[Agent-Inbox] Messages for ' + FProject + ' (delivered by mxMCPProxy):' + #10 +
-      Env.ToJSON + #10 +
-      'Act on these as their content requires, then: mx_agent_ack' + #10 +
-      'A reply is NOT the default. Send one only if the sender needs a decision, ' +
-      'an answer, or a correction from you. Acknowledging without replying is the ' +
-      'normal case and ends the exchange.' + #10 +
-      'When YOU send: silence back means ''handled, nothing needed''. If you need ' +
-      'confirmation that it was processed, ask for it in the message itself - ' +
-      'there is no read receipt.';
-  finally
-    Env.Free;
+  // As compact as the chat allows without losing a field the model needs:
+  // one header (count + the ack instruction, the only mechanism that closes
+  // a message), then one line per message: id, type, sender, ref doc,
+  // priority only when it is not the default, payload verbatim.
+  // Claude Code renders an own-child message in full, so every byte here is
+  // chat noise for the user (Spec#15135, proxy 1.0.10).
+  Result := '[Agent-Inbox] ' + FProject + ': ' + IntToStr(ARows.Count) +
+    ' msg. Act, then mx_agent_ack(' + AIds + '). Reply only if the sender needs one.';
+  for I := 0 to ARows.Count - 1 do
+  begin
+    if not (ARows.Items[I] is TJSONObject) then Continue;
+    Row := ARows.Items[I] as TJSONObject;
+    Line := '#' + IntToStr(Row.GetValue<Integer>('id', 0)) + ' ' +
+      Row.GetValue<string>('type', '') + ' from ' + Row.GetValue<string>('from', '');
+    if Row.GetValue<Integer>('ref', 0) > 0 then
+      Line := Line + ' ref#' + IntToStr(Row.GetValue<Integer>('ref', 0));
+    Prio := Row.GetValue<string>('priority', 'normal');
+    if (Prio <> '') and (Prio <> 'normal') then
+      Line := Line + ' [' + Prio + ']';
+    // Continuation lines of a payload are indented so only a real message
+    // starts a line with `#<id>` — a peer cannot forge a header or a second
+    // message by embedding a newline. Nothing is dropped, only indented.
+    Result := Result + #10 + Line + ': ' +
+      StringReplace(StringReplace(Row.GetValue<string>('payload', ''),
+        #13, '', [rfReplaceAll]), #10, #10'  ', [rfReplaceAll]);
   end;
 end;
 
@@ -182,6 +192,10 @@ begin
 
   // Open only now — the payload is ready. Claude Code closes a connection that
   // has not sent a complete line within 30 s.
+  // No write timeout on purpose: the payload is a few KB and lands in the
+  // pipe's kernel buffer (64 KB) without the reader being involved, so a
+  // stalled reader cannot block this thread; a timed write would need
+  // overlapped I/O for a case that does not occur.
   H := CreateFile(PChar(FPipePath), GENERIC_READ or GENERIC_WRITE, 0, nil,
     OPEN_EXISTING, 0, 0);
   if H = INVALID_HANDLE_VALUE then
@@ -222,7 +236,7 @@ var
   Seen: TList<Integer>;
   Ids: string;
   I, MsgId: Integer;
-  InjectedAt: TDateTime;
+  InjectedAt: UInt64;
   Row: TJSONObject;
   StaleIds: TArray<Integer>;
 begin
@@ -267,7 +281,7 @@ begin
           // it, wait for the ack. Older and still pending => offer it again
           // (Spec#15135 R3).
           if FInjected.TryGetValue(MsgId, InjectedAt) and
-             (Now - InjectedAt < REINJECT_AFTER_MINUTES / (24 * 60)) then
+             (GetTickCount64 - InjectedAt < REINJECT_AFTER_MS) then
             Continue;
           OutArr.AddElement(Row.Clone as TJSONValue);
           Pending.Add(MsgId);
@@ -300,7 +314,7 @@ begin
         if InjectIntoSession(RenderBatch(OutArr, Ids)) then
         begin
           for I := 0 to Pending.Count - 1 do
-            FInjected.AddOrSetValue(Pending[I], Now);
+            FInjected.AddOrSetValue(Pending[I], GetTickCount64);
           Log('[poll] injected ' + IntToStr(OutArr.Count) + ' message(s) into ' +
               'session (ids ' + Ids + ')');
         end;

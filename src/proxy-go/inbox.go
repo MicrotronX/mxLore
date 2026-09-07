@@ -188,24 +188,41 @@ func (p *Poller) pollOnce(url string) {
 	logMsg("[poll] injected " + strconv.Itoa(len(out)) + " message(s) into session (ids " + idsStr + ")")
 }
 
-// renderBatch produces the same text the UserPromptSubmit hook injected before
-// FR#15127, so the model's handling rules do not change.
+// renderBatch: as compact as the chat allows without losing a field the model
+// needs. One header (count + the ack instruction, the only mechanism that
+// closes a message), then one line per message: id, type, sender, ref doc,
+// priority only when not the default, payload verbatim. Claude Code renders
+// an own-child message in full, so every byte here is chat noise (Spec#15135,
+// proxy 1.0.10).
 func (p *Poller) renderBatch(msgs []json.RawMessage, ids string) string {
-	msgsJSON, err := json.Marshal(msgs)
-	if err != nil {
-		return ""
+	var b strings.Builder
+	fmt.Fprintf(&b, "[Agent-Inbox] %s: %d msg. Act, then mx_agent_ack(%s). Reply only if the sender needs one.",
+		p.project, len(msgs), ids)
+	for _, m := range msgs {
+		var r struct {
+			ID       int    `json:"id"`
+			Type     string `json:"type"`
+			Payload  string `json:"payload"`
+			From     string `json:"from"`
+			Priority string `json:"priority"`
+			Ref      int    `json:"ref"`
+		}
+		if err := json.Unmarshal(m, &r); err != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "\n#%d %s from %s", r.ID, r.Type, r.From)
+		if r.Ref > 0 {
+			fmt.Fprintf(&b, " ref#%d", r.Ref)
+		}
+		if r.Priority != "" && r.Priority != "normal" {
+			fmt.Fprintf(&b, " [%s]", r.Priority)
+		}
+		// Continuation lines are indented so only a real message starts a line
+		// with `#<id>` — a peer cannot forge a header or a second message by
+		// embedding a newline. Nothing is dropped, only indented.
+		b.WriteString(": " + strings.ReplaceAll(strings.ReplaceAll(r.Payload, "\r", ""), "\n", "\n  "))
 	}
-	env := fmt.Sprintf(`{"v":2,"ts":%q,"ids":%q,"messages":%s}`,
-		time.Now().Format("2006-01-02T15:04:05"), ids, string(msgsJSON))
-	return "[Agent-Inbox] Messages for " + p.project + " (delivered by mxMCPProxy):\n" +
-		env + "\n" +
-		"Act on these as their content requires, then: mx_agent_ack\n" +
-		"A reply is NOT the default. Send one only if the sender needs a decision, " +
-		"an answer, or a correction from you. Acknowledging without replying is the " +
-		"normal case and ends the exchange.\n" +
-		"When YOU send: silence back means 'handled, nothing needed'. If you need " +
-		"confirmation that it was processed, ask for it in the message itself - " +
-		"there is no read receipt."
+	return b.String()
 }
 
 // openSessionInbox connects to the session's inbox: named pipe on Windows
@@ -254,6 +271,12 @@ func (p *Poller) injectIntoSession(content string) bool {
 		return false
 	}
 	defer c.Close()
+	// Bounded write where the transport supports deadlines (unix socket; a
+	// Windows pipe *os.File may answer ErrNoDeadline — then the small payload
+	// lands in the kernel buffer anyway).
+	if d, ok := c.(interface{ SetWriteDeadline(time.Time) error }); ok {
+		_ = d.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	}
 	n, err := c.Write(payload)
 	if err != nil {
 		logMsg("[poll] session inbox write failed: " + err.Error())

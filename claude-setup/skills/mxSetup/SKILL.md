@@ -156,7 +156,9 @@ Shows: `<slug> | <model> | <context%> | <$cost> | <tasks>`. Reads slug from `CLA
 
 **5c. CLAUDE.md** — Use `/tmp/mxLore-skills-CLAUDE.md` (saved in Phase 2). Three-branch merge logic (no file / marker present / marker absent) — see `references/claude-md-merge.md` for details. Afterwards: `rm /tmp/mxLore-skills-CLAUDE.md`.
 
-**5d. Agent Inbox:** `mkdir -p ~/.claude/agent_inbox`
+**5d. Legacy agent-inbox buffer — remove, do not create.** Proxies before 1.0.9 mirrored pending agent messages into `~/.claude/agent_inbox/agent_inbox_<slug>.json` for the (now retired) hook. With proxy >= 1.0.9 the directory is dead weight: every message still pending on the server is delivered again by the new proxy through the session inbox, and every acked one is gone already — there is nothing to drain. After Phase 3 confirmed the proxy is >= 1.0.9: `rm -rf ~/.claude/agent_inbox`. Never run this while a proxy older than 1.0.9 is still registered (ordering rule below).
+
+**5e. Duplicate claude.ai connector.** If `claude mcp list` shows BOTH the `mxai-knowledge` proxy entry AND an account-managed claude.ai connector for the same server (typically named `mxai knowledge web`), every tool exists twice and the connector bypasses the proxy (no session-inbox delivery, no agent polling). The CLI cannot remove an account-managed connector (`claude mcp remove` answers "No MCP server named … in user scope"), so print a warning with the manual step: disable or remove the connector in claude.ai → Settings → Connectors, then restart Claude Code.
 
 ### Phase 6: Done
 
@@ -171,6 +173,8 @@ Shows: `<slug> | <model> | <context%> | <$cost> | <tasks>`. Reads slug from `CLA
 | Proxy | OK / MISSING |
 | Proxy >= 1.0.9 (session-inbox delivery) | OK / OUTDATED |
 | Retired hooks absent | OK / FOUND |
+| Legacy agent_inbox dir absent | OK / REMOVED / SKIPPED (proxy < 1.0.9) |
+| claude.ai connector duplicate | NONE / WARN (remove in claude.ai) |
 | CLAUDE.md | OK |
 
 Next steps:
@@ -185,6 +189,8 @@ Optional: /mxSetup --with-superpowers installs the superpowers bridge plugin
 ### Final verification checklist
 - `grep agent_inbox_check ~/.claude/settings.json` → must be empty.
 - `~/.claude/hooks/agent_inbox_check.sh` → must not exist.
+- `~/.claude/agent_inbox/` → must not exist once the proxy is >= 1.0.9.
+- `claude mcp list` → exactly one entry for the mxLore server (the proxy); a claude.ai connector next to it is a WARN, not a pass.
 
 ## Update Modes
 
