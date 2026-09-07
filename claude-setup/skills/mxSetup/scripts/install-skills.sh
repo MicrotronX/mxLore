@@ -8,6 +8,22 @@
 # settings.json is updated separately.
 set -euo pipefail
 
+# Self-relocation guard. This script lives INSIDE the tree it installs
+# (skills/mxSetup/scripts/), so the `cp -r` below overwrites the very file bash
+# is still reading line by line; bash then continues at a byte offset of the
+# NEW file and dies with nonsense ("]: command not found", "_name: unbound
+# variable") before setup-version.json is stamped (observed live on macOS,
+# bundle 1.2.40 -> 1.2.41). Run from a private copy instead; the copy is
+# removed by the copy itself on exit.
+if [ -z "${MXLORE_INSTALL_RELOCATED:-}" ]; then
+  _self_copy="$(mktemp "${TMPDIR:-/tmp}/install-skills.XXXXXX")"
+  cp "${BASH_SOURCE[0]}" "$_self_copy"
+  chmod +x "$_self_copy"
+  MXLORE_INSTALL_RELOCATED=1 MXLORE_INSTALL_SELF_COPY="$_self_copy" \
+    exec bash "$_self_copy" "$@"
+fi
+# (the EXIT trap below removes the copy together with the download tmp files)
+
 # REPO_REF: default "main" (HEAD). Override with REPO_REF=v2.4.0 to pin a release tag.
 # TODO(release-tagging): once mxLore-skills cuts release tags, change default
 # REPO_REF to the latest tag so new installs get a pinned, verified snapshot
@@ -31,7 +47,7 @@ fi
 
 # Cleanup /tmp detritus on any exit path (success, error, interrupt).
 # TMP_DIR/TMP_ZIP are per-run unique, so the rm is race-free.
-trap 'rm -rf "$TMP_DIR" "$TMP_ZIP" 2>/dev/null || true' EXIT
+trap 'rm -rf "$TMP_DIR" "$TMP_ZIP" 2>/dev/null || true; rm -f "${MXLORE_INSTALL_SELF_COPY:-}"' EXIT
 
 # HTTPS proto-pin (--proto =https --proto-redir =https) blocks any accidental
 # http:// fallback or redirect — GitHub archive URLs are always HTTPS, so a
