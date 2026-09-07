@@ -18,9 +18,10 @@ stdio ↔ HTTP-Bridge für MCP:
    `Mcp-Session-Id`-Session-Handling, SSE-Parsing, Auto-Re-Init bei
    abgelaufener Session, 1× Connection-Retry).
 3. Schreibt die Antworten zeilenweise auf **stdout**.
-4. Optionaler Hintergrund-Thread: pollt `?agent_inbox=<slug>`, schreibt neue
-   Nachrichten atomar in `agent_inbox_<slug>.json` (vom Claude-Code-Hook
-   konsumiert) und ACKt via `?agent_ack=<ids>`.
+4. Optionaler Hintergrund-Thread: pollt `?agent_inbox=<slug>`, liefert neue
+   Nachrichten direkt in die laufende Claude-Code-Session via
+   `CLAUDE_CODE_MESSAGING_SOCKET` (ab Proxy 1.0.9, kein Datei-Puffer mehr)
+   und ACKt via `?agent_ack=<ids>`.
 
 ## Bauen (auf dem Mac M4)
 

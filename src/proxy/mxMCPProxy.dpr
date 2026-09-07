@@ -8,6 +8,7 @@ uses
   mx.Proxy.Log in 'mx.Proxy.Log.pas',
   mx.Proxy.Config in 'mx.Proxy.Config.pas',
   mx.Proxy.Http in 'mx.Proxy.Http.pas',
+  mx.Proxy.Poll in 'mx.Proxy.Poll.pas',
   mx.Proxy.Core in 'mx.Proxy.Core.pas';
 
 const

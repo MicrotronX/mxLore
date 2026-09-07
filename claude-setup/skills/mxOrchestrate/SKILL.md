@@ -2,7 +2,7 @@
 name: mxOrchestrate
 description: Persistent session orchestrator for mxLore. This skill should be used when the user says "park", "resume", "continue", "keep going", "where were we", "pick up where we left off" (non-English phrasing with the same meaning maps to these triggers), "what's my workflow status", "/mxOrchestrate start/track/park/resume/status/suggest", "start a new feature/bugfix workflow", "track this as ad-hoc", "spawn a team agent", or when a session begins and workflow state must be loaded. Always-on via SessionStart/UserPromptSubmit hooks. Manages workflow stack (LIFO), ad-hoc tasks, team agents, and skill chains.
 user-invocable: true
-allowed-tools: Read, Write, Edit, Grep, Glob, Skill, Monitor, TaskStop
+allowed-tools: Read, Write, Edit, Grep, Glob, Skill
 argument-hint: "start <type> | track <note> | park [reason] | resume [id] | status | suggest"
 ---
 
@@ -36,10 +36,7 @@ This skill fires on:
      → `mx_session_start(project, include_briefing=true, setup_version=<version>)`→session_id (overwrite cached)+Response into state, `state.last_reconciliation ← now_utc` (`date -u +%Y-%m-%dT%H:%MZ`, Timestamp base), clear `context_cleared_at`/`context_cleared_source`
      → Error=Local(`docs/ops/workflow-log.md`+warning)
    - ⚡ The hook must NEVER stamp `last_reconciliation` — that field means "reconciled against MCP", and JS hooks cannot reach MCP. Stamping it there resets the very signal the fallback reads.
-3a. **Agent-inbox wakeup (Monitor arming) ⚡ Main-only:** a *waiting* instance never submits a prompt, so the `UserPromptSubmit` inbox hook never fires for it and the message sits in the file buffer indefinitely (live 2026-08-19: three undelivered messages, oldest six weeks). Push delivery needs a `Monitor`, armed here.
-   - ⚡ **The procedure is NOT restated here.** Read `~/.claude/skills/_shared/agent-watch.md` and follow its **Arm** section: teardown-first, Main-only, mandatory slug filter (never a glob), the poll-loop contract (`cksum` as argument, arm-time report, fire-on-disappearance), and the paired state fields. mxSave stops and re-arms the SAME watcher through that same file — the two callers must never drift apart, which is why the text lives in one place.
-   - **Guard (idempotent, orchestrate-specific):** arm only when `state.agent_watch_session_id != state.session_id` (or absent). Equal → already armed this session, skip; a second watcher only duplicates every notification. ⚡ `session_id` rotates *within one process* (STALE ≥12h fallback, explicit-trigger fail-open, `context_cleared_at` after `/clear`) — that rotation is exactly why the shared teardown step runs before every arm.
-   - ∅inbox dir → skip silently, no error.
+3a. Agent messages reach the session through the mxMCPProxy session-inbox delivery (proxy >= 1.0.9); nothing to arm client-side.
 4. **Auto-Detect: Project Setup** (see below)
 5. → Mode routing by argument
 
@@ -82,7 +79,7 @@ Main loop on premium model (Fable/Opus) → every subagent spawn (Agent-Tool, te
 Schema v2, stack rules, and internal operations → `references/state-schema.md`. Key invariant: `last_save_deltas` is owned by mxSave Step 4 (SSoT, the single-writer rule). All state writes follow Edit-vs-Write discipline (see Tool Budget table above + Rules section).
 
 ## Mode 1: Init
-Forces `mx_session_start` ignoring cached `session_id` (see Init pre-routing step 3); loads workflows from the response into `workflow_stack`; resets `events_log`. Multi-agent wakeup is armed in Init pre-routing step 3a (slug-filtered Monitor), NOT here — there is no `/mxAgentListen` skill.
+Forces `mx_session_start` ignoring cached `session_id` (see Init pre-routing step 3); loads workflows from the response into `workflow_stack`; resets `events_log`.
 
 ## Mode 2: Start (Create workflow)
 1. Search workflow template: `docs/workflows.md`(project) then `~/.claude/skills/mxOrchestrate/workflows.md`(global). ∅template→?user→ad-hoc

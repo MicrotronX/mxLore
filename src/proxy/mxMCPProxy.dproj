@@ -53,9 +53,9 @@
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_MajorVer>1</VerInfo_MajorVer>
         <VerInfo_MinorVer>0</VerInfo_MinorVer>
-        <VerInfo_Release>8</VerInfo_Release>
+        <VerInfo_Release>9</VerInfo_Release>
         <VerInfo_Build>0</VerInfo_Build>
-        <VerInfo_Keys>CompanyName=MicrotronX - Speditionssoftware vom Profi;FileDescription=mxMCPProxy - MCP stdio-to-HTTP Proxy;FileVersion=1.0.8.0;InternalName=mxMCPProxy;LegalCopyright=Copyright 2026 MicrotronX - Speditionssoftware vom Profi;LegalTrademarks=;OriginalFilename=mxMCPProxy.exe;ProductName=mxLore;ProductVersion=1.0.8.0;Comments=MCP Proxy for Claude Code (Win32);CFBundleName=</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX - Speditionssoftware vom Profi;FileDescription=mxMCPProxy - MCP stdio-to-HTTP Proxy;FileVersion=1.0.9.0;InternalName=mxMCPProxy;LegalCopyright=Copyright 2026 MicrotronX - Speditionssoftware vom Profi;LegalTrademarks=;OriginalFilename=mxMCPProxy.exe;ProductName=mxLore;ProductVersion=1.0.9.0;Comments=MCP Proxy for Claude Code (Win32);CFBundleName=</VerInfo_Keys>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;$(DCC_Namespace)</DCC_Namespace>
         <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
         <Icns_MainIcns>$(BDS)\bin\delphi_PROJECTICNS.icns</Icns_MainIcns>
@@ -63,7 +63,7 @@
     <PropertyGroup Condition="'$(Base_Win32)'!=''">
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;$(DCC_Namespace)</DCC_Namespace>
         <BT_BuildType>Debug</BT_BuildType>
-        <VerInfo_Keys>CompanyName=MicrotronX - Speditionssoftware vom Profi;FileDescription=mxMCPProxy - MCP stdio-to-HTTP Proxy;FileVersion=1.0.8.0;InternalName=mxMCPProxy;LegalCopyright=Copyright 2026 MicrotronX - Speditionssoftware vom Profi;LegalTrademarks=;OriginalFilename=mxMCPProxy.exe;ProgramID=com.microtronx.mxMCPProxy;ProductName=mxLore;ProductVersion=1.0.8.0;Comments=MCP Proxy for Claude Code (Win32)</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX - Speditionssoftware vom Profi;FileDescription=mxMCPProxy - MCP stdio-to-HTTP Proxy;FileVersion=1.0.9.0;InternalName=mxMCPProxy;LegalCopyright=Copyright 2026 MicrotronX - Speditionssoftware vom Profi;LegalTrademarks=;OriginalFilename=mxMCPProxy.exe;ProgramID=com.microtronx.mxMCPProxy;ProductName=mxLore;ProductVersion=1.0.9.0;Comments=MCP Proxy for Claude Code (Win32)</VerInfo_Keys>
         <VerInfo_Locale>1033</VerInfo_Locale>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1)'!=''">
@@ -85,7 +85,7 @@
     <PropertyGroup Condition="'$(Cfg_2_Win32)'!=''">
         <DCC_ExeOutput>..\..\bin\debug</DCC_ExeOutput>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=MicrotronX - Speditionssoftware vom Profi;FileDescription=mxMCPProxy - MCP stdio-to-HTTP Proxy (Debug);FileVersion=1.0.8.0;InternalName=mxMCPProxy;LegalCopyright=Copyright 2026 MicrotronX - Speditionssoftware vom Profi;LegalTrademarks=;OriginalFilename=mxMCPProxy.exe;ProgramID=com.microtronx.mxMCPProxy;ProductName=mxLore;ProductVersion=1.0.8.0;Comments=MCP Proxy for Claude Code (Win32 Debug)</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX - Speditionssoftware vom Profi;FileDescription=mxMCPProxy - MCP stdio-to-HTTP Proxy (Debug);FileVersion=1.0.9.0;InternalName=mxMCPProxy;LegalCopyright=Copyright 2026 MicrotronX - Speditionssoftware vom Profi;LegalTrademarks=;OriginalFilename=mxMCPProxy.exe;ProgramID=com.microtronx.mxMCPProxy;ProductName=mxLore;ProductVersion=1.0.9.0;Comments=MCP Proxy for Claude Code (Win32 Debug)</VerInfo_Keys>
         <Manifest_File>(Ohne)</Manifest_File>
         <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
     </PropertyGroup>
@@ -96,6 +96,7 @@
         <DCCReference Include="mx.Proxy.Log.pas"/>
         <DCCReference Include="mx.Proxy.Config.pas"/>
         <DCCReference Include="mx.Proxy.Http.pas"/>
+        <DCCReference Include="mx.Proxy.Poll.pas"/>
         <DCCReference Include="mx.Proxy.Core.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

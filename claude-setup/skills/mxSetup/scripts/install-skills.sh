@@ -53,6 +53,14 @@ fi
 
 SRC="$TMP_DIR/mxLore-skills-${REPO_REF}"
 
+# Retired hooks: files this bundle shipped once and has since withdrawn.
+# Deleted from $CLAUDE_HOME/hooks/ on every install/update, regardless of CLEAN.
+# Registration removal (settings.json) is Claude Code's job in /mxSetup Phase 5b-Retired
+# — this script only owns files on disk, same split as the rest of hooks/.
+RETIRED_HOOKS=(
+  "agent_inbox_check.sh"  # retired 2026-09-07, replaced by mxMCPProxy >= 1.0.9 session-inbox delivery
+)
+
 mkdir -p "$CLAUDE_HOME/skills" "$CLAUDE_HOME/hooks" "$CLAUDE_HOME/reference"
 
 # Capture mx* directories via nullglob so an empty glob fails loudly instead of
@@ -149,6 +157,16 @@ echo "Bundle manifest written: ${#mx_dirs[@]} skill(s)."
 ( cd "$SRC/hooks" && cp -r . "$CLAUDE_HOME/hooks/" )
 [ -d "$SRC/reference" ] || { echo "ERROR: $SRC/reference not found in extracted bundle — repo restructure?" >&2; exit 2; }
 ( cd "$SRC/reference" && cp -r . "$CLAUDE_HOME/reference/" )
+
+# Delete retired hook files (see RETIRED_HOOKS above). Named-file removal only —
+# never a glob — so this can never touch a private hook of similar shape.
+for _rh in "${RETIRED_HOOKS[@]}"; do
+  if [ -f "$CLAUDE_HOME/hooks/$_rh" ]; then
+    rm -f "$CLAUDE_HOME/hooks/$_rh"
+    echo "Removed retired hook file: $CLAUDE_HOME/hooks/$_rh (settings.json registration removal is Phase 5b-Retired's job)"
+  fi
+done
+unset _rh
 
 # Orphan report: name files that exist locally but are not in this
 # bundle. hooks/ and reference/ are copied additively, so a file removed upstream

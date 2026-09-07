@@ -109,7 +109,7 @@ func (p *Proxy) startPolling(slug string) {
 	if p.poller != nil {
 		return
 	}
-	p.poller = NewPoller(p.cfg.ServerURL, p.cfg.APIKey, slug, p.cfg.InboxDir, p.cfg.AgentPollInterval)
+	p.poller = NewPoller(p.cfg.ServerURL, p.cfg.APIKey, slug, p.cfg.AgentPollInterval)
 	p.poller.Start()
 	logMsg("[mxProxy] Agent polling started for " + slug +
 		" (every " + strconv.Itoa(p.cfg.AgentPollInterval) + "s)")

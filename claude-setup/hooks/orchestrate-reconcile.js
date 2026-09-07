@@ -154,7 +154,7 @@ try {
     const note = state.last_save_session_note_doc_id;
     console.log(
       `[mxOrchestrate] ⚡ Context reset (source=${source}) — briefing REQUIRED before any work. ` +
-      `Invoke the mxOrchestrate SKILL (Skill tool, args "resume") — do NOT call mx_session_start directly, that skips Init 3a (agent-inbox wakeup arming)` +
+      `Invoke the mxOrchestrate SKILL (Skill tool, args "resume") — do NOT call mx_session_start directly, the skill owns the state-flag clear` +
       (note ? `; last session note: #${note}` : '') + '.'
     );
   }

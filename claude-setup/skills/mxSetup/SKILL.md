@@ -122,6 +122,14 @@ claude mcp add -s user mxai-knowledge -- "$HOME/.claude/mxMCPProxy"
 
 The first three keep the Delphi IDE's revision backups (`Unit1.pas.~235~`, `__recovery\`) out of context: a stale revision still compiles, so quoting it as current silently reverts already-fixed logic. Covers the `Read` tool plus — best-effort, per the permissions docs — Grep, Glob, `@file` mentions and the Bash file commands Claude Code recognises (`cat`, `head`, `tail`, `sed`); **not** arbitrary subprocesses. ⚡ For the IDE patterns use the cwd-relative `**/…` form shown above, not a single leading slash — in user settings `Read(/__history/**)` resolves against `~/.claude/`, not against the project. Inert on non-Delphi machines (the patterns simply never match). Rationale → `reference/delphi.md` → "IDE artefacts are not source".
 
+**5b-Retired. Retired hooks** — hooks this bundle shipped once and has since withdrawn. Derived from this list ONLY, never from a glob (a glob would also catch a private hook of the same shape):
+
+| Hook file | Retired | Reason |
+|---|---|---|
+| `agent_inbox_check.sh` | 2026-09-07 | Replaced by mxMCPProxy >= 1.0.9 session-inbox delivery (`CLAUDE_CODE_MESSAGING_SOCKET`) — the client-side file-buffer watcher is dead. |
+
+On every `--update` run (and on a fresh install, where it is a no-op): for each entry in this list, remove any `settings.json` hook entry (in ANY event block — `SessionStart`, `UserPromptSubmit`, etc.) whose `command` references that file, then delete `~/.claude/hooks/<file>` if present.
+
 **5b. Hooks** — Check each hook block. If entry missing, add it. If present, do not duplicate.
 
 ⚡ **Node.js check BEFORE hook installation:**
@@ -161,6 +169,8 @@ Shows: `<slug> | <model> | <context%> | <$cost> | <tasks>`. Reads slug from `CLA
 | Skills | X installed |
 | Hooks | Y installed |
 | Proxy | OK / MISSING |
+| Proxy >= 1.0.9 (session-inbox delivery) | OK / OUTDATED |
+| Retired hooks absent | OK / FOUND |
 | CLAUDE.md | OK |
 
 Next steps:
@@ -172,10 +182,16 @@ Optional: /mxSetup --with-superpowers installs the superpowers bridge plugin
 (enhanced brainstorming / plan-execution rigour) — not required, mx*-skills run standalone.
 ```
 
+### Final verification checklist
+- `grep agent_inbox_check ~/.claude/settings.json` → must be empty.
+- `~/.claude/hooks/agent_inbox_check.sh` → must not exist.
+
 ## Update Modes
 
 ### `--update` (full refresh)
 Runs Phase 2 (skills + hooks + reference from GitHub), Phase 5 (config + `~/.claude/CLAUDE.md` mx-rules marker block), and proxy version-check (same flow as Phase 3, download only if version differs). Use after upstream `mxLore-skills` changes or when several things are out of date.
+
+⚡ **Ordering: proxy before retired-hook removal.** `mx_ping` exposes proxy *download URLs* (`proxy_download_url`, `proxy_download_url_darwin_arm64`, `proxy_download_url_darwin_amd64` — see Phase 3), NOT a version number to diff against the locally installed proxy, so an installed-vs-server version compare is not currently possible from `mx_ping` alone. Given that gap, treat the installed proxy as potentially older than 1.0.9 by default: run Phase 3 (proxy update) BEFORE Phase 5b-Retired (hook removal) in every `--update`. Reason: a proxy older than 1.0.9 still writes `agent_inbox_<slug>.json` files (the old buffer protocol); if the retired hook is removed first, nothing reads that buffer any more and messages sit pending until the next manual `mx_agent_inbox` call. Skills-without-proxy update is degraded (delayed delivery), never lost (the buffer still accumulates) — but the order still matters to avoid the degraded window.
 
 Optional: `CLEAN=1 ~/.claude/skills/mxSetup/scripts/install-skills.sh` clears the `mx*/` skill dirs **that this bundle ships** before re-copying them, so files removed upstream do not linger. Two guarantees: it never touches an `mx*/` dir the bundle does not ship (private, unpublished skills of your own are left alone), and it **moves** rather than deletes — everything lands in `~/.claude/.skills-removed/<timestamp>/`, outside `skills/`, so nothing is loaded as a skill again and nothing is lost if the run was wrong. Delete that dir yourself once the install looks right. Use only if you have NO local unsynced edits in the bundled `mx*`-skills.
 

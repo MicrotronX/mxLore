@@ -108,12 +108,12 @@ When two assistants work on related projects, one can hand work to the other —
 mxLore pushes those messages through instead:
 
 1. `mx_agent_send` stores the message on the server.
-2. The local proxy polls the server and writes pending messages into a per-project file buffer.
-3. The receiving session watches exactly its own project's buffer and is notified the moment it changes.
+2. The local proxy (mxMCPProxy >= 1.0.9) polls the server and delivers pending messages straight into the receiving session via `CLAUDE_CODE_MESSAGING_SOCKET` — no file buffer, no client-side watcher.
+3. The receiving session sees the message as soon as the proxy delivers it, and acknowledges it (`mx_agent_ack`) once handled.
 
-The watch runs as a background shell task, not as a conversation turn — an idle session costs nothing while it waits, and still reacts within seconds. Delivery is scoped per project: a session only ever sees messages for the project it is working on, never those of other projects sharing the same machine.
+Delivery is scoped per project: a session only ever sees messages for the project it is working on, never those of other projects sharing the same machine.
 
-Nothing depends on the watch being armed. Messages stay on the server until they are acknowledged, and `mx_agent_inbox` returns them at any time.
+Messages stay on the server until they are acknowledged, and `mx_agent_inbox` returns them at any time even if delivery was missed (older proxy, session not running, etc.).
 
 ## Architecture
 
