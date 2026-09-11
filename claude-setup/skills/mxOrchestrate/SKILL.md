@@ -73,6 +73,7 @@ Main loop on premium model (Fable/Opus) → every subagent spawn (Agent-Tool, te
 - Main model ∈ {fable, opus*} → subagent default = `sonnet`. Omitting `model` (inherit=premium) requires 1-line justification in the spawn rationale (written into the Agent-tool prompt or the caller's status text).
 - Main model already sonnet/haiku → omit `model` (inherit, no tiering gain).
 - !premium subagents for mechanical work — token+cost efficiency over convenience.
+- ⚡ **Loop rule (measured 2026-09-11):** the main-loop cost is `turns × context`, and cache reads are 99.9 % of the input — every turn re-pays the whole context (~75k baseline, 150-210k mid-session). A batch of **>5 same-shaped MCP calls** (`mx_ai_batch_log`, `mx_add_tags`, `mx_skill_feedback` verdict rounds, tag sweeps, findings triage, AI-batch runs) therefore NEVER runs in Main: one session ran 53 such turns on the premium model (27 batch_log + 26 add_tags) at ~150k context each. Dispatch the whole loop as ONE `sonnet` (or `haiku` when purely mechanical) subagent with the complete item list in the prompt; Main receives a ≤20-line tally. Tiering fixes the price per token — only fewer premium turns fix the token count.
 
 ## State File (.claude/orchestrate-state.json)
 

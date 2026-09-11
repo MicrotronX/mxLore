@@ -239,9 +239,14 @@ begin
         Qry.Free;
       end;
 
-      // Lesson Injection (Spec#1198): Top lessons for session briefing
+      // Lesson Injection (Spec#1198): Top lessons for session briefing.
+      // Slim rows only (id/title/summary/severity): the full lesson_data JSON
+      // was ~6k tokens per session start, identical every session (stable
+      // severity order), and the recall gate delivers full lessons on demand
+      // by file relevance (FR#14640). Session 1141 token audit.
       Qry := AContext.CreateQuery(
-        'SELECT d.id, d.title, d.summary_l1, d.lesson_data, d.confidence, ' +
+        'SELECT d.id, d.title, d.summary_l1, d.confidence, ' +
+        '  JSON_UNQUOTE(JSON_EXTRACT(d.lesson_data, ''$.severity'')) AS severity, ' +
         '  d.violation_count, d.success_count ' +
         'FROM documents d ' +
         'WHERE d.doc_type = ''lesson'' AND d.status <> ''deleted'' ' +
@@ -265,8 +270,8 @@ begin
           Row.AddPair('title', Qry.FieldByName('title').AsString);
           if Qry.FieldByName('summary_l1').AsString <> '' then
             Row.AddPair('summary', Qry.FieldByName('summary_l1').AsString);
-          if Qry.FieldByName('lesson_data').AsString <> '' then
-            Row.AddPair('lesson_data', Qry.FieldByName('lesson_data').AsString);
+          if Qry.FieldByName('severity').AsString <> '' then
+            Row.AddPair('severity', Qry.FieldByName('severity').AsString);
           Row.AddPair('violation_count',
             TJSONNumber.Create(Qry.FieldByName('violation_count').AsInteger));
           Lessons.Add(Row);
