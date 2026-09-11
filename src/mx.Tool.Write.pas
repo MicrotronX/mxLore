@@ -586,6 +586,11 @@ begin
   // title fixed later, slug never regenerated) were invisible to a slug-only
   // MAX, so the server re-issued already-taken numbers (live evidence:
   // 0927 issued twice). Title numbers keep those docs countable forever.
+  // BR#15455: the MAX runs over ALL doc_types, not only 'decision'. A doc that
+  // was created as decision and later re-typed via mx_update_doc(doc_type=…)
+  // keeps its 'adr-NNNN-' slug but would fall out of a decision-only MAX, so
+  // the number got issued a second time (live: adr-11436 on a lesson AND a
+  // decision). A number that ever appeared in an adr-slug/title is taken.
   if DocType = 'decision' then
   begin
     Qry := AContext.CreateQuery(
@@ -593,7 +598,7 @@ begin
       '  COALESCE(CAST(REGEXP_REPLACE(REGEXP_SUBSTR(LOWER(slug),  ''^adr-[0-9]+''), ''[^0-9]'', '''') AS UNSIGNED), 0), ' +
       '  COALESCE(CAST(REGEXP_REPLACE(REGEXP_SUBSTR(LOWER(title), ''^adr-[0-9]+''), ''[^0-9]'', '''') AS UNSIGNED), 0) ' +
       ')), 0) AS max_num ' +
-      'FROM documents WHERE project_id = :pid AND doc_type = ''decision'' ' +
+      'FROM documents WHERE project_id = :pid ' +
       '  AND status <> ''deleted''');
     try
       Qry.ParamByName('pid').AsInteger := ProjectId;
