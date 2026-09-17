@@ -20,7 +20,7 @@ Save agent. Persists project state for seamless session continuation.
 1. **Main:** Init → Steps 1, 1b, 2 (settings + artifact sweep + CLAUDE.md/status.md + zombie check).
 2. **Parallel phase A:** Step 3 (background subagent, `model=sonnet` per mxOrchestrate Model Tiering — MCP CRUD needs no premium; MCP-only) + Step 4a (Main, in-memory mutations). Pass `mcp_available` to Step 3 explicitly; Step 4a sends `expected_updated_at` and skips WFs already archived by Step 3. Stale-sweep: subagent returns candidates ONLY — prompts happen in Main after phase A (see Step 3). ⚡ The **FR/BR Closure-Sweep** (Step 3) runs in **Main**, not the subagent — its candidate source is this session's chat context, which the MCP-only subagent lacks.
 3. **Main (synchronous):** Step 5 — `mx_create_doc(session_note)` issued from Main; subagent may build the body string but Main issues the call and captures the doc_id (skill runtime has no await-subagent primitive — running Step 5 in background would regress the deferred-write fix).
-4. **Main:** Step 4b — single deferred Write applying ALL 4a + 4b mutations (incl. `last_save_summary` + `last_save_session_note_doc_id` from Step 5's return).
+4. **Main:** Step 4b — single deferred Write applying ALL 4a + 4b mutations (incl. `last_save_summary` + `last_save_session_note_doc_id` from Step 5's return), then Step 5b — write `.claude/resume-handoff.md`.
 5. **Parallel phase B (fire-and-forget):** Step 6 Peer Notify — no join, errors logged not aborted.
 
 Degraded path: Step 5 MCP call fails → Step 4b writes `last_save_summary` (local) + `last_save_session_note_doc_id=null`.
@@ -215,6 +215,15 @@ mx_create_doc(project, doc_type='session_note', title='Session Notes YYYY-MM-DD[
 - `## User notes` — explicit user corrections, feedback, near-misses
 **Numbering:** mx_search(project=<slug>, doc_type='session_note', query='YYYY-MM-DD')→exists→append number
 **if !mcp_available →** Fallback local `docs/plans/session-notes-YYYY-MM-DD.md`+warning
+
+### 5b) Resume Handoff (LOCAL, after Step 4b)
+Local cache so the next `/clear`/startup needs no MCP resume ritual: the SessionStart hook injects it when it matches the state, else falls back to the MCP resume. ⚡ MCP note stays SSoT — the file is a cache with a pointer.
+- ⚡ Write ONLY when Step 5 returned a doc_id AND Step 4b's state write landed (no done-marker before the proven side effect). Step 5 failed / `last_save_session_note_doc_id==null` → **delete** an existing `.claude/resume-handoff.md` instead (a stale file must not outlive its note).
+- ⚡ **Ignore gate (before the write):** `git check-ignore -q .claude/resume-handoff.md` from the project root. Exit `0` (ignored) or `128` (not a git repo) → write. Exit `1` (git repo, file NOT ignored) → do NOT write, delete an existing file, output `Handoff: skipped - .claude/resume-handoff.md is not git-ignored (add .claude/ to .gitignore)`. The body carries project internals (state, next action, doc ids) and must never reach a repository through a blanket `git add`. !edit the user's .gitignore — only report.
+- Path `<project>/.claude/resume-handoff.md`, Write tool, UTF-8 no BOM. Line 1 exactly: `<!-- resume-handoff note_id=<doc_id> last_save=<state.last_save verbatim> -->` — the hook string-compares both values against the state; any mismatch = file ignored.
+- Body = the note's `## Quickstart after /clear` + `## Next step` + `## Tooling gotchas + verify`, condensed. ⚡ Hard cap **2048 bytes** total (`LC_ALL=C wc -c`); over → cut gotchas first, then next-step lines beyond 5 (pointer `rest: mx_detail(<plan_id>)`). The hook rejects an oversized file. !chronicle !what-was-done — those live in the note.
+- Non-empty `workflow_stack` → still write; the hook skips injection while a WF needs reconciliation.
+- Output: `Handoff: <N> bytes -> .claude/resume-handoff.md` | `Handoff: removed (no note link)`.
 
 ### 6) Peer Notify (MCP, only if delta > 0)
 if !mcp_available → skip entire step.

@@ -29,6 +29,31 @@ function readHookPayload() {
   }
 }
 
+// Returns the handoff body, or null when the file is missing, oversized, malformed
+// or does not belong to the current state. First line carries the pointer:
+//   <!-- resume-handoff note_id=123 last_save=2026-01-01T00:00Z -->
+const HANDOFF_FILE = path.join(process.cwd(), '.claude', 'resume-handoff.md');
+const HANDOFF_MAX_BYTES = 2048;
+function readHandoff(state) {
+  try {
+    if ((state.workflow_stack || []).length > 0) return null;
+    if (!state.last_save || !state.last_save_session_note_doc_id) return null;
+    if (!fs.existsSync(HANDOFF_FILE)) return null;
+    if (fs.statSync(HANDOFF_FILE).size > HANDOFF_MAX_BYTES) return null;
+    const text = fs.readFileSync(HANDOFF_FILE, 'utf8').replace(/^﻿/, '');
+    const nl = text.indexOf('\n');
+    if (nl < 0) return null;
+    const m = /^<!-- resume-handoff note_id=(\d+) last_save=(\S+) -->\s*$/.exec(text.slice(0, nl));
+    if (!m) return null;
+    if (Number(m[1]) !== Number(state.last_save_session_note_doc_id)) return null;
+    if (m[2] !== state.last_save) return null;
+    const body = text.slice(nl + 1).trim();
+    return body || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 try {
   if (!fs.existsSync(STATE_FILE)) process.exit(0);
 
@@ -150,7 +175,30 @@ try {
   if (changed) {
     console.log('[Orchestrate] State file migrated/repaired to schema v2.');
   }
-  if (contextGone) {
+  // --- Resume handoff (local cache of the last session note's quickstart) ---
+  // mxSave writes the file AFTER the MCP note write succeeded. It is a cache with a
+  // pointer, never the truth: inject it only when it provably belongs to this state
+  // (note id + last_save both match) and no workflow needs MCP reconciliation.
+  // Anything else falls through to the MCP resume below — exactly one path per case.
+  const handoff = contextGone ? readHandoff(state) : null;
+  if (handoff) {
+    console.log(
+      `[mxOrchestrate] Resume handoff loaded (session note #${state.last_save_session_note_doc_id}, ` +
+      `saved ${state.last_save}). This IS the briefing — do NOT invoke the mxOrchestrate resume ritual. ` +
+      `No MCP session is open yet: the first /mxOrchestrate call (start/track) opens it. ` +
+      `Full note on demand via mx_detail.\n` + handoff
+    );
+    // The MCP resume would have run the tracker-gap guard; the handoff path cannot
+    // reach MCP, so surface what the state itself knows about work after the save.
+    const deltas = Number(state.state_deltas) || 0;
+    if (deltas > 0 || state.subagent_ran_since_save === true) {
+      console.log(
+        `[mxOrchestrate] WARNING: work happened after that save (state_deltas=${deltas}` +
+        (state.subagent_ran_since_save === true ? ', subagent ran since save' : '') +
+        `) — the handoff is behind. Invoke the mxOrchestrate SKILL (args "resume") for the MCP delta.`
+      );
+    }
+  } else if (contextGone) {
     const note = state.last_save_session_note_doc_id;
     console.log(
       `[mxOrchestrate] ⚡ Context reset (source=${source}) — briefing REQUIRED before any work. ` +

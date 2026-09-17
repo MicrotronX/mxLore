@@ -29,6 +29,7 @@ This skill fires on:
 2. Load state: `.claude/orchestrate-state.json`→parse. ∅file or corrupt→mode `init`
 3. **Ensure session:**
    - ⚡ **Context-reset FACT (primary signal):** `state.context_cleared_at` is set by the SessionStart hook (`orchestrate-reconcile.js`) whenever `source ∈ {startup, clear, compact}` — the three cases where the model has no prior conversation. `source=resume` restores context and does NOT set it. **Field present → context is empty → `mx_session_start` unconditionally**, then delete `context_cleared_at` + `context_cleared_source` in the same state write (the briefing has now happened; leaving it set re-briefs on every later call). ⚡ **Main-owned + verify-after-write:** this clear runs in Main (see Context header), and after the state write Main MUST re-read the field from the file to confirm it is gone — a subagent's report of "cleared" is NOT proof (observed dropped live 2026-07-14, flag survived). Still present → re-issue the Edit, re-verify.
+   - ⚡ **Handoff path (lazy session):** when the SessionStart hook printed `Resume handoff loaded`, that text IS the briefing — no resume ritual, no skill call just to brief. The hook leaves `context_cleared_at` set on purpose: the first real skill call (`start`/`track`/`park`/explicit `resume`) runs this step, opens the MCP session and clears the flag as usual. An explicit user `resume` still runs Mode 5 in full.
    - **Staleness check (ADR-0016) — FALLBACK ONLY, for installs whose hook predates the fact:** `age = now_utc - max(state.last_save, state.last_reconciliation)` — ⚡ all three in true UTC (`date -u`), see `references/state-schema.md` → Timestamp base; mixing a local `now` with a UTC field (or the reverse) shifts `age` by the UTC offset and can make it negative. Both fields missing → treat as stale. Threshold: **12h**. ⚡ This heuristic answers "is my STATE old", never "is my CONTEXT empty" — a save one minute before `/clear` leaves a fresh state and an empty context, and any same-day restart falls under 12h. Use it only when `context_cleared_at` is absent.
    - ⚡ **Explicit-trigger fail-OPEN:** input contains `<command-name>` OR `<command-message>` tag OR detection ambiguous → `mx_session_start` regardless of age (slash invocations need fresh briefing in fresh Claude process; live-confirmed tag injection at prompt position 0). Fresh briefing > stale ping.
    - hook-triggered (no command-tag) AND ∅`context_cleared_at` AND state.session_id present AND mode≠`init` AND age < 12h → mx_ping()→OK=MCP-mode | Error=Local
@@ -141,8 +142,8 @@ Forces `mx_session_start` ignoring cached `session_id` (see Init pre-routing ste
 
 ### Load context (on --resume without stack)
 **MCP:** (Session+Briefing already available from pre-routing)
-1. Open items: `mx_search(project, doc_type='note,bugreport,feature_request', status='active')`
-   - Filter: Tags `todo,bug,feature-request,optimization,next,later` or without session_note/e2e/test
+1. Open items: `mx_search(project, doc_type='bugreport,feature_request,todo', status='active', include_content=false, limit=30)`
+   - ⚡ NO `note` in this call: machine-written notes (batch-run logs, metric reports) stay `active` forever and filled 19 of 30 rows live (2026-09-17, ~5k tokens of noise that also pushed real items past the limit). Notes that ARE open items carry a tag → parallel second call `mx_search(project, doc_type='note', tag='todo', status='active', include_content=false, limit=10)`
    - ⚡ NO _global search (_global only for env variables, not for open items)
    - ⚡ `status='active'` — DO NOT show archived/completed docs
 3. Open plans/specs: `mx_search(project, doc_type='plan,spec', status='active', limit=10)`
