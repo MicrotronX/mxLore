@@ -114,7 +114,7 @@ try {
   // synced=true events are mirrored in MCP session_notes -> local copy redundant,
   // FIFO-drop by ts is safe. synced=false events are LOCAL-ONLY (not yet pushed)
   // -> never drop; they retry on the next mxSave Step 4a push.
-  const EVENTS_CAP = 30;
+  const EVENTS_CAP = 10; // same bound as the mxSave Step 4 state-file prune
   const evs = state.events_log;
   const syncedTrue = evs.filter(ev => ev.synced === true);
   if (syncedTrue.length > EVENTS_CAP) {
