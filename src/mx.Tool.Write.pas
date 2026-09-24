@@ -428,9 +428,12 @@ var
 begin
   Result := False;
   ARecoveredTags := nil;
-  P := Pos('</summary_l1>', ASummary1);
-  if P = 0 then
-    P := Pos('<parameter name="', ASummary1);
+  // Cut at the EARLIEST fragment. '</summary_l' also catches the l2 shape
+  // (`…</summary_l2">…`, doc 16537) that slipped past the l1-only marker.
+  P := Pos('</summary_l', ASummary1);
+  B := Pos('<parameter name="', ASummary1);
+  if (B > 0) and ((P = 0) or (B < P)) then
+    P := B;
   if P = 0 then
     Exit;
   Tail := Copy(ASummary1, P, MaxInt);
@@ -979,7 +982,7 @@ begin
      and ((Pos('<parameter name="content"', Summary1) > 0)
        or (Pos('</parameter>', Summary1) > 0)
        or (Pos('</invoke>', Summary1) > 0)
-       or (Pos('</summary_l1>', Summary1) > 0)) then  // BR#14368 shape — the
+       or (Pos('</summary_l', Summary1) > 0)) then  // BR#14368 shape (l1 + l2) — the
        // closing tag is the distinctive marker; a bare `<parameter name="` is
        // legitimate in a summary that documents the defect itself
     raise EMxValidation.Create(

@@ -1146,6 +1146,49 @@ begin
         finally
           DoneQry.Free;
         end;
+
+        // finding#16788 H3b: data cleanup — summaries stored before build 128
+        // with leaked tool-call markup (`…</summary_l1>\n<parameter name=…`,
+        // BR#14368). Cut at the first '</summary_l'. The bare
+        // '<parameter name="' is NOT a marker here: docs about the defect quote
+        // it. A backtick within 20 chars before the marker = quoted, skipped
+        // (dry run 2026-09-24: 228 l1 / 27 l2 rows, 4 / 1 of them quoted).
+        // updated_at = updated_at keeps the ON UPDATE stamp untouched, so the
+        // repair does not rejuvenate every row. ONE-SHOT like TODO#14654; the
+        // marker is written only after both UPDATEs succeeded (lesson#14142).
+        var SweepDoneQry := MigCtx.CreateQuery(
+          'SELECT 1 FROM app_settings WHERE setting_key = ''migration.h3b_summary_sweep_done''');
+        try
+          SweepDoneQry.Open;
+          if SweepDoneQry.IsEmpty then
+          begin
+            var Swept := 0;
+            for var Col in TArray<string>.Create('summary_l1', 'summary_l2') do
+            begin
+              var SweepQry := MigCtx.CreateQuery(
+                'UPDATE documents SET updated_at = updated_at, ' + Col + ' = ' +
+                // REGEXP, not TRIM: strips CR/LF/tab like TrimRight in RepairLeakedSummary
+                'REGEXP_REPLACE(LEFT(' + Col + ', LOCATE(''</summary_l'', ' + Col + ') - 1), ''[[:space:]]+$'', '''') ' +
+                'WHERE LOCATE(''</summary_l'', ' + Col + ') > 0 ' +  // pos 1 = all markup -> ''
+                'AND SUBSTRING(' + Col + ', GREATEST(LOCATE(''</summary_l'', ' + Col + ') - 20, 1), 20) ' +
+                'NOT LIKE ''%`%''');
+              try
+                SweepQry.ExecSQL;
+                Inc(Swept, SweepQry.RowsAffected);
+              finally
+                SweepQry.Free;
+              end;
+            end;
+            FLogger.Log(mlInfo, Format(
+              'Auto-migrate: H3b — %d leaked-markup summary field(s) repaired (one-shot)', [Swept]));
+            var SweepMarkQry := MigCtx.CreateQuery(
+              'INSERT INTO app_settings (setting_key, setting_value) ' +
+              'VALUES (''migration.h3b_summary_sweep_done'', ''build 133'')');
+            try SweepMarkQry.ExecSQL; finally SweepMarkQry.Free; end;
+          end;
+        finally
+          SweepDoneQry.Free;
+        end;
       finally
         MigQry.Free;
       end;
