@@ -344,7 +344,6 @@ begin
     .Param('body', mptString, False, 'Alias for content (for mx_create_note compat)')
     .Param('summary_l1', mptString, False, 'One-line summary')
     .Param('summary_l2', mptString, False, 'Detailed summary')
-    .Param('created_by', mptString, False, 'Author (def: mcp)')
     .Param('status', mptString, False, 'Status (def: draft)')
     .Param('tags', mptArray, False, 'Tags to add after creation')
     .Param('lesson_data', mptString, False, 'JSON with lesson fields (for doc_type=lesson)');
@@ -401,7 +400,7 @@ begin
 
   ARegistry
     .Add('mx_batch_create', HandleBatchCreate)
-    .Desc('Batch-create documents (single transaction). Item fields: project, doc_type, title, content, created_by, status (def: draft), tags[]')
+    .Desc('Batch-create documents (single transaction). Item fields: project, doc_type, title, content, status (def: draft), tags[]')
     .Param('items', mptString, True, 'JSON array of doc objects');
 
   ARegistry

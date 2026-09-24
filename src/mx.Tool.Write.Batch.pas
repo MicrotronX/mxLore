@@ -74,7 +74,8 @@ begin
           DocType := ItemObj.GetValue<string>('doc_type', '');
           Title := ItemObj.GetValue<string>('title', '');
           Content := ItemObj.GetValue<string>('content', '');
-          CreatedBy := ItemObj.GetValue<string>('created_by', 'mcp');
+          // FR#3307 Phase 1: created_by column no longer written; revision label only.
+          CreatedBy := 'mcp';
           Status := ItemObj.GetValue<string>('status', 'draft');
 
           // Validate status
@@ -148,10 +149,10 @@ begin
               // INSERT document
               Qry := AContext.CreateQuery(
                 'INSERT INTO documents (project_id, doc_type, slug, title, content, ' +
-                '  summary_l1, summary_l2, status, created_by, created_by_developer_id, ' +
+                '  summary_l1, summary_l2, status, created_by_developer_id, ' +
                 '  created_by_client_key_id) ' +
                 'VALUES (:proj_id, :doc_type, :slug, :title, :content, ' +
-                '  :summary_l1, :summary_l2, :status, :created_by, :dev_id, :key_id)');
+                '  :summary_l1, :summary_l2, :status, :dev_id, :key_id)');
               try
                 Qry.ParamByName('proj_id').AsInteger := ProjectId;
                 Qry.ParamByName('doc_type').AsWideString :=DocType;
@@ -162,7 +163,6 @@ begin
                 Qry.ParamByName('summary_l1').AsWideString :=ClampSummary(Summary1);
                 Qry.ParamByName('summary_l2').AsWideString :=Summary2;
                 Qry.ParamByName('status').AsWideString :=Status;
-                Qry.ParamByName('created_by').AsWideString :=CreatedBy;
                 // FR#2936/Plan#3266 M2.5 prereq — author-FK for Edit-Window match.
                 // Spec#13053: + machine identity (client key).
                 BindAuthId(Qry.ParamByName('dev_id'),

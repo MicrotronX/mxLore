@@ -484,7 +484,9 @@ begin
     Content := AParams.GetValue<string>('content', '');
   Summary1 := AParams.GetValue<string>('summary_l1', '');
   Summary2 := AParams.GetValue<string>('summary_l2', '');
-  CreatedBy := AParams.GetValue<string>('created_by', 'mcp');
+  // FR#3307 Phase 1: documents.created_by no longer written by the tool path
+  // (author = created_by_developer_id); value only feeds revision changed_by.
+  CreatedBy := 'mcp';
   Status := AParams.GetValue<string>('status', 'draft');
   LessonData := AParams.GetValue<string>('lesson_data', '');
   TagsArr := nil;
@@ -657,10 +659,10 @@ begin
         // INSERT document (with lesson_data for doc_type=lesson)
         Qry := AContext.CreateQuery(
           'INSERT INTO documents (project_id, doc_type, slug, title, content, ' +
-          '  summary_l1, summary_l2, status, created_by, created_by_developer_id, ' +
+          '  summary_l1, summary_l2, status, created_by_developer_id, ' +
           '  created_by_client_key_id, lesson_data) ' +
           'VALUES (:proj_id, :doc_type, :slug, :title, :content, ' +
-          '  :summary_l1, :summary_l2, :status, :created_by, :dev_id, ' +
+          '  :summary_l1, :summary_l2, :status, :dev_id, ' +
           '  :key_id, :lesson_data)');
         try
           Qry.ParamByName('proj_id').AsInteger := ProjectId;
@@ -672,7 +674,6 @@ begin
           Qry.ParamByName('summary_l1').AsWideString := ClampSummary(Summary1);
           Qry.ParamByName('summary_l2').AsWideString := Summary2;
           Qry.ParamByName('status').AsWideString :=Status;
-          Qry.ParamByName('created_by').AsWideString := CreatedBy;
           // FR#2936/Plan#3266 M2.5 prereq — author-FK for Edit-Window match.
           // Falls back to NULL when called outside an authenticated context
           // (server-internal callers, AI-batch via Tool API, etc.).
