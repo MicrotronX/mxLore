@@ -81,6 +81,66 @@ try {
   const args = (parsed.tool_input && typeof parsed.tool_input === 'object') ? parsed.tool_input : parsed;
   const filePath = args.file_path || args.path || '';
 
+  // --- Ask branch (AskUserQuestion matcher) --------------------------------
+  // A question to the user must not replace a lookup: documented domain knowledge was
+  // once asked for instead of searched, with a factually wrong answer option offered.
+  // A rule alone did not prevent it, so this is mechanical: the FIRST question of a
+  // user turn is denied unless an mx_search/mx_recall/mx_detail ran in that turn.
+  // A second attempt in the same turn passes (the agent has seen the reminder).
+  // Fail-open: unreadable transcript -> allow.
+  if (process.argv.includes('--ask')) {
+    let lines;
+    try {
+      const tp = parsed.transcript_path;
+      if (!tp || !fs.existsSync(tp)) process.exit(0);
+      const size = fs.statSync(tp).size;
+      const len = Math.min(size, 2 * 1024 * 1024);
+      const fd = fs.openSync(tp, 'r');
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, size - len);
+      fs.closeSync(fd);
+      lines = buf.toString('utf8').split('\n');
+    } catch { process.exit(0); }
+
+    let looked = false;
+    let turnId = null;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      let e;
+      try { e = JSON.parse(lines[i]); } catch { continue; }
+      const c = e && e.message && e.message.content;
+      if (e.type === 'assistant' && Array.isArray(c) &&
+          c.some(x => x && x.type === 'tool_use' && /mx_(search|recall|detail|batch_detail)$/.test(x.name || ''))) {
+        looked = true;
+      }
+      if (e.type === 'user' && !e.isMeta &&
+          (typeof c === 'string' || (Array.isArray(c) && !c.some(x => x && x.type === 'tool_result')))) {
+        turnId = e.uuid || String(i);
+        break;
+      }
+    }
+    if (looked || !turnId) process.exit(0);
+
+    const aKey = `ask:${turnId}`;
+    const aCache = loadCooldown();
+    if (aCache[aKey]) process.exit(0);
+    aCache[aKey] = Date.now();
+    saveCooldown(aCache);
+
+    process.stdout.write(JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: `[Recall before asking] No mx_search/mx_recall/mx_detail ran in this turn.
+If this question touches domain or project knowledge: search the subject first
+(mx_search with the plain-language subject, mx_recall with the target file), and put what you
+found into the question. Never offer an answer option the knowledge base contradicts.
+If it is a pure preference/decision question with nothing to look up, ask again unchanged.`
+      }
+    }));
+    process.exit(0);
+  }
+  // --- End ask branch --------------------------------------------------------
+
   if (!filePath) process.exit(0);
 
   // --- Knowledge branch (Read|Grep matcher) -------------------------------
