@@ -305,8 +305,9 @@ begin
         Row.AddPair('slug', Qry.FieldByName('slug').AsString);
         Row.AddPair('title', Qry.FieldByName('title').AsString);
         Row.AddPair('summary_l1', Qry.FieldByName('summary_l1').AsString);
+        // Rounded for output only: ORDER BY / budget window keep full precision (no new ties)
         Row.AddPair('relevance_score',
-          TJSONNumber.Create(Qry.FieldByName('relevance_score').AsFloat));
+          TJSONNumber.Create(Round(Qry.FieldByName('relevance_score').AsFloat * 100) / 100));
         Docs.Add(Row);
         Qry.Next;
       end;

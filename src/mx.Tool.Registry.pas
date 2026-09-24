@@ -16,6 +16,10 @@ type
   function SafeExecute(AHandler: TMxToolHandler; const AParams: TJSONObject;
     APool: TMxConnectionPool; ALogger: IMxLogger): TJSONObject;
   function StripCompactWrapper(AResponse: TJSONObject): string;
+  // Tool-result text for the model: non-ASCII stays literal (no \uXXXX, ~4% of
+  // result chars measured 2026-09-24). The JSON-RPC envelope around it is still
+  // serialized with the default ToJSON, so the wire stays ASCII-only.
+  function ToolResultJson(AValue: TJSONValue): string;
 
 implementation
 
@@ -132,6 +136,11 @@ begin
   end;
 end;
 
+function ToolResultJson(AValue: TJSONValue): string;
+begin
+  Result := AValue.ToJSON([TJSONAncestor.TJSONOutputOption.EncodeBelow32]);
+end;
+
 function StripCompactWrapper(AResponse: TJSONObject): string;
 var
   StatusVal, DataVal, WarningsVal: TJSONValue;
@@ -142,14 +151,14 @@ begin
   StatusVal := AResponse.GetValue('status');
   if (StatusVal = nil) or (StatusVal.Value <> 'ok') then
   begin
-    Result := AResponse.ToJSON;
+    Result := ToolResultJson(AResponse);
     Exit;
   end;
 
   DataVal := AResponse.GetValue('data');
   if DataVal = nil then
   begin
-    Result := AResponse.ToJSON;
+    Result := ToolResultJson(AResponse);
     Exit;
   end;
 
@@ -159,12 +168,12 @@ begin
     Warnings := TJSONArray(WarningsVal);
 
   if Warnings = nil then
-    Result := DataVal.ToJSON
+    Result := ToolResultJson(DataVal)
   else if DataVal is TJSONObject then
   begin
     DataObj := DataVal as TJSONObject;
     DataObj.AddPair('_w', Warnings.Clone as TJSONArray);
-    Result := DataObj.ToJSON;
+    Result := ToolResultJson(DataObj);
   end
   else
   begin
@@ -172,7 +181,7 @@ begin
     try
       WrapObj.AddPair('results', DataVal.Clone as TJSONValue);
       WrapObj.AddPair('_w', Warnings.Clone as TJSONArray);
-      Result := WrapObj.ToJSON;
+      Result := ToolResultJson(WrapObj);
     finally
       WrapObj.Free;
     end;

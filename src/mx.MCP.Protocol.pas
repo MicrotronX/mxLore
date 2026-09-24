@@ -245,7 +245,7 @@ begin
     if Compact then
       ResultText := StripCompactWrapper(ToolResult)
     else
-      ResultText := ToolResult.ToJSON;
+      ResultText := ToolResultJson(ToolResult);
 
     ResponseBytes := TEncoding.UTF8.GetByteCount(ResultText);
 
