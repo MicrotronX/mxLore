@@ -79,6 +79,7 @@ Each finding above INFO → 1 independent refuter-agent (parallel, prompt: 'Try 
 
 ### Summary
 X CRITICAL | Y WARNING | Z INFO | **Not checked:** <irrelevant cats>
+**Searched, nothing found:** <category → locations actually read> | **Unverified:** <claims that could not be proven + what was missing, ∅ if none>   <!-- a clean result names where it looked; absence of findings without locations reads like a pass that never ran -->
 ```
 
 **Severity:** CRITICAL=Bug/Crash/Dataloss(double-read!) | WARNING=Risk/suboptimal | INFO=Improvement
