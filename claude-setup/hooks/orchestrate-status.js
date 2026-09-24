@@ -78,9 +78,11 @@ try {
   console.log(`  adhoc: ${adhocCount} | deltas since save: ${deltas}${subagentFlag} | team: ${teamStr}`);
   console.log(`  last: "${lastAction}"`);
 
-  // Save warning at >= 8 deltas
-  if (deltas >= 8) {
-    console.log(`  ⚡ ${deltas} state deltas since last save — intermediate /mxSave recommended`);
+  // Save warning, same bands as the skill's save-signal line (10 tip, 15 compact)
+  if (deltas >= 15) {
+    console.log(`  ⚡ ${deltas} deltas since save - /mxSave + /compact cycle recommended`);
+  } else if (deltas >= 10) {
+    console.log(`  ⚡ ${deltas} deltas since save - consider /mxSave soon`);
   }
 
   // Stack depth warning at > 3 parked

@@ -8,92 +8,56 @@ argument-hint: "start <type> | track <note> | park [reason] | resume [id] | stat
 
 # /mxOrchestrate — Persistent Session Orchestrator (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
-> **Context ⚡ (split by mode weight):** HEAVY modes (`init`, `resume` **with a non-empty stack**, `status`, `suggest` — briefing, reconciliation, multi-doc enrichment) → subagent (Agent-Tool, `model` per Model Tiering). MINI modes (`start`, `track`, `park`, `resume` **with an empty stack**, Auto-Invoke step-updates, Workflow Completion — 1-3 MCP calls + 1 state edit) → **Main-inline, NO spawn**: a spawn re-reads SKILL.md + references + the full state file (~70-100k subagent tokens measured live 2026-07-10) for 2-3 calls; the same calls inline cost ~2k. Context-hygiene argument does not apply at that size. Subagent result: max 20 lines.
-> **⚡ Init Pre-Routing runs in Main, NEVER inside a HEAVY subagent:** the session-ensure + `context_cleared_at`/`context_cleared_source` clear (Init step 3) is a reliability-critical 1-field state edit. A HEAVY subagent that owns it can silently drop it and still report success (observed live 2026-07-14: the flag survived a resume → re-briefing fires on every later call). Main runs Init (ping / `mx_session_start` + flag-clear + **verify the clear landed in the file**), THEN dispatches only enrichment/reconciliation to the subagent, passing `session_id` + the cleared state.
-> **⚡ Empty-stack resume = MINI (Main-inline, NO spawn):** `workflow_stack == []` has no WF to reconcile — Mode 5 collapses to `mx_detail(last_save_session_note_doc_id)` + one `mx_search` + a resume event (2-3 calls). A HEAVY subagent for that cost ~142k tokens live 2026-07-14 to return 20 lines. Only stack-pop / ID resume (real reconciliation) stays HEAVY.
-> **Tokens ⚡:** mx_create_doc/mx_update_doc body >300 words → assemble in subagent, !echo to parent. mx_detail server default = 600 tokens.
+Central session manager: workflow stack (LIFO), ad-hoc tasks, team agents. Skills **auto-execute fully**; ?user only for **optional steps**. Fires on `/mxOrchestrate <mode>`, natural phrasing ("park this", "resume my workflow", "what's my workflow status", "start a new feature/bugfix", "track this as ad-hoc", "spawn a team agent for X") and hooks (SessionStart, UserPromptSubmit; PreCompact/PostCompact DORMANT → `references/hooks.md`).
 
-Central session manager. Manages workflow stack, ad-hoc tasks, team agents.
-Skills **auto-execute fully**. Only ask user for **optional steps**.
-
-## Trigger phrases
-
-This skill fires on:
-- `/mxOrchestrate start <type>`, `/mxOrchestrate track <note>`, `/mxOrchestrate park`, `/mxOrchestrate resume [id]`, `/mxOrchestrate status`, `/mxOrchestrate suggest`
-- Natural language: "park this", "resume my workflow", "what's my workflow status", "start a new feature/bugfix", "track this as ad-hoc", "spawn a team agent for X"
-- Automatic: SessionStart, UserPromptSubmit (every prompt, 3-line context), [DORMANT] PreCompact/PostCompact (see `references/hooks.md` for reactivation path)
+## Weight routing ⚡ (decide BEFORE doing anything)
+- **MINI = Main-inline, NO spawn:** `start`, `track`, `park`, `resume` **with empty stack**, Auto-Invoke step-updates, Workflow Completion (1-3 MCP calls + 1 state edit). A spawn re-reads SKILL.md + references + full state (~70-142k tokens measured live 2026-07-10/14) for 2-3 calls.
+- **HEAVY = subagent** (`model: sonnet`): `init`, `resume` **with non-empty stack** (real reconciliation), `status`, `suggest`. Result max 20 lines.
+- ⚡ **Init Pre-Routing always runs in Main, NEVER inside a HEAVY subagent** (subagent dropped the flag-clear and reported success, live 2026-07-14). Main does Init, THEN dispatches enrichment/reconciliation, passing `session_id` + cleared state.
+- ⚡ Tokens: mx_create_doc/mx_update_doc body >300 words → assemble in subagent, !echo to parent. mx_detail default 600 tokens.
+- ⚡ Tool budget: 0-2 MCP calls per mode, 1 Edit per state write, NEVER full-rewrite state from Main (full rewrite → background subagent).
+- ⚡ **Timestamps = true UTC** via `date -u +%Y-%m-%dT%H:%MZ` everywhere (event `ts`, WF content, `last_reconciliation`, `since`) — NEVER the chat clock (local-time-with-Z observed live 2026-07-10). Base → `references/state-schema.md` → Timestamp base.
 
 ## Init (Pre-Routing, EVERY call)
-0. ⚡ MCP tools deferred? → load first per `~/.claude/skills/_shared/mcp-tools-load.md` (tool-missing ≠ server-down; `Local` mode only after a real ping/session_start error).
-1. CLAUDE.md parse: if file missing OR no `**Slug:**` line is present → ?user. If `**Slug:**` line is present → use that value as project slug.
-2. Load state: `.claude/orchestrate-state.json`→parse. ∅file or corrupt→mode `init`
-3. **Ensure session:**
-   - ⚡ **Context-reset FACT (primary signal):** `state.context_cleared_at` is set by the SessionStart hook (`orchestrate-reconcile.js`) whenever `source ∈ {startup, clear, compact}` — the three cases where the model has no prior conversation. `source=resume` restores context and does NOT set it. **Field present → context is empty → `mx_session_start` unconditionally**, then delete `context_cleared_at` + `context_cleared_source` in the same state write (the briefing has now happened; leaving it set re-briefs on every later call). ⚡ **Main-owned + verify-after-write:** this clear runs in Main (see Context header), and after the state write Main MUST re-read the field from the file to confirm it is gone — a subagent's report of "cleared" is NOT proof (observed dropped live 2026-07-14, flag survived). Still present → re-issue the Edit, re-verify.
-   - ⚡ **Handoff path (lazy session):** when the SessionStart hook printed `Resume handoff loaded`, that text IS the briefing — no resume ritual, no skill call just to brief. The hook leaves `context_cleared_at` set on purpose: the first real skill call (`start`/`track`/`park`/explicit `resume`) runs this step, opens the MCP session and clears the flag as usual. An explicit user `resume` still runs Mode 5 in full.
-   - **Staleness check (ADR-0016) — FALLBACK ONLY, for installs whose hook predates the fact:** `age = now_utc - max(state.last_save, state.last_reconciliation)` — ⚡ all three in true UTC (`date -u`), see `references/state-schema.md` → Timestamp base; mixing a local `now` with a UTC field (or the reverse) shifts `age` by the UTC offset and can make it negative. Both fields missing → treat as stale. Threshold: **12h**. ⚡ This heuristic answers "is my STATE old", never "is my CONTEXT empty" — a save one minute before `/clear` leaves a fresh state and an empty context, and any same-day restart falls under 12h. Use it only when `context_cleared_at` is absent.
-   - ⚡ **Explicit-trigger fail-OPEN:** input contains `<command-name>` OR `<command-message>` tag OR detection ambiguous → `mx_session_start` regardless of age (slash invocations need fresh briefing in fresh Claude process; live-confirmed tag injection at prompt position 0). Fresh briefing > stale ping.
-   - hook-triggered (no command-tag) AND ∅`context_cleared_at` AND state.session_id present AND mode≠`init` AND age < 12h → mx_ping()→OK=MCP-mode | Error=Local
-   - `context_cleared_at` present OR ∅session_id OR mode=`init` OR age ≥ 12h (STALE) → **Setup version:** `~/.claude/setup-version.json`→parse→`version`. ∅file→`''`
-     → `mx_session_start(project, include_briefing=true, setup_version=<version>)`→session_id (overwrite cached)+Response into state, `state.last_reconciliation ← now_utc` (`date -u +%Y-%m-%dT%H:%MZ`, Timestamp base), clear `context_cleared_at`/`context_cleared_source`
-     → Error=Local(`docs/ops/workflow-log.md`+warning)
-   - ⚡ The hook must NEVER stamp `last_reconciliation` — that field means "reconciled against MCP", and JS hooks cannot reach MCP. Stamping it there resets the very signal the fallback reads.
-3a. Agent messages reach the session through the mxMCPProxy session-inbox delivery (proxy >= 1.0.9); nothing to arm client-side.
-4. **Auto-Detect: Project Setup** (see below)
-5. → Mode routing by argument
-
-## Auto-Detect: Project Setup
-
-Runs in pre-routing after session setup. 0 extra MCP calls — uses `mx_session_start` response + up to 2 Globs. Checks CLAUDE.md presence, MCP project registration, local migration candidates. Full decision tree → `references/auto-detect.md`. ⚡ Only suggests, never auto-executes.
+0. ⚡ MCP tools deferred? → load per `~/.claude/skills/_shared/mcp-tools-load.md` (tool-missing ≠ server-down; `Local` only after a real ping/session_start error).
+1. CLAUDE.md: ∅file OR ∅`**Slug:**` → ?user; else slug = that value.
+2. State `.claude/orchestrate-state.json` → parse. ∅/corrupt → mode `init`.
+3. **Ensure session** (first match wins; rationale + history → `references/init-session.md`):
+   - ⚡ `context_cleared_at` present (hook sets it on startup/clear/compact = context is EMPTY) → `mx_session_start` unconditionally.
+   - ⚡ Input has `<command-name>`/`<command-message>` tag OR detection ambiguous → `mx_session_start` (fail-OPEN).
+   - ∅session_id OR mode=`init` OR age ≥ 12h (`age = now_utc - max(last_save, last_reconciliation)`, all UTC; both missing = stale; FALLBACK only when `context_cleared_at` absent — it measures state age, never context) → `mx_session_start`.
+   - else (hook-triggered, fresh) → `mx_ping()` → OK=MCP | Error=Local.
+   - `mx_session_start(project, include_briefing=true, setup_version=<~/.claude/setup-version.json .version, ∅→''>)` → overwrite session_id + response into state, `last_reconciliation ← now_utc`, delete `context_cleared_at` + `context_cleared_source` in the SAME write. Error → Local (`docs/ops/workflow-log.md` + warning).
+   - ⚡ **Verify-after-write:** re-read the file, flag must be gone; still present → re-Edit + re-verify. A subagent's "cleared" is NOT proof.
+   - ⚡ **Handoff path:** SessionStart printed `Resume handoff loaded` → that text IS the briefing; no skill call just to brief. Flag stays set on purpose until the first real call (`start`/`track`/`park`/explicit `resume`), which clears it here. Explicit user `resume` still runs Mode 5 in full.
+   - ⚡ Hooks NEVER stamp `last_reconciliation` (means "reconciled against MCP"; JS hooks cannot reach MCP).
+3a. Agent messages arrive via mxMCPProxy session-inbox (proxy >= 1.0.9); nothing to arm.
+4. Auto-Detect Project Setup (checks CLAUDE.md presence, MCP project registration, local migration candidates): 0 extra MCP calls (session_start response + ≤2 Globs); only suggests, never executes → `references/auto-detect.md`.
+5. → Mode routing.
 
 ## Modes
 | Argument | Mode |
 |----------|------|
-| `init` | 1: Initialize state from MCP |
-| `start <type>` (`new-feature`, `bugfix`, `decision`, `<custom>`) | 2: Start workflow (stack push) |
+| `init` | 1: Force `mx_session_start` (ignore cached id), load workflows into `workflow_stack`, reset `events_log` |
+| `start <type>` (`new-feature`, `bugfix`, `decision`, `<custom>`) | 2: Start workflow (push) |
 | `track <note>` | 3: Log ad-hoc task |
-| `park [reason]` | 4: Park active WF (stack push-down) |
-| `resume [id]` / `--resume` | 5: Resume WF (stack pop / ID select) |
+| `park [reason]` | 4: Park active WF |
+| `resume [id]` / `--resume` | 5: Resume WF (pop / ID select) |
 | `status` | 6: Full overview |
 | `suggest` | 7: Suggest next step |
 
-## Tool Budget per Mode
-
-⚡ Stay surgical: 0-2 MCP calls per mode, 1 Edit per state write, NEVER full-rewrite state from main ctx.
+State schema v2, stack rules, internal ops → `references/state-schema.md`. `state_deltas`, `last_save_deltas`, `subagent_ran_since_save` are reset/snapshotted ONLY by mxSave (single-writer rule, SSoT). This skill only increments `state_deltas` (step-done) and NEVER writes `last_save_deltas` or clears `subagent_ran_since_save`.
 
 ## Model Tiering ⚡ (Cost Discipline)
+Main on premium (Fable/Opus) → every spawn sets `model` to the cheapest sufficient tier: `haiku` = mechanical (state rewrites, copy/sync, log tails, body assembly, simple greps) | `sonnet` = **DEFAULT** (HEAVY modes, MCP CRUD, checkers standard scope, Explore, standard impl) | inherit = architecture/security/cross-cutting/ambiguous, needs 1-line justification in the spawn. Main already sonnet/haiku → omit `model`. Routing/escalation/interpretation stays in Main; diverged state or code-vs-doc conflict → STOP + ?user regardless of model.
+⚡ **Loop rule:** >5 same-shaped MCP calls (`mx_ai_batch_log`, `mx_add_tags`, `mx_skill_feedback` rounds, tag sweeps, findings triage, AI-batch) NEVER in Main — ONE sonnet/haiku subagent with the full item list, Main gets ≤20-line tally. Full text + measurements → `references/model-tiering.md`.
 
-Main loop on premium model (Fable/Opus) → every subagent spawn (Agent-Tool, team agents, checker runs) sets the `model` param to the cheapest tier that satisfies the task. Match model to task floor, !ceiling:
+## Mode 2: Start
+1. Template: `docs/workflows.md` (project, priority) → `~/.claude/skills/mxOrchestrate/workflows.md`. ∅ → ?user → ad-hoc.
+2. ID `WF-YYYY-MM-DD-NNN`. 3. `mx_create_doc(project, doc_type='workflow_log', title='WF-...: <Title>', content)`.
+4. Push onto stack ([0]=active, previous [0] → parked). ⚡ **Canonical keys:** `id`, `name`, `doc_id`, `doc_revision`, `status`, `current_step`, `total_steps`, `started`, `unsynced` — **NOT `wf_id`/`title`** (hook drops WFs missing `id`).
+5. Save state + event `start`. 6. Output `Workflow "<Name>" started (WF-xxx, doc_id=<id>). Stack: <N> WFs.` 7. Auto-invoke step 1.
 
-| Tier | `model` | Task profile |
-|------|---------|--------------|
-| haiku | `haiku` | mechanical: state-file rewrites, file copy/sync, log tails, doc-body assembly from given content, simple greps |
-| sonnet | `sonnet` | **DEFAULT** for subagents: mxOrchestrate HEAVY modes (init/resume/status/suggest), MCP CRUD flows, mxBugChecker/mxDesignChecker standard scope, Explore/codebase-search, standard implementation steps. MINI modes spawn nothing (see Context header) — the cheapest spawn is no spawn |
-| inherit | omit param | top-tier reasoning genuinely required: architecture decisions, security-critical analysis, cross-cutting refactors, ambiguous specs |
-
-- ⚡ Orchestration *intelligence* (skill routing, escalation judgment, interpreting results) lives in the MAIN loop (premium model) — the /mxOrchestrate subagent executes a fully specified procedure (state CRUD, fixed decision trees), so `sonnet` suffices. Ambiguity safety net: diverged state / code-vs-doc conflict → STOP + ?user regardless of model.
-- Main model ∈ {fable, opus*} → subagent default = `sonnet`. Omitting `model` (inherit=premium) requires 1-line justification in the spawn rationale (written into the Agent-tool prompt or the caller's status text).
-- Main model already sonnet/haiku → omit `model` (inherit, no tiering gain).
-- !premium subagents for mechanical work — token+cost efficiency over convenience.
-- ⚡ **Loop rule (measured 2026-09-11):** the main-loop cost is `turns × context`, and cache reads are 99.9 % of the input — every turn re-pays the whole context (~75k baseline, 150-210k mid-session). A batch of **>5 same-shaped MCP calls** (`mx_ai_batch_log`, `mx_add_tags`, `mx_skill_feedback` verdict rounds, tag sweeps, findings triage, AI-batch runs) therefore NEVER runs in Main: one session ran 53 such turns on the premium model (27 batch_log + 26 add_tags) at ~150k context each. Dispatch the whole loop as ONE `sonnet` (or `haiku` when purely mechanical) subagent with the complete item list in the prompt; Main receives a ≤20-line tally. Tiering fixes the price per token — only fewer premium turns fix the token count.
-
-## State File (.claude/orchestrate-state.json)
-
-Schema v2, stack rules, and internal operations → `references/state-schema.md`. Key invariant: `last_save_deltas` is owned by mxSave Step 4 (SSoT, the single-writer rule). All state writes follow Edit-vs-Write discipline (see Tool Budget table above + Rules section).
-
-## Mode 1: Init
-Forces `mx_session_start` ignoring cached `session_id` (see Init pre-routing step 3); loads workflows from the response into `workflow_stack`; resets `events_log`.
-
-## Mode 2: Start (Create workflow)
-1. Search workflow template: `docs/workflows.md`(project) then `~/.claude/skills/mxOrchestrate/workflows.md`(global). ∅template→?user→ad-hoc
-2. ID: `WF-YYYY-MM-DD-NNN`
-3. `mx_create_doc(project, doc_type='workflow_log', title='WF-...: <Title>', content)`
-4. Push WF object onto stack (becomes [0] = active). Previous [0]→parked (if present). ⚡ Event `ts` = true UTC via `date -u +%Y-%m-%dT%H:%MZ` — NEVER the chat clock (local-time-with-Z observed live 2026-07-10 despite the state-schema rule; inline reminder because spawn prompts skip references)
-   - ⚡ **Canonical keys** (`references/state-schema.md`): `id`, `name`, `doc_id`, `doc_revision`, `status`, `current_step`, `total_steps`, `started`, `unsynced`. **NOT `wf_id` / `title`.** The SessionStart hook normalizes those two, but a workflow missing `id` after normalization is DROPPED from the stack — writers must not rely on the repair.
-5. Save state + log event (type='start')
-6. Output: `Workflow "<Name>" started (WF-xxx, doc_id=<id>). Stack: <N> WFs.`
-7. Auto-invoke first step
-
-**WF Markdown (MCP):**
 ```markdown
 **Template:** <name> | **Started:** YYYY-MM-DD HH:MM | **Status:** active
 
@@ -102,121 +66,55 @@ Forces `mx_session_start` ignoring cached `session_id` (see Init pre-routing ste
 | 1 | <Description> | <Skill> | pending | | |
 ```
 
-## Mode 3: Track (Ad-hoc Task)
-1. Push `{note, created, origin_workflow: stack[0].id, mcp_note_id}` to `adhoc_tasks[]` + `mx_create_doc(doc_type='todo', title=note, content='Origin: <WF-ID>')`. Log event (`type='track_adhoc'`).
-2. Escalation (Claude decides): **note** (default) | **park+start** (Mode 4 + Mode 2) | **spawn** (see `references/team-agents.md`).
-3. Full step list -> `references/adhoc.md`.
+## Mode 3: Track
+Push `{note, created, origin_workflow: stack[0].id, mcp_note_id}` to `adhoc_tasks[]` + `mx_create_doc(doc_type='todo', title=note, content='Origin: <WF-ID>')` + event `track_adhoc`. Escalation (Claude decides): **note** (default) | **park+start** | **spawn** (`references/team-agents.md`). Steps → `references/adhoc.md`.
 
 ## Mode 4: Park
-1. Stack[0].status = 'parked', Stack[0].parked_reason = reason
-2. ⚡ Check stack depth: >3 parked→warning + suggest completing oldest
-3. Log event (type='park')
-4. Save state
-5. Output: `WF "<Name>" parked. Reason: <reason>. Stack: <N> WFs.`
-6. ∅new WF started→invoke suggest mode
+stack[0].status='parked' + `parked_reason`; ⚡ >3 parked → warning + suggest completing oldest; event `park`; save; output `WF "<Name>" parked. Reason: <reason>. Stack: <N> WFs.`; ∅new WF started → Mode 7.
 
 ## Mode 5: Resume
-⚡ **Weight routing (see Context header):** empty-stack resume (`workflow_stack == []`) runs **Main-inline, NO spawn** — step 5's reconciliation is a no-op (nothing to reconcile), leaving only Step 6 enrichment + the resume event (2-3 MCP calls = MINI weight). Stack-pop / ID resume keeps the HEAVY subagent (real WF reconciliation). Init Pre-Routing (session-ensure + flag-clear + verify) already ran in Main before this point either way.
+Empty stack → MINI (steps 5 = no-op); stack-pop / ID → HEAVY subagent. Init already ran in Main.
+1. ∅ID → stack[1] to [0] (LIFO); ID → move that WF to [0]. 2. status='active'. 3. Event `resume`.
+4. ⚡ **Reconciliation** (stack only): `mx_detail` vs local, push/pull whichever is ahead, handle archived; **diverged → STOP + ?user, NEVER silently overwrite**; clamp; **FS-Anchor post-check** on every `pending` step (structured paths → Glob; Grep only on a named symbol); code contradicts doc → STOP + ?user; ∅paths → `unverified against code`. `last_reconciliation ← now_utc`. → `references/reconciliation.md`.
+5. ⚡ **Context-Note Enrichment — MANDATORY, NEVER SKIP, BOTH PATHS** (calls parallel in one message):
+   - stack: `mx_search(project, doc_type='session_note', query='<WF-ID> OR <primary_artifact_IDs> OR <outcome-keywords>', limit=4)` always; hit → `mx_detail(id, max_content_tokens=1500)`; 0 hits valid.
+   - empty stack: `mx_detail(state.last_save_session_note_doc_id)` if set + `mx_search(doc_type='session_note', limit=4)` fallback.
+   - Resume event `detail` MUST contain `context-note=<id>` or `context-note=none`; `wf=<WF-ID>` or `wf=null`.
+   - primary_artifact tagged `unbacked-decision` → scan body with `~/.claude/skills/_shared/decision-marker.md`, keep `{tag_present, marker_count, spec_id}`. Render rules + keyword/limit rationale → `references/resume-enrichment.md`.
+6. Next pending step from reconciled state.
+7. Output: `WF "<Name>" resumed. Progress: <X>/<Y>. Next step: <Description>.` → unbacked-decision warning (if `tag_present AND marker_count > 0`) → 2-3 enrichment bullets → save-signal line (Rules). 8. Auto-invoke next step.
 
-1. **Without ID:** Stack LIFO — bring top parked WF (stack[1]) to [0]
-2. **With ID:** Find WF by ID in stack→move to [0], shift rest down
-3. WF.status = 'active'
-4. Log event (type='resume')
-5. **⚡ Reconciliation (Session-Boundary Sync):** `mx_detail` + compare local vs MCP, push/pull whichever is ahead, handle archived; **diverged → STOP + ask user which version to keep (NEVER silently overwrite)**; clamp; then the **⚡ FS-Anchor Post-Check** — verify any `pending` step against the real filesystem (structured target paths → Glob, Grep only on a named symbol); code contradicts doc → STOP + ?user; ∅ structured paths → mark result `unverified against code`. Set `state.last_reconciliation = now_utc` (`date -u +%Y-%m-%dT%H:%MZ`, Timestamp base). Full decision tree + FS-anchor algorithm → `references/reconciliation.md`.
-6. **⚡ Context-Note Enrichment (the context-note enrichment rule) — MANDATORY, NEVER SKIP, BOTH PATHS:**
-   - Stack-pop path (stack >= 1): `mx_search(project, doc_type='session_note', query='<WF-ID> OR <primary_artifact_IDs> OR <outcome-keywords>', limit=4)` — ALWAYS runs, recency-ordered (`updated_at DESC`). Hit -> `mx_detail(note_id, max_content_tokens=1500)`. 0-hit is valid, NOT a reason to skip. Outcome-keywords + limit rationale → `references/resume-enrichment.md`.
-   - Empty-stack path (stack = []): unconditional `mx_detail(state.last_save_session_note_doc_id)` if set + `mx_search(doc_type='session_note', limit=4)` fallback. Both paths run Step 6.
-   - ⚡ independent enrichment calls (mx_search + mx_detail on last_save_session_note_doc_id / primary_artifact) → parallel in one message !sequential
-   - **Event-log marker (mandatory both paths):** resume event MUST include `context-note=<note_id>` or `context-note=none` in `detail`. Missing = rule violation. `wf=null` for empty-stack path, `wf=<WF-ID>` for stack-pop.
-   - **unbacked-decision tag detect:** after primary_artifact `mx_detail`, inspect tags for `unbacked-decision`; if present, regex-scan body via shared regex (Read `~/.claude/skills/_shared/decision-marker.md`). Store `{tag_present, marker_count, spec_id}` for Step 8 rendering.
-   - Full prose / rationale / unbacked-decision render-rules -> `references/resume-enrichment.md`.
-7. Identify next pending step from reconciled state
-8. Output assembly:
-   - Line 1: `WF "<Name>" resumed. Progress: <X>/<Y>. Next step: <Description>.`
-   - unbacked-decision warning (rendered between Line 1 and bullet-summary when `tag_present AND marker_count > 0`; full render-rules incl. stale-tag guard -> `references/resume-enrichment.md`).
-   - 2-3 bullet summary of any session-note enrichment from step 6.
-   - see Rules: state_deltas band
-9. Auto-invoke next step
-
-**Empty-Stack Resume invariant (the context-note enrichment rule):** `--resume` without active stack still loads the open-items list, AND Step 6 + `events_log` resume-event are STACK-INDEPENDENT and STILL RUN (unconditional `mx_detail` on `last_save_session_note_doc_id` + `mx_search` fallback + `wf=null` resume-event with `context-note=<id|none>`). Full detail -> `references/resume-enrichment.md`.
-
-### Load context (on --resume without stack)
-**MCP:** (Session+Briefing already available from pre-routing)
-1. Open items: `mx_search(project, doc_type='bugreport,feature_request,todo', status='active', include_content=false, limit=30)`
-   - ⚡ NO `note` in this call: machine-written notes (batch-run logs, metric reports) stay `active` forever and filled 19 of 30 rows live (2026-09-17, ~5k tokens of noise that also pushed real items past the limit). Notes that ARE open items carry a tag → parallel second call `mx_search(project, doc_type='note', tag='todo', status='active', include_content=false, limit=10)`
-   - ⚡ NO _global search (_global only for env variables, not for open items)
-   - ⚡ `status='active'` — DO NOT show archived/completed docs
-3. Open plans/specs: `mx_search(project, doc_type='plan,spec', status='active', limit=10)`
-   - Show only title+doc_id, not full content
-4. status.md: "Known open items"→all bullets. "Next steps"→only `- [ ]`
-   - ⚡ Deduplicate against MCP: item in status.md already archived in MCP→remove from display
-5. Result: **Open-items list** (deduplicated, Bug→TODO→Feature→Opt→Other, max 30)
-6. ⚡ FR-aging marker: items older 7d (per `days_since_content_change` from the mx_search row — the updated_at staleness defect; NOT `updated_at`, which any touch incl. access_count-on-read rejuvenates) get suffix `(>7d — re-audit claims before build)` — apply BEFORE the max-30 truncation so low-ranked stale items stay visible; stale FRs frequently describe already-shipped work. Older server without the field → fall back silently (no marker rather than a false-fresh one)
+**Open items (resume without stack):**
+1. `mx_search(project, doc_type='bugreport,feature_request,todo', status='active', include_content=false, limit=30)` ∥ `mx_search(project, doc_type='note', tag='todo', status='active', include_content=false, limit=10)`. ⚡ NO `note` in the first call (machine notes stay active forever, filled 19/30 rows live 2026-09-17). ⚡ NO `_global`. ⚡ `status='active'` only.
+2. `mx_search(project, doc_type='plan,spec', status='active', limit=10)` → title+doc_id only.
+3. status.md "Known open items" all bullets + "Next steps" only `- [ ]`; ⚡ drop items already archived in MCP.
+4. List: dedup, Bug→TODO→Feature→Opt→Other, max 30. ⚡ Aging marker BEFORE truncation: `days_since_content_change` > 7 → suffix `(>7d — re-audit claims before build)` (NOT `updated_at`; field missing → no marker).
 
 ## Mode 6: Status
-Full overview:
-- **Workflow Stack:** ID|Name|Step|Status for each entry
-- **Ad-hoc Tasks:** Note|Origin|Created
-- **Team Agents:** Task|Status|Origin
-- **Events (last 10):** Timestamp|Type|Detail
-- **Active MCP Docs:** `mx_search(project, doc_type='workflow_log,plan,spec', status='active')`→show only open
-- **Recently archived:** `mx_search(project, doc_type='workflow_log,plan,spec', status='archived', limit=5)`→last 5 completed
-- **Open items:** MCP-Notes(status='active') + status.md (deduplicated against MCP)
-- **Save signal:** see Rules: state_deltas band
+Workflow stack (ID|Name|Step|Status), ad-hoc tasks (Note|Origin|Created), team agents (Task|Status|Origin), last 10 events, active MCP docs `mx_search(project, doc_type='workflow_log,plan,spec', status='active')`, recently archived (same, `status='archived', limit=5`), open items (MCP active notes + status.md, dedup), save-signal line.
 
 ## Mode 7: Suggest
-1. Active WF→next step
-2. Parked WFs→suggest oldest
-3. Ad-hoc tasks→prioritized: Bug→TODO→Feature→Next/Later
-4. ∅stack→open-items list + chat heuristic: ADR→/mxPlan | Plan→Impl | Code→/mxDesignChecker | long session→/mxSave
+Active WF → next step; parked → oldest; ad-hoc by Bug→TODO→Feature→Next/Later; ∅stack → open items + heuristic ADR→/mxPlan | Plan→impl | Code→/mxDesignChecker | long session→/mxSave.
 
-## Team Agents (Ad-hoc Escalation: spawn)
+## Team Agents
+`TeamCreate` deferred (`ToolSearch select:TeamCreate`). ⚡ MCP-only access, NEVER `orchestrate-state.json`. → `references/team-agents.md`.
 
-`TeamCreate` is deferred (load via `ToolSearch select:TeamCreate` before first spawn). Isolation: team agents have MCP-only access, never `orchestrate-state.json`. Full spawn flow + return-flow -> `references/team-agents.md`.
+## Auto-Invoke
+- Non-optional → auto-execute, step `done` + state + event. Optional → ?user (`skip` → `skipped`). Conditional → no match → `skipped`.
+- mxDesignChecker/mxBugChecker → Agent-Tool (tiered). Other mx*/superpowers:*/frontend-design → Skill-Tool. Independent steps → parallel.
+- ⚡ **Spawn result-returning agents WITHOUT `name`** — a named agent's answer never arrives as the result (only `idle_notification`, looks like a pass). Lost answer → grep its transcript, do NOT re-run. → `references/agent-spawn.md`.
+- ⚡ **MCP-First Step-Update:** 1. `mx_update_doc(doc_id, content with Step=done+Timestamp+Result, change_reason='Step N→done')` FIRST. 2. derive state from response: `current_step++`, event (synced=true). 3. `state_deltas++`. 4. MCP error → write state + `unsynced=true` on WF + event (synced=false). ⚡ NEVER mark done locally without MCP update or unsynced flag.
 
-## Auto-Invoke (all workflow modes)
-- Non-optional auto-execute -> step `done` + state update + log event. Optional -> ?user (`skip` -> `skipped`). Conditional -> check, no match -> `skipped`.
-- Analysis skills (mxDesignChecker, mxBugChecker) -> Agent-Tool (`model` per Model Tiering ⚡). Other mx*/superpowers:*/frontend-design -> Skill-Tool. Independent steps -> parallel via Agent-Tool.
-- ⚡ **Spawn a result-returning agent WITHOUT `name`.** The `name` param turns the agent into an addressable mailbox teammate: its final text is then NOT delivered as the call's result — the caller only sees an `idle_notification`, which is indistinguishable from a dead agent and reads like a passed check. Measured with everything else held equal (same prompt, model and output): unnamed → full `result` delivered; named → answer sat in the transcript, nothing arrived. A 62-line report came through unnamed, so length is not the factor. Use `name` ONLY when you deliberately want a long-lived agent to talk to, and then fetch its output yourself via `SendMessage` — silence from a named agent means nothing.
-  - Telltale in the spawn response: `Async agent launched … you will be notified when it completes` (result comes back) vs. `Spawned successfully … will receive instructions via mailbox` (it will not).
-  - Suspect a lost answer? Do NOT re-run the agent — grep its transcript: `~/.claude/projects/<project-dir>/<session-id>/subagents/agent-a<name-or-id>*.jsonl`, last `assistant` entry. Re-running costs a full run and loses the evidence.
-- ⚡ **MCP-First Step-Update (the MCP-first step-update spec):**
-  1. `mx_update_doc(doc_id, content with Step=done+Timestamp+Result, change_reason='Step N→done')` → MCP first
-  2. Derive state file from MCP response: current_step++, push event to events_log (synced=true)
-  3. state_deltas++
-  4. **MCP error→** Write state file directly + set `unsynced=true` on WF + event (synced=false)
-  5. ⚡ **NEVER** mark state file as done without MCP update or unsynced flag
-
-## Workflow Completion
-Runs Main-inline (MINI mode — see Context header). All steps done/skipped:
-1. Update content: `**Status:** completed` + `**Completed:** YYYY-MM-DD HH:MM` — ⚡ all timestamps (content + event `ts` + archive `completed`) in true UTC via `date -u`, never the chat clock
-2. ⚡ `mx_update_doc(doc_id, content, status='archived', change_reason='Workflow completed')` — content AND status synchronously in ONE call
-3. Remove WF from stack + log event (synced=true)
-4. **Ad-hoc back-link:** Show all adhoc_tasks with origin_workflow==WF-ID:
-   `N ad-hoc tasks created during <WF-ID>: [list]. Start new workflow?`
-5. Log event (type='completed')
-6. Activate next stack WF if present
-7. Output: Artifacts list + ad-hoc back-link + recommend `/mxSave`
+## Workflow Completion (MINI)
+All steps done/skipped: 1. content `**Status:** completed` + `**Completed:** YYYY-MM-DD HH:MM` (UTC). 2. ⚡ `mx_update_doc(doc_id, content, status='archived', change_reason='Workflow completed')` — content AND status in ONE call. 3. Remove from stack + event. 4. Back-link: `N ad-hoc tasks created during <WF-ID>: [list]. Start new workflow?` (origin_workflow==WF-ID). 5. Event `completed`. 6. Activate next stack WF. 7. Output artifacts + back-link + recommend `/mxSave`.
 
 ## Auto-Tracking
-- **Rule 1 (NO_WORKFLOW + substantive work):** auto-create ad-hoc WF (template `ad-hoc`, title `Ad-hoc: <50char>`). Ignore for questions/smalltalk/mxSave/mxOrchestrate.
-- **Rule 2 (WF active + topic deviation):** small deviation -> auto `track` as ad-hoc task; large deviation (>1 step) -> suggest `park`.
-- **Rule 3 (JUST_COMPLETED + continued work, <5min):** create new ad-hoc WF.
-- ⚡ **Precedence:** Rule 3 wins over Rule 1 (continuation under new ad-hoc WF, not double-tracked). Rule 2 is mutually exclusive with Rules 1+3 (only fires when a WF is already active).
+1. NO_WORKFLOW + substantive work → auto ad-hoc WF (template `ad-hoc`, title `Ad-hoc: <50char>`); ignore questions/smalltalk/mxSave/mxOrchestrate. 2. WF active + small deviation → `track`; >1 step → suggest `park`. 3. JUST_COMPLETED + continued work <5min → new ad-hoc WF. ⚡ Rule 3 beats Rule 1; Rule 2 only when a WF is active.
 
 ## Rules
-- Auto-invoke skills via Skill/Agent-Tool. !manually by user
-- Optional→?user. Non-optional→without confirmation
-- ⚡ Max 5 stack entries. State-deltas>=8→recommend save
-- ⚡ Team agents: MCP access only, never local state file
-- UTF-8 without BOM. Prefer MCP, local=fallback
-- Workflow templates: `docs/workflows.md`(project, priority) then `~/.claude/skills/mxOrchestrate/workflows.md`(global)
-- ⚡ **Token Discipline (state-file):** orchestrate-state.json writes: Edit for incremental changes (1-5 fields), background subagent for full rewrites — keep token cost low in main context
-- ⚡ **Output discipline:** structured timestamps only (`YYYY-MM-DD HH:MM` or `<N>h ago` from `now_utc - event.ts`, both UTC per Timestamp base — ⚡ `events_log` entries predating the UTC rule are local-time-with-`Z` and render `<N>h ago` off by the UTC offset; they are indistinguishable from correct ones, so print the raw `ts` whenever the exact age carries weight); `events_log[*].detail` = factual fragment (doc_ids/WF-IDs/short summaries), **max ~50 words** — the long narrative belongs in the MCP session note, NOT in the state file that every subagent spawn reads in full (300-word details measured as the top token driver 2026-07-10); no relative natural language (`gestern`/`heute`/`vorhin`/`yesterday`/`today`/`earlier`/`just now`); numeric claims (`N open`, `X/Y done`) MUST come from a structured tool call (`mx_detail` / `mx_search` data array length), never prose-snippet inference — prefix `estimated, unverified` if budget forbids verification. Per-finding rationale -> `references/output-discipline-findings.md`.
-- ⚡ **events_log dedupe-guard:** before appending an event, compare with the current LAST entry — identical (type+wf+detail) → skip the append (consecutive-duplicate guard)
-- ⚡ **Decision-Marker shared regex:** Read `~/.claude/skills/_shared/decision-marker.md` for the canonical regex + fence-exclusion algorithm.
-- ⚡ **`state_deltas` band (canonical, the live-counter correction + the single-writer rule (SSoT)):** every Mode 5 (Resume), Mode 6 (Status), and Auto-Invoke step-done output MUST emit a deltas-band line based on `state.state_deltas` (live counter since the last `/mxSave` reset — NOT `state.last_save_deltas`, which is a pre-reset snapshot owned by mxSave Step 4 per the single-writer rule and MUST NOT be written from here). Bands: `== 0` silent; `>= 1 AND < 10` marketing `mxLore knows - /mxSave keeps context alive across /compact + /clear`; `>= 10 AND < 15` tip `<N> deltas since save - consider /mxSave soon`; `>= 15` compact-question `<N> deltas since save - /mxSave + /compact cycle recommended`. mxOrchestrate reads `state_deltas` + `last_save_deltas` (informational); NEVER writes either — mxSave is the sole writer per the single-writer rule.
-- ⚡ **Tracker-gap guard:** Mode 5 (Resume) with `state_deltas == 0` AND MCP available → `mx_session_delta(project, since=state.last_save, limit=50)`; ⚡ **SubagentStop-flag:** `state.subagent_ran_since_save == true` (set by the SubagentStop hook when any subagent ran since the last save) is treated like `deltas >= 1` in Mode 5 AND Mode 6 — never render the silent band while it is set; verify via the same `mx_session_delta` call and mention the flag in the emitted line (`subagent ran since save`). Read-only here: ONLY mxSave Step 4 clears the flag (single-writer rule). `total_changes > 0` → emit `<N> MCP writes since last save (tracker gap — subagent writes bypass the counter) - /mxSave recommended` instead of the silent band. Counter-blind MCP writes must not produce a false "all saved" signal. ⚡ `limit=50`, NOT `1`: `<N>` is printed as a MAGNITUDE. Servers before the `COUNT(*)` fix cap `total_changes` at `limit`, so `limit=1` would always print "1 MCP writes" regardless of the real count.
-  - ⚡ **`since` must be true UTC** (`references/state-schema.md` → Timestamp base). The server reads the `Z` as UTC and converts into DB-local time; a local timestamp labelled `Z` pushes the cutoff `UTC_OFFSET` hours into the future and the guard returns a false `total_changes=0`. `mx_session_delta` echoes the cutoff it actually used — when the echoed `since` disagrees with what was sent, the timestamp base is wrong, not the data.
-  - ⚡ **Never report `0` from a future cutoff.** Before trusting a `0`, compare `state.last_save` against `date -u +%Y-%m-%dT%H:%MZ`. `last_save` in the future → it is mislabelled local time: emit `last_save is not UTC (state file corrupt) - tracker-gap guard cannot verify; /mxSave recommended` instead of the silent band. A broken guard must fail loud, not report "all saved".
-  - ⚡ **Server build >= 128 answers this itself:** `mx_session_delta` returns `server_now_utc` + `server_now_local` and appends a `warnings` entry when the explicit `since` lies in the server's future. A non-empty `warnings` array on that call → render the loud line above, never the silent band — the server has already proven the cutoff wrong. `warnings` absent (server before build 128) or present-and-empty → the local future-check above is the only guard. Prefer `server_now_utc` (also in the `mx_session_start` response) over the chat clock as `now_utc`; the pair's difference is the offset every DB timestamp in the response carries.
+- Auto-invoke via Skill/Agent-Tool, !manually by user. Optional → ?user, non-optional → no confirmation.
+- ⚡ Max 5 stack entries. UTF-8 without BOM. Prefer MCP, local = fallback.
+- ⚡ **Output discipline:** timestamps `YYYY-MM-DD HH:MM` or `<N>h ago` (UTC; pre-UTC-rule events are local-with-Z → print raw `ts` when age matters); `events_log[*].detail` = factual fragment **max ~50 words** (narrative → session note); !relative words (gestern/heute/vorhin/yesterday/today/earlier/just now); numeric claims only from structured tool data, else prefix `estimated, unverified`. → `references/output-discipline-findings.md`.
+- ⚡ **events_log dedupe-guard:** identical (type+wf+detail) to the LAST entry → skip append.
+- ⚡ **Save-signal line** (Mode 5, Mode 6, every Auto-Invoke step-done) from `state.state_deltas` (NOT `last_save_deltas`): `0` silent | `1-9` `mxLore knows - /mxSave keeps context alive across /compact + /clear` | `10-14` `<N> deltas since save - consider /mxSave soon` | `>=15` `<N> deltas since save - /mxSave + /compact cycle recommended`.
+- ⚡ **Tracker-gap guard** (never a false "all saved"): `subagent_ran_since_save == true` counts as deltas >= 1 (Mode 5 + 6; mention `subagent ran since save`). Mode 5 with deltas 0 + MCP → `mx_session_delta(project, since=state.last_save, limit=50)` (limit 50, NOT 1 — N is a magnitude); `total_changes > 0` → `<N> MCP writes since last save (tracker gap - subagent writes bypass the counter) - /mxSave recommended`. `since` must be true UTC; `last_save` in the future OR non-empty `warnings` → `last_save is not UTC (state file corrupt) - tracker-gap guard cannot verify; /mxSave recommended`. Prefer `server_now_utc` as now. Full text → `references/save-signal.md`.

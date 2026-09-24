@@ -52,7 +52,7 @@ Bands:
 
 mxOrchestrate reads `state_deltas` (live counter) and `last_save_deltas`
 (historical snapshot for the previous save cycle, informational only); it
-NEVER writes either field — mxSave is the sole writer of both per the single-writer rule.
+NEVER resets `state_deltas` and NEVER writes `last_save_deltas` — mxSave is the sole resetter/snapshot writer (the step-done `state_deltas++` increment is the only write from here).
 
 ## Finding 4 — Counts-from-tool-calls
 
