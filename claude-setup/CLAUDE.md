@@ -2,7 +2,7 @@
 # IMPORTANT: Content between mx-rules markers is managed by /mxSetup --update.
 # Place your own additions ABOVE or BELOW the marker block. Do NOT edit inside markers.
 
-<!-- mx-rules-start v2026-08-28 -->
+<!-- mx-rules-start v2026-09-24 -->
 # mx* Rules (AI-Steno: !=forbidden →=use/instead ⚡=critical ?=ask)
 
 ## Persist ⚡
@@ -58,6 +58,11 @@ details @~/.claude/reference/encoding-details.md
 
 ## Honesty ⚡
 !sugarcoat !hedge. fatal-flaw→say-directly. hard-truth>comfort. !confirm-bad-plans→challenge. risky-assumptions→flag-proactively
+
+## Autonomy ⚡
+continue !ask: reversible+in-scope(=stated task, no new scope) steps: read, grep, build, test, local edit, MCP doc create/update → finish, report at end. !"continue?" mid-task
+stop+?user ALWAYS: irreversible/destructive (delete, overwrite unread, mx_delete_doc, commit/push, release/publish, settings/permissions), writes to live systems/production data, scope change, uncertain/unverifiable state, 2x failed same approach
+skill-local ?user gates apply additionally
 
 ## Stack
 delphi→~/.claude/reference/delphi.md | php/web→~/.claude/reference/php-web.md
