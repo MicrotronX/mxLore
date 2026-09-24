@@ -483,25 +483,17 @@ begin
       Qry.Free;
     end;
 
-    // B7.3: Warn about stale_candidate and stub_candidate docs
+    // B7.3: Warn about stale_candidate docs (stub_candidate removed, FR#16796)
     Qry := AContext.CreateQuery(
-      'SELECT ' +
-      '  SUM(CASE WHEN status = ''stale_candidate'' THEN 1 ELSE 0 END) AS stale_count, ' +
-      '  SUM(CASE WHEN status = ''stub_candidate'' THEN 1 ELSE 0 END) AS stub_count ' +
-      'FROM documents ' +
-      'WHERE project_id = :proj_id ' +
-      '  AND status IN (''stale_candidate'', ''stub_candidate'')');
+      'SELECT COUNT(*) AS stale_count FROM documents ' +
+      'WHERE project_id = :proj_id AND status = ''stale_candidate''');
     try
       Qry.ParamByName('proj_id').AsInteger := ProjectId;
       Qry.Open;
-      if not Qry.IsEmpty then
-      begin
-        var StaleCount := Qry.FieldByName('stale_count').AsInteger;
-        var StubCount := Qry.FieldByName('stub_count').AsInteger;
-        if (StaleCount > 0) or (StubCount > 0) then
-          WarningsArr.Add(Format('%d stale_candidate docs, %d stub_candidate docs found - review recommended',
-            [StaleCount, StubCount]));
-      end;
+      var StaleCount := Qry.FieldByName('stale_count').AsInteger;
+      if StaleCount > 0 then
+        WarningsArr.Add(Format('%d stale_candidate docs found - review recommended',
+          [StaleCount]));
     finally
       Qry.Free;
     end;

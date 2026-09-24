@@ -1189,6 +1189,39 @@ begin
         finally
           SweepDoneQry.Free;
         end;
+
+        // FR#16796: data cleanup — the removed B7.2 stub job overwrote status
+        // with 'stub_candidate' and never logged the prior value. Restore to
+        // 'active': it is the most frequent non-archived status of EVERY
+        // affected doc_type (count 2026-09-24: lesson 93%, note 87%, todo 89%,
+        // bugreport 56%, FR 52%, plan ~35% vs draft ~27%). Best-effort, not an
+        // exact restore — an over-surfaced item is visible and can be archived,
+        // a hidden one is not. updated_at = updated_at: no rejuvenation.
+        var StubDoneQry := MigCtx.CreateQuery(
+          'SELECT 1 FROM app_settings WHERE setting_key = ''migration.fr16796_stub_restore_done''');
+        try
+          StubDoneQry.Open;
+          if StubDoneQry.IsEmpty then
+          begin
+            var StubQry := MigCtx.CreateQuery(
+              'UPDATE documents SET updated_at = updated_at, status = ''active'' ' +
+              'WHERE status = ''stub_candidate''');
+            try
+              StubQry.ExecSQL;
+              FLogger.Log(mlInfo, Format(
+                'Auto-migrate: FR#16796 - %d stub_candidate doc(s) restored to active (one-shot)',
+                [StubQry.RowsAffected]));
+            finally
+              StubQry.Free;
+            end;
+            var StubMarkQry := MigCtx.CreateQuery(
+              'INSERT INTO app_settings (setting_key, setting_value) ' +
+              'VALUES (''migration.fr16796_stub_restore_done'', ''build 134'')');
+            try StubMarkQry.ExecSQL; finally StubMarkQry.Free; end;
+          end;
+        finally
+          StubDoneQry.Free;
+        end;
       finally
         MigQry.Free;
       end;

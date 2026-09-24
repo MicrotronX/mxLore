@@ -47,7 +47,6 @@ type
     FAISummaryEnabled: Boolean;
     FAITaggingEnabled: Boolean;
     FAIStaleDetectionEnabled: Boolean;
-    FAIStubWarningEnabled: Boolean;
     FAIClaudeExePath: string;
     // Embedding / Semantic Search
     FEmbeddingApiKey: string;
@@ -107,7 +106,6 @@ type
     property AISummaryEnabled: Boolean read FAISummaryEnabled;
     property AITaggingEnabled: Boolean read FAITaggingEnabled;
     property AIStaleDetectionEnabled: Boolean read FAIStaleDetectionEnabled;
-    property AIStubWarningEnabled: Boolean read FAIStubWarningEnabled;
     property AIClaudeExePath: string read FAIClaudeExePath;
     // Embedding / Semantic Search
     property EmbeddingApiKey: string read FEmbeddingApiKey;
@@ -355,7 +353,6 @@ begin
     FAISummaryEnabled := Ini.ReadBool('AI', 'SummaryEnabled', True);
     FAITaggingEnabled := Ini.ReadBool('AI', 'TaggingEnabled', True);
     FAIStaleDetectionEnabled := Ini.ReadBool('AI', 'StaleDetectionEnabled', True);
-    FAIStubWarningEnabled := Ini.ReadBool('AI', 'StubWarningEnabled', True);
     FAIClaudeExePath := Ini.ReadString('AI', 'ClaudeExePath', 'claude');
 
     // Embedding / Semantic Search

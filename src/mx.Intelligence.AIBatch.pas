@@ -18,7 +18,6 @@ type
 
   TMxAIBatchStats = record
     StaleDetected: Integer;
-    StubsWarned: Integer;
     LessonDupes: Integer;
     Contradictions: Integer;
     StalePromoted: Integer;
@@ -51,7 +50,6 @@ type
 
     // SQL-only jobs
     procedure RunStaleDetectionJob;
-    procedure RunStubWarningJob;
     procedure RunRecallTimeoutJob;
     procedure RunViolationCounterJob;
     procedure RunLessonDedupeJob;
@@ -420,66 +418,10 @@ begin
   FStats.StaleDetected := Count;
 end;
 
-{ --- Job: Stub Warning (pure SQL, no AI) --- }
-
-procedure TMxAIBatchRunner.RunStubWarningJob;
-var
-  Ctx: IMxDbContext;
-  Qry, UpdQry: TFDQuery;
-  DocId, ProjectId, TokenEst: Integer;
-  Title: string;
-  Count: Integer;
-begin
-  if not FConfig.AIStubWarningEnabled then Exit;
-  Count := 0;
-
-  Ctx := FPool.AcquireContext;
-  try
-    Qry := Ctx.CreateQuery(
-      'SELECT d.id, d.project_id, d.title, d.token_estimate ' +
-      'FROM documents d ' +
-      'JOIN projects p ON p.id = d.project_id AND p.is_active = TRUE ' +
-      'WHERE d.status NOT IN (''archived'', ''deleted'', ''stale_candidate'', ''stub_candidate'') ' +
-      '  AND d.doc_type NOT IN (''session_note'', ''workflow_log'') ' +
-      '  AND (d.token_estimate < 50 OR d.content IS NULL OR LENGTH(d.content) < 100) ' +
-      'LIMIT 50');
-    try
-      Qry.Open;
-      while not Qry.Eof do
-      begin
-        DocId := Qry.FieldByName('id').AsInteger;
-        ProjectId := Qry.FieldByName('project_id').AsInteger;
-        Title := Qry.FieldByName('title').AsString;
-        TokenEst := Qry.FieldByName('token_estimate').AsInteger;
-
-        // B7.2: Set status to stub_candidate
-        UpdQry := Ctx.CreateQuery(
-          'UPDATE documents SET status = ''stub_candidate'', ' +
-          '  updated_at = NOW() WHERE id = :id');
-        try
-          UpdQry.ParamByName('id').AsInteger := DocId;
-          UpdQry.ExecSQL;
-        finally
-          UpdQry.Free;
-        end;
-
-        LogBatchResult(Ctx, jtStubWarning, DocId, ProjectId, 'status',
-          '', 'stub_candidate', 'success');
-
-        Inc(Count);
-        FLogger.Log(mlDebug, Format('Stub doc marked: %d (%s, %d tokens)',
-          [DocId, Title, TokenEst]));
-        Qry.Next;
-      end;
-    finally
-      Qry.Free;
-    end;
-  finally
-    Ctx := nil;
-  end;
-
-  FStats.StubsWarned := Count;
-end;
+{ Job "Stub Warning" (B7.2) removed — FR#16796. It overwrote the user-owned
+  status with 'stub_candidate' for every doc under 100 chars, without logging
+  the prior value, so short-by-design FR/BR/todo vanished from every
+  status='active' list. jtStubWarning stays in the enum for history rows. }
 
 // C1.3: Set 'no_edit_followed' for recall_log entries still 'shown' after timeout
 procedure TMxAIBatchRunner.RunRecallTimeoutJob;
@@ -1790,9 +1732,6 @@ begin
   try RunStaleDetectionJob except on E: Exception do
   begin FLogger.Log(mlError, 'AI Batch stale detection failed: ' + E.Message);
     Inc(FStats.Errors); end end;
-  try RunStubWarningJob except on E: Exception do
-  begin FLogger.Log(mlError, 'AI Batch stub warning failed: ' + E.Message);
-    Inc(FStats.Errors); end end;
   try RunRecallTimeoutJob;
     LogBatchRun(jtRecallTimeout, 1, 'timeout check');
   except on E: Exception do
@@ -1877,8 +1816,8 @@ begin
     FLogger.Log(mlInfo, 'AI Batch: no pending AI work');
 
   FLogger.Log(mlInfo, Format(
-    'AI Batch: sync done. %d stale, %d stubs, %d dupes, %d contradictions, %d promoted, claude=%s, %d errors',
-    [FStats.StaleDetected, FStats.StubsWarned,
+    'AI Batch: sync done. %d stale, %d dupes, %d contradictions, %d promoted, claude=%s, %d errors',
+    [FStats.StaleDetected,
      FStats.LessonDupes, FStats.Contradictions, FStats.StalePromoted,
      IfThen(FStats.ClaudeExeStarted, 'started', 'skipped'),
      FStats.Errors]));
