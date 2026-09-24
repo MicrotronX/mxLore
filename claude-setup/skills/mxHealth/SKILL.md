@@ -42,7 +42,7 @@ Per-check details (trigger, what is checked, severity, persistence target) →
 | P1  | Document Metadata (DB)         | ERROR/WARNING    |
 | P2  | Format Consistency (sample)    | INFO             |
 | P3  | Cross-Reference Consistency    | ERROR/WARNING    |
-| P4  | Status Consistency (PLAN/ADR)  | WARNING          |
+| P4  | Status Consistency (PLAN/ADR/BR/FR/note) | WARNING |
 | P5  | Workflow Consistency           | WARNING          |
 | P6  | Local/DB Sync                  | WARNING/INFO     |
 | P7  | CLAUDE.md + Reference          | ERROR/WARNING/INFO |

@@ -837,7 +837,8 @@ begin
     // Spec#4427 AC4 (Bug#4378): emit content_length so callers can verify
     // the body actually made it to disk (defends against silent transport-loss
     // or partial-read at a layer below the handler).
-    Result := MxSuccessResponse(Data, 0, Length(Content));
+    Result := MxSuccessResponse(Data, 0, Length(Content),
+      TEncoding.UTF8.GetByteCount(Content));
   except
     Data.Free;
     raise;
@@ -1336,7 +1337,8 @@ begin
     // replace-content. append_content path leaves Content empty so we only
     // emit the field when Content was actually set (Length > 0).
     if Length(Content) > 0 then
-      Result := MxSuccessResponse(Data, 0, Length(Content))
+      Result := MxSuccessResponse(Data, 0, Length(Content),
+        TEncoding.UTF8.GetByteCount(Content))
     else
       Result := MxSuccessResponse(Data);
   except

@@ -35,7 +35,8 @@ type
 
 function MxErrorResponse(const ACode, AMessage: string): TJSONObject;
 function MxSuccessResponse(const AData: TJSONValue;
-  ATokensUsed: Integer = 0; AContentLength: Integer = -1): TJSONObject;
+  ATokensUsed: Integer = 0; AContentLength: Integer = -1;
+  AContentBytes: Integer = -1): TJSONObject;
 function MapDBError(E: EFDDBEngineException): TJSONObject;
 
 // FR#2936/Plan#3266 M3.9 — RFC7807 application/problem+json builder for
@@ -116,7 +117,8 @@ begin
 end;
 
 function MxSuccessResponse(const AData: TJSONValue;
-  ATokensUsed: Integer; AContentLength: Integer): TJSONObject;
+  ATokensUsed: Integer; AContentLength: Integer;
+  AContentBytes: Integer): TJSONObject;
 begin
   Result := TJSONObject.Create;
   Result.AddPair('status', 'ok');
@@ -127,6 +129,10 @@ begin
   // payload made it to disk. -1 sentinel = caller did not supply (default).
   if AContentLength >= 0 then
     Result.AddPair('content_length', TJSONNumber.Create(AContentLength));
+  // BR#14431: content_length counts characters; content_bytes is the UTF-8
+  // byte count, comparable with `wc -c` on the caller's source file.
+  if AContentBytes >= 0 then
+    Result.AddPair('content_bytes', TJSONNumber.Create(AContentBytes));
   Result.AddPair('warnings', TJSONArray.Create);
 end;
 

@@ -54,6 +54,18 @@ entirely from output).
     count.
   - Completed PLANs MUST NOT have any `- [ ]` outside fenced code blocks.
   - Proposed ADRs older than 30 days -> `WARNING`.
+  - **Self-declared done, still active (bugreport/feature_request/note):**
+    one `mx_search(project, doc_type='bugreport,feature_request,note',
+    status='active', include_content=false, limit=50)`. Flag a row when its
+    `title` or `summary_l1` STARTS with one of `GEFIXT`, `UMGESETZT`,
+    `ERLEDIGT`, `Verworfen:`, `DONE`, `CLOSED` (case-insensitive, after
+    leading whitespace/markup). ⚡ Anchor at line start: the same word in
+    mid-text ("(gefixt)" in a still-open bug, "noch nicht GEFIXT") is a false
+    positive. !`GEKLAERT` — it describes the analysis, not the work (measured
+    false positive). Finding lists `doc_id | matched word | title`; the user
+    decides. ⚡ NEVER auto-archive — text heuristic, and mxHealth never
+    corrects on its own. Docs closed without any self-report are out of reach
+    of this check by design.
 - **Severity:** `WARNING`.
 - **Persistence:** Phase 3b note + Phase 4 bugreport.
 
