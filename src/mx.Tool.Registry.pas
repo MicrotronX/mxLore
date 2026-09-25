@@ -542,7 +542,7 @@ begin
     .Param('project', mptString, True, 'Sender project slug')
     .Param('target_project', mptString, True, 'Target project slug')
     .Param('message_type', mptString, True, 'task, info, question, response, status, setup_report')
-    .Param('payload', mptString, True, 'Message payload (JSON string, max 16KB)')
+    .Param('payload', mptString, True, 'Message payload (JSON string, max 16KB). Keep it a POINTER: soft limit ~1000 chars - line 1 = the point, then only file:line/doc-id/msg-id evidence. Longer detail -> mx_create_doc + ref_doc_id; never split into [1/2][2/2]')
     .Param('target_developer_id', mptInteger, False, 'Target developer ID (intra-project direct message; empty = broadcast to all devs)')
     .Param('target_client_key', mptString, False, 'Target INSTANCE: client key name from mx_agent_peers ("client_key_name", e.g. "MAC-M4"). Use when one developer runs several machines/clients in one project and the message is meant for exactly one of them - only that instance sees and can ack it. Empty = every instance of the target developer(s). Ambiguous names are rejected; add target_developer_id to disambiguate')
     .Param('ref_doc_id', mptInteger, False, 'Referenced document ID')

@@ -27,6 +27,8 @@ type
     FAclMode: TAclMode;
     FGlobalRole: TMxPermission;
     FGlobalProjectId: Integer;
+    // FR#16913 — _knowledge: implicit READ for every authenticated developer
+    FKnowledgeProjectId: Integer;
     // project_id -> access_level
     FProjectAccess: TDictionary<Integer, TAccessLevel>;
     FLogger: IMxLogger;
@@ -426,6 +428,13 @@ begin
       FGlobalProjectId := Qry.FieldByName('id').AsInteger
     else
       FGlobalProjectId := 0;
+    Qry.Close;
+    Qry.SQL.Text := 'SELECT id FROM projects WHERE slug = ''_knowledge'' LIMIT 1';
+    Qry.Open;
+    if not Qry.IsEmpty then
+      FKnowledgeProjectId := Qry.FieldByName('id').AsInteger
+    else
+      FKnowledgeProjectId := 0;
   finally
     Qry.Free;
   end;
@@ -535,6 +544,13 @@ begin
 
   // _global project: always accessible for all authenticated developers
   if (FGlobalProjectId > 0) and (AProjectId = FGlobalProjectId) then
+    Exit(True);
+
+  // FR#16913: _knowledge (cross-project component dossiers) is readable for
+  // every authenticated developer without an ACL row. Writes stay ACL-gated
+  // (fall through). Content rule: no customer-specific data in _knowledge.
+  if (FKnowledgeProjectId > 0) and (AProjectId = FKnowledgeProjectId) and
+     IsAtLeast(alReadOnly, ALevel) then
     Exit(True);
 
   // FR#2936/Plan#3266 M3.12 — Degraded-Mode cap: ACL-lookup failed for this

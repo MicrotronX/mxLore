@@ -15,7 +15,7 @@ Sequence:
 
 ## Loop Mode (--loop or /loop context)
 
-**Idempotency:** `mx_session_delta(project, session_id=<state.session_id>, limit=1)` → `total_changes`. ⚡ `limit=1` is CORRECT here: this is a boolean `==0` test, and `total_changes==0` iff zero rows match on every server build. Contrast Step 6, whose `total_changes` the Final Block reads as a MAGNITUDE and which therefore needs `limit=50`. Null session_id → skip check, normal save. **Step 4a always runs** (detects local-only divergence that produces no MCP activity); Step 4b + Step 5 skipped on idempotent branch.
+**Idempotency:** `mx_session_delta(project, session_id=<state.session_id>, limit=1)` → `total_changes`. ⚡ `limit=1` is CORRECT here: this is a boolean `==0` test, and `total_changes==0` iff zero rows match on every server build. Contrast Step 6, whose `total_changes` the Final Block reads as a MAGNITUDE and which therefore needs `limit=50`. Null session_id → skip check, normal save. **Step 4a always runs** (detects local-only divergence that produces no MCP activity); the Step-3 backlog auto-close block also always runs (deadlines pass without any MCP activity); Step 4b + Step 5 skipped on idempotent branch.
 
 **Output decision (after Step 4a counters):**
 

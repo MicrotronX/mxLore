@@ -1,8 +1,8 @@
-# mxHealth — 14 Checks Detail Reference
+# mxHealth — 15 Checks Detail Reference
 
 Canonical per-check details for `/mxHealth` Phase 2. SKILL.md keeps a one-line
 summary table; this file holds the full trigger condition, what is checked,
-ERROR vs WARNING level, and persistence target for each P1-P14 check.
+ERROR vs WARNING level, and persistence target for each P1-P15 check.
 
 All findings of severity `ERROR` or `WARNING` are persisted via
 `mx_create_doc(doc_type='note', tags=["health-finding", "<severity-tag>"])` in
@@ -210,3 +210,22 @@ entirely from output).
   - Error or empty response -> skip (feature not active).
 - **Severity:** `WARNING` (errors) | `INFO` (empty).
 - **Persistence:** Phase 3b note + Phase 4 bugreport for `WARNING` only.
+
+## P15: Backlog Hygiene (DB, read-only)
+
+- **Rules + numbers:** `Read ~/.claude/skills/_shared/backlog-hygiene.md` (SSoT — do not restate deadlines here).
+- **Trigger:** the two searches defined there (tag search + active list), plus
+  one `mx_batch_detail` over the tagged ids to read the marker line.
+- **Checks:**
+  - Tag `fixed-pending-verify` without a parseable marker line -> `WARNING`
+    (will never auto-close).
+  - Tagged items with a valid line -> `INFO` list `doc_id | type | days until auto-close`.
+  - Stale untagged items (per SSoT) -> `WARNING` list
+    `doc_id | type | days_since_content_change | title`, sorted oldest first,
+    max 30 rows. Recommend a code re-audit (subagent, evidence `file:line`
+    per item); the user decides.
+- ⚡ NEVER writes: no archive, no tag, no append. Auto-close runs only in
+  mxSave (single locus). Field `days_since_content_change` missing -> skip the
+  stale part silently.
+- **Loop mode:** counts only (`P15: <S> stale, <T> tagged, <B> broken marker`).
+- **Persistence:** Phase 3b note; Phase 4 bugreport only for broken markers.

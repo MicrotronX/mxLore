@@ -49,11 +49,15 @@ FR/BR are NOT FS-anchor-capable (no checkbox / impl-target — see `~/.claude/sk
 - ⚡ Skip entire block if `!mcp_available` OR `--loop` mode (interactive prompt).
 - Collect `#IDs` this session explicitly discussed as **fixed / shipped / committed / closed / done** — sources: chat decisions of THIS session + the Step-2 status.md/CLAUDE.md edits (both available before Step 3). Do NOT infer from code; only IDs the session actually named.
 - ∅collected IDs → skip silently (do not scan the whole backlog).
-- `mx_batch_detail(doc_ids=[...])` (max 10/call, iterate) → keep only `doc_type ∈ {feature_request, bugreport}` AND `status='active'` (already-archived → drop silently, no re-archive).
-- Bundle up to 4 per `AskUserQuestion`: `<type>#<id>: <title>` + `evidence: <session-reference>` + `(y=archive / n=keep-open)`. NEVER auto-archive without confirm (an ID named in passing may not be truly closed).
-  - `y` → `mx_update_doc(doc_id, status='archived', change_reason='mxSave FR/BR closure-sweep: fixed/shipped this session')`
-  - `n` → no-op (keep open this session).
-- Output: `FR/BR-Closure: <Y> archived (of <C> session-referenced candidates)`. Silent if ∅candidates.
+- `mx_batch_detail(doc_ids=[...])` (max 10/call, iterate) → keep only `doc_type ∈ {feature_request, bugreport, todo}` AND `status='active'` (already-archived → drop silently, no re-archive).
+- Bundle up to 4 per `AskUserQuestion`: `<type>#<id>: <title>` + `evidence: <session-reference>` + options `archive` / `pending-verify` (built, only a test is open) / `keep`. NEVER auto-archive without confirm (an ID named in passing may not be truly closed).
+  - `archive` → `mx_update_doc(doc_id, status='archived', change_reason='mxSave FR/BR closure-sweep: fixed/shipped this session')`
+  - `pending-verify` → set BOTH marker parts per `~/.claude/skills/_shared/backlog-hygiene.md` (tag + dated line), status stays `active`.
+  - `keep` → no-op (keep open this session).
+- Output: `FR/BR-Closure: <Y> archived, <P> pending-verify (of <C> session-referenced candidates)`. Silent if ∅candidates.
+
+**Backlog auto-close + stale count (every run, incl. `--loop`, no prompt):**
+Read `~/.claude/skills/_shared/backlog-hygiene.md` and run its "Auto-close" block verbatim (this step is its single locus), then its stale count (reuse the auto-close tag search ids; one extra `mx_search` for the active list). Skip if `!mcp_available`. Output lines exactly as defined there, silent if 0.
 
 **Extract lesson candidates (Auto-Learn, AnsatzC-compliant):**
 Derive lesson candidates from chat history:

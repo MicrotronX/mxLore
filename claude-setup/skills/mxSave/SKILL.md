@@ -36,5 +36,5 @@ Phased: Main 1,1b,2 → parallel A (3 bg-subagent sonnet + 4a Main) → Main 5 s
 - ⚡ Note sections `Quickstart after /clear`, `Blocked on me`, `Tooling gotchas + verify` never omitted; `status='active'`.
 - ⚡ NO internal reasoning in notes/summary; facts only, confirmed-implemented only.
 - ⚡ Batch-dismiss of findings forbidden; mxSave writes no verdicts.
-- ⚡ Prompts via AskUserQuestion; never auto-archive FR/BR.
+- ⚡ Prompts via AskUserQuestion; never auto-archive FR/BR/TODO — ONE exception: items carrying the complete `fixed-pending-verify` marker past its deadline (Step 3, rules in `~/.claude/skills/_shared/backlog-hygiene.md`).
 - ⚡ `--delta-check` is not a save.

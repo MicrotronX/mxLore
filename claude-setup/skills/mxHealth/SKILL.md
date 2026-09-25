@@ -1,6 +1,6 @@
 ---
 name: mxHealth
-description: Use when the user says "/health", "/mxHealth", "health check", "check knowledge db", "verify consistency", "db health", or otherwise wants to verify Knowledge-DB and docs/ consistency via MCP. Runs 14 consistency checks (document metadata, cross-references, orphaned relations, status consistency, CLAUDE.md weight, local/DB sync, AI-Steno format, skill-evolution metrics, AI-Batch status) and persists findings via Skill Evolution. Loop-capable. ⚡ MCP-required — aborts if Knowledge-DB is unreachable.
+description: Use when the user says "/health", "/mxHealth", "health check", "check knowledge db", "verify consistency", "db health", or otherwise wants to verify Knowledge-DB and docs/ consistency via MCP. Runs 15 consistency checks (document metadata, cross-references, orphaned relations, status consistency, CLAUDE.md weight, local/DB sync, AI-Steno format, skill-evolution metrics, AI-Batch status, backlog hygiene) and persists findings via Skill Evolution. Loop-capable. ⚡ MCP-required — aborts if Knowledge-DB is unreachable.
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash
 ---
 
@@ -18,7 +18,7 @@ This skill fires on:
 - Programmatic: pre-release validation, periodic `/loop` invocation, pre-commit integrity sweep
 
 ## MCP Required
-⚡ mxHealth is MCP-dependent by design. Phases P1-P14 all query the Knowledge-DB. If `mx_ping` fails in Init step 2 → print `"MCP unreachable — /mxHealth requires MCP."` and ABORT. No partial runs, no local-only fallback mode. The caller should retry once MCP is back.
+⚡ mxHealth is MCP-dependent by design. Phases P1-P15 all query the Knowledge-DB. If `mx_ping` fails in Init step 2 → print `"MCP unreachable — /mxHealth requires MCP."` and ABORT. No partial runs, no local-only fallback mode. The caller should retry once MCP is back.
 
 ## Init
 1. CLAUDE.md→`**Slug:**`=project. ∅slug→?user
@@ -32,7 +32,7 @@ Execute in parallel:
 4. Read CLAUDE.md + docs/status.md
 5. Count: DB-Docs total, local reference files, CLAUDE.md line count
 
-## Phase 2: 14 Checks
+## Phase 2: 15 Checks
 
 Per-check details (trigger, what is checked, severity, persistence target) →
 `Read ~/.claude/skills/mxHealth/references/checks.md.`
@@ -53,6 +53,7 @@ Per-check details (trigger, what is checked, severity, persistence target) →
 | P12 | AI-Steno Format Check          | WARNING          |
 | P13 | Skill Evolution Metrics        | WARNING/INFO     |
 | P14 | AI-Batch Status                | WARNING/INFO     |
+| P15 | Backlog Hygiene (read-only)    | WARNING/INFO     |
 
 ERROR vs WARNING is binding: ERROR = invariant violation (must fix); WARNING
 = drift/risk (should fix); INFO = advisory (no persistence).
@@ -112,7 +113,7 @@ P9 findings→removed (B6.5). ∅P9→skip.
 - Bugreport only on ERROR (WARNING→skip in loop)
 - ∅findings→single line: `mxHealth OK — 0 problems`
 
-⚡ **Delta semantics:** each iteration fires P1-P14 fresh; finding is "new" if `context_hash` (`<check>:<document-slug>`) was not persisted via `mx_skill_manage(action='record_finding', ...)` in a prior iteration. Matching hash → suppress output line.
+⚡ **Delta semantics:** each iteration fires P1-P15 fresh; finding is "new" if `context_hash` (`<check>:<document-slug>`) was not persisted via `mx_skill_manage(action='record_finding', ...)` in a prior iteration. Matching hash → suppress output line.
 ⚡ **INFO findings in loop mode:** suppress entirely from output (Phase 4 persists only ERROR+WARNING, so INFOs would re-print every iteration).
 
 ## Rules
