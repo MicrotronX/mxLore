@@ -305,7 +305,7 @@ var App = (function () {
     showPage('detail');
     setActiveNav('developers');
     currentDeveloper = id;
-    location.hash = 'developer/' + id;
+    setHash('developer/' + id);
 
     // Reset tabs
     $$('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
@@ -403,7 +403,7 @@ var App = (function () {
         btn.classList.add('active');
         $('#tab-' + btn.dataset.tab).classList.add('active');
         // Persist tab in hash
-        if (currentDeveloper) location.hash = 'developer/' + currentDeveloper + '/' + btn.dataset.tab;
+        if (currentDeveloper) setHash('developer/' + currentDeveloper + '/' + btn.dataset.tab);
       });
     });
   }
@@ -692,12 +692,12 @@ var App = (function () {
     // Admin-only pages: guard at entry point (hash-direct + nav click both hit here).
     if (page === 'global' || page === 'intelligence' ||
         page === 'developers' || page === 'connect' ||
-        page === 'graph' || page === 'settings') {
+        page === 'graph' || page === 'flow' || page === 'settings') {
       if (requireAdminOrRedirect()) return;
     }
 
     currentPage = page;
-    location.hash = page;
+    setHash(page);
     setActiveNav(page);
 
     if (page === 'developers') {
@@ -714,6 +714,8 @@ var App = (function () {
       loadConnectPage();
     } else if (page === 'graph') {
       GraphPage.loadGraphPage();
+    } else if (page === 'flow') {
+      FlowPage.load();
     }
   }
 
@@ -737,7 +739,7 @@ var App = (function () {
       else panel.setAttribute('hidden', '');
     });
     if (!skipHashUpdate) {
-      location.hash = 'settings' + (tabName !== 'self-update' ? '/' + tabName : '');
+      setHash('settings' + (tabName !== 'self-update' ? '/' + tabName : ''));
     }
     if (tabName === 'runtime') loadRuntimeConfig();
     Icons.render();
@@ -1564,7 +1566,7 @@ var App = (function () {
     // (preserves `project/N/tab` during F5 refresh)
     var curHash = location.hash.replace('#', '');
     if (curHash.indexOf('project/' + id) !== 0) {
-      location.hash = 'project/' + id;
+      setHash('project/' + id);
     }
 
     // Try cache first, then reload from server
@@ -3098,7 +3100,7 @@ var App = (function () {
       else panel.setAttribute('hidden', '');
     });
     if (!skipHashUpdate && currentProjectId) {
-      location.hash = 'project/' + currentProjectId + '/' + tabName;
+      setHash('project/' + currentProjectId + '/' + tabName);
     }
     Icons.render();
     // Lazy load per-tab content
@@ -3328,7 +3330,7 @@ var App = (function () {
       tab = (m && m[1]) || 'content';
     }
     if (['content', 'relations', 'reviews'].indexOf(tab) < 0) tab = 'content';
-    location.hash = 'doc/' + docId + (tab !== 'content' ? '/' + tab : '');
+    setHash('doc/' + docId + (tab !== 'content' ? '/' + tab : ''));
     showPage('doc-detail');
     switchDocTab(tab, true);
     $('#doc-detail-title').textContent = 'Loading…';
@@ -3388,8 +3390,8 @@ var App = (function () {
       else panel.setAttribute('hidden', '');
     });
     if (!skipHashUpdate && _currentDoc) {
-      location.hash = 'doc/' + _currentDoc.id +
-        (tabName !== 'content' ? '/' + tabName : '');
+      setHash('doc/' + _currentDoc.id +
+        (tabName !== 'content' ? '/' + tabName : ''));
     }
     Icons.render();
   }
@@ -3982,6 +3984,29 @@ var App = (function () {
       var isSetupMode = data.developer && data.developer.id === 0;
       var defaultLanding = isSetupMode ? 'developers' : (AclHelper.isAdmin() ? 'global' : 'projects');
       var restoreHash = location.hash.replace('#', '') || defaultLanding;
+      sessionReady = true;
+      routedHash = restoreHash;
+      routeFromHash(restoreHash);
+    } catch (e) {
+      showLogin();
+    }
+  }
+
+  // Browser back/forward: re-route when the hash changes from outside the app.
+  var sessionReady = false;
+  var routedHash = null;
+  function setHash(h) {
+    routedHash = h;
+    if (location.hash.replace('#', '') !== h) location.hash = h;
+  }
+  window.addEventListener('hashchange', function () {
+    var h = location.hash.replace('#', '');
+    if (!sessionReady || h === routedHash) return;
+    routedHash = h;
+    routeFromHash(h || (AclHelper.isAdmin() ? 'global' : 'projects'));
+  });
+
+  function routeFromHash(restoreHash) {
       if (restoreHash.indexOf('developer/') === 0) {
         var devParts = restoreHash.split('/');
         var devId = parseInt(devParts[1]);
@@ -4019,6 +4044,7 @@ var App = (function () {
         navigateTo('graph');
         return;
       }
+      if (restoreHash === 'flow') { navigateTo('flow'); return; }
       // FR#3296 — Settings hash #settings/:tab restore
       if (restoreHash.indexOf('settings') === 0) {
         var setParts = restoreHash.split('/');
@@ -4028,9 +4054,6 @@ var App = (function () {
       }
       if (restoreHash !== 'global' && restoreHash !== 'intelligence' && restoreHash !== 'developers' && restoreHash !== 'projects' && restoreHash !== 'settings' && restoreHash !== 'connect') restoreHash = 'global';
       navigateTo(restoreHash);
-    } catch (e) {
-      showLogin();
-    }
   }
 
   document.addEventListener('DOMContentLoaded', init);
@@ -4057,6 +4080,7 @@ var App = (function () {
     onDocsFilterInput: onDocsFilterInput,
     onDocsIdInput: onDocsIdInput,
     openDoc: openDoc,
+    setHash: setHash,
     switchDocTab: switchDocTab,
     loadDocThread: loadDocThread,
     loadProjectReviews: loadProjectReviews,

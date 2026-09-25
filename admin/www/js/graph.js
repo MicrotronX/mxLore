@@ -227,7 +227,7 @@ var GraphPage = (function () {
     stopPulseLoop();
     if (els.svg) { var sv = d3.select(els.svg); sv.selectAll('*').remove(); sv.on('.zoom', null); }
     hideOverlay();
-    if (location.hash.replace('#', '') !== 'graph') location.hash = 'graph';
+    if (location.hash.replace('#', '') !== 'graph') (window.App && App.setHash ? App.setHash('graph') : (location.hash = 'graph'));
     setUniverseVisible(true);
     if (!window.Universe) return;
     Universe.mount({
@@ -834,7 +834,7 @@ var GraphPage = (function () {
   function syncHash() {
     if (!currentSlug) return;
     var h = 'graph/' + currentSlug;
-    if (location.hash.replace('#', '') !== h) location.hash = h;
+    if (location.hash.replace('#', '') !== h) (window.App && App.setHash ? App.setHash(h) : (location.hash = h));
   }
 
   return {

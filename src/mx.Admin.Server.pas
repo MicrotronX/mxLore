@@ -557,6 +557,10 @@ begin
       mx.Admin.Api.Graph.HandleGetGraph(C, FPool, ASession, FLogger)
     else if (Len = 2) and SameText(ASegments[1], 'universe') then
       mx.Admin.Api.Graph.HandleGetUniverse(C, FPool, ASession, FLogger)
+    else if (Len = 2) and SameText(ASegments[1], 'flow') then
+      mx.Admin.Api.Graph.HandleGetGraphFlow(C, FPool, ASession, FLogger)
+    else if (Len = 3) and SameText(ASegments[1], 'flow') and SameText(ASegments[2], 'detail') then
+      mx.Admin.Api.Graph.HandleGetGraphFlowDetail(C, FPool, ASession, FLogger)
     else
       MxSendError(C, 404, 'not_found');
     Exit;
