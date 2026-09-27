@@ -161,10 +161,11 @@ var
   Warnings: TJSONArray;
   IsSelfTarget, IsAdmin, TargetIsAdmin, TargetHasReadWrite: Boolean;
   SenderHasReadWrite, SenderHasComment: Boolean;
-  AcceptsMessages: Boolean;
+  AcceptsMessages, SenderOwnsBoth: Boolean;
 begin
   Auth := MxGetThreadAuth;
   IsAdmin := AContext.AccessControl.IsAdmin;
+  SenderOwnsBoth := False;
 
   TargetSlug := AParams.GetValue<string>('target_project', '');
   MsgType := AParams.GetValue<string>('message_type', '');
@@ -298,10 +299,15 @@ begin
         raise EMxError.Create('SEND_DENIED',
           'Pure-read access cannot send agent messages. Need at least alComment.');
 
-      // alReadWrite sender -> same-project only
+      // alReadWrite sender -> same-project, or cross-project when the sender
+      // also holds alReadWrite on the target (developer owns both projects).
       if SenderHasReadWrite and (SenderProjectId <> TargetProjectId) then
-        raise EMxError.Create('SEND_DENIED',
-          'alReadWrite senders may only message within their own project. Cross-project requires admin.');
+      begin
+        SenderOwnsBoth := AContext.AccessControl.CheckProject(TargetProjectId, alReadWrite);
+        if not SenderOwnsBoth then
+          raise EMxError.Create('SEND_DENIED',
+            'Cross-project messaging requires alReadWrite on both projects (or admin).');
+      end;
 
       // alComment sender (not read-write, not admin) -> target must be admin
       // OR have alReadWrite on the target project. Cross-project not allowed.
@@ -346,6 +352,7 @@ begin
   if (SenderProjectId <> TargetProjectId) and
      (MsgType <> 'setup_report') and
      (not IsAdmin) and
+     (not SenderOwnsBoth) and
      not HasProjectRelation(AContext, SenderProjectId, TargetProjectId) then
     raise EMxError.Create('NO_RELATION',
       'No project_relation between sender and target project');
@@ -756,6 +763,48 @@ begin
         Qry.ParamByName('pid').AsInteger := ProjectId;
         Qry.ParamByName('pid2').AsInteger := ProjectId;
         Qry.ParamByName('pid3').AsInteger := ProjectId;
+        Qry.Open;
+        while not Qry.Eof do
+        begin
+          AddPeerRow('cross');
+          Qry.Next;
+        end;
+      finally
+        Qry.Free;
+      end;
+
+      // Own projects without relation: mirrors the send rule in HandleAgentSend
+      // (alReadWrite on BOTH projects => cross-project send allowed without a
+      // project_relation), so everything listed here is also sendable.
+      // Related projects are skipped — already listed above.
+      Qry := AContext.CreateQuery(
+        'SELECT p.slug AS project_slug, p.name AS project_name, ' +
+        '  s.id AS session_id, s.started_at, s.last_heartbeat, ' +
+        '  CAST(NULL AS CHAR(50)) AS relation_type, s.files_touched, ' +
+        '  d.name AS developer_name, ck.name AS client_key_name ' +
+        'FROM sessions s ' +
+        'JOIN projects p ON s.project_id = p.id ' +
+        'JOIN developers d ON s.developer_id = d.id ' +
+        'LEFT JOIN client_keys ck ON s.client_key_id = ck.id ' +
+        'JOIN developer_project_access dt ON dt.project_id = s.project_id ' +
+        '  AND dt.developer_id = :did AND dt.access_level = ''read-write'' ' +
+        'JOIN developer_project_access ds ON ds.project_id = :pid ' +
+        '  AND ds.developer_id = :did2 AND ds.access_level = ''read-write'' ' +
+        'WHERE s.ended_at IS NULL ' +
+        '  AND ' + HeartbeatClause + ' ' +
+        '  AND s.project_id <> :pid2 ' +
+        '  AND s.started_at > DATE_SUB(NOW(), INTERVAL 7 DAY) ' +
+        '  AND NOT EXISTS (SELECT 1 FROM project_relations pr ' +
+        '    WHERE (pr.source_project_id = :pid3 AND pr.target_project_id = s.project_id) ' +
+        '       OR (pr.target_project_id = :pid4 AND pr.source_project_id = s.project_id)) ' +
+        'ORDER BY s.started_at DESC');
+      try
+        Qry.ParamByName('did').AsInteger := Auth.DeveloperId;
+        Qry.ParamByName('did2').AsInteger := Auth.DeveloperId;
+        Qry.ParamByName('pid').AsInteger := ProjectId;
+        Qry.ParamByName('pid2').AsInteger := ProjectId;
+        Qry.ParamByName('pid3').AsInteger := ProjectId;
+        Qry.ParamByName('pid4').AsInteger := ProjectId;
         Qry.Open;
         while not Qry.Eof do
         begin
