@@ -7,7 +7,7 @@ import (
 	"syscall"
 )
 
-const proxyVersion = "1.0.10-go"
+const proxyVersion = "1.0.11-go"
 
 func exeDir() string {
 	exe, err := os.Executable()

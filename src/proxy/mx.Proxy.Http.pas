@@ -45,6 +45,11 @@ begin
   FClient := THTTPClient.Create;
   FClient.ConnectionTimeout := FConnectionTimeout;
   FClient.ResponseTimeout := FReadTimeout;
+  // Identity headers never change per process: set once, they ride along on
+  // every Post of this client (initialize, initialized, Forward).
+  if MxProxyDeviceId <> '' then
+    FClient.CustomHeaders['X-Device-Id'] := MxProxyDeviceId;
+  FClient.CustomHeaders['X-Proxy-Version'] := MXPROXY_VERSION;
 end;
 
 destructor TMxProxyHttpClient.Destroy;

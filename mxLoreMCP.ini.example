@@ -36,6 +36,11 @@ MaxConnections=10
 ; This server's own project name in the DB (auto-created on boot)
 SelfSlug=mxLore
 
+; Oldest accepted mxMCPProxy version (e.g. 1.0.11). Empty = no check.
+MinProxyVersion=
+; 1 = reject device mismatch / outdated proxy, 0 = log only
+Enforce=0
+
 [Limits]
 DefaultTokenBudget=2000
 MaxResultRows=50

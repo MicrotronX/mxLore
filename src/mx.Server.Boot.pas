@@ -105,7 +105,10 @@ begin
       Defaults.Add('Host=localhost');
       Defaults.Add('Port=3306');
       Defaults.Add('Database=mxai_knowledge');
-      Defaults.Add('Username=root');
+      Defaults.Add('; Username: dedicated user, never root. Create it once as DB admin:');
+      Defaults.Add(';   CREATE USER ''mxlore''@''localhost'' IDENTIFIED BY ''<pw>'';');
+      Defaults.Add(';   GRANT ALL PRIVILEGES ON mxai_knowledge.* TO ''mxlore''@''localhost'';');
+      Defaults.Add('Username=mxlore');
       Defaults.Add('; Password: plain text (simplest setup)');
       Defaults.Add('Password=');
       Defaults.Add('; PasswordEnc: XOR-obfuscated (optional, run: mxLoreMCP.exe --encrypt "pw")');
@@ -121,6 +124,10 @@ begin
       Defaults.Add('MaxConnections=10');
       Defaults.Add('; SelfSlug: this server''s project name in the DB (auto-created on boot)');
       Defaults.Add('SelfSlug=mxLore');
+      Defaults.Add('; MinProxyVersion: oldest accepted mxMCPProxy (e.g. 1.0.10). Empty = no check.');
+      Defaults.Add('MinProxyVersion=');
+      Defaults.Add('; Enforce: 1 = reject device mismatch / old proxy. 0 = log only.');
+      Defaults.Add('Enforce=0');
       Defaults.Add('');
       Defaults.Add('[Limits]');
       Defaults.Add('DefaultTokenBudget=2000');
@@ -182,8 +189,18 @@ begin
   FLogger := TStructuredLogger.Create(FConfig.LogFile, FConfig.LogLevel,
     not FHost.IsGUIMode);
   FLogger.Log(mlInfo, 'mxLoreMCP v' + MXAI_VERSION + ' starting');
+  // Spec#17110 M1: read + log only, no rejection yet (M2 enforces)
+  if FConfig.MinProxyVersion <> '' then
+    FLogger.Log(mlInfo, '[Auth] MinProxyVersion=' + FConfig.MinProxyVersion +
+      ' Enforce=' + BoolToStr(FConfig.EnforceDeviceBinding, True) + ' (log-only in this build)')
+  else
+    FLogger.Log(mlInfo, '[Auth] MinProxyVersion not set, Enforce=' +
+      BoolToStr(FConfig.EnforceDeviceBinding, True) + ' (log-only in this build)');
 
   // 3. Database: auto-create if missing, then connect pool
+  if SameText(FConfig.DBUsername, 'root') then
+    FLogger.Log(mlWarning, 'DB user is root - use a dedicated user with rights ' +
+      'on ' + FConfig.DBDatabase + ' only (see mxLoreMCP.ini comment)');
   FLogger.Log(mlDebug, 'DB connecting to ' + FConfig.DBHost + ':' +
     IntToStr(FConfig.DBPort) + '/' + FConfig.DBDatabase +
     ' as ' + FConfig.DBUsername +
@@ -210,7 +227,7 @@ begin
   FLogger.Log(mlDebug, 'Database pool initialized');
 
   // 4. Auth manager
-  FAuth := TMxAuthManager.Create(FPool);
+  FAuth := TMxAuthManager.Create(FPool, FLogger);
 
   // 5. Event bus (null implementation for Phase 1)
   FEventBus := TNullEventBus.Create;
@@ -1221,6 +1238,36 @@ begin
           end;
         finally
           StubDoneQry.Free;
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // sql/053: client_keys device binding (Spec#17110, Plan#17121 M1).
+      // key_kind unbound|device|cloud (VARCHAR, ENUM-free per sql/041); cloud is
+      // set by an admin only, never automatically. Sentinel = the LAST column; the
+      // ALTER uses ADD COLUMN IF NOT EXISTS per column, so a partial run
+      // (crash mid-batch) is completed on the next boot.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''client_keys'' ' +
+        '  AND column_name = ''last_seen_proxy_version''');
+      try
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/053 — ADD client_keys device binding columns');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE client_keys ' +
+            'ADD COLUMN IF NOT EXISTS key_kind VARCHAR(16) NOT NULL DEFAULT ''unbound'' AFTER is_active, ' +
+            'ADD COLUMN IF NOT EXISTS device_id VARCHAR(64) DEFAULT NULL AFTER key_kind, ' +
+            'ADD COLUMN IF NOT EXISTS bound_at DATETIME DEFAULT NULL AFTER device_id, ' +
+            'ADD COLUMN IF NOT EXISTS bound_host VARCHAR(255) DEFAULT NULL AFTER bound_at, ' +
+            'ADD COLUMN IF NOT EXISTS last_seen_device_id VARCHAR(64) DEFAULT NULL AFTER bound_host, ' +
+            'ADD COLUMN IF NOT EXISTS last_seen_proxy_version VARCHAR(32) DEFAULT NULL AFTER last_seen_device_id');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/053 done');
         end;
       finally
         MigQry.Free;

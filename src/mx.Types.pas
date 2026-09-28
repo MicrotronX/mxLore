@@ -110,6 +110,12 @@ type
     // Copy of client_keys.expires_at (0 = no expiry set / unlimited key).
     // Populated by ValidateKey in both PBKDF2 and legacy paths.
     ExpiresAt: TDateTime;
+    // Plan#17121 M1 — proxy identity headers (X-Device-Id / X-Proxy-Version),
+    // '' when the client sent none. KeyKind/BoundDeviceId = client_keys row.
+    DeviceId: string;
+    ProxyVersion: string;
+    KeyKind: string;
+    BoundDeviceId: string;
   end;
 
   // FR#2936/Plan#3266 M1.5: Authorize-wrapper input/output records.
@@ -181,7 +187,7 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 136;
+  MXAI_BUILD   = 137;
   // ⚡ This constant, NOT the .dproj VersionInfo, is what the outside world
   //   reads: mx_ping, /api/global, the project bundle, and — decisively —
   //   SelfUpdate's CompareBuild against the newest release tag. Bumping only

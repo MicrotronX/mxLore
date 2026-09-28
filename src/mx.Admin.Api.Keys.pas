@@ -53,7 +53,8 @@ begin
   Ctx := APool.AcquireContext;
   Qry := Ctx.CreateQuery(
     'SELECT id, name, key_prefix, permissions, is_active, created_at, expires_at, ' +
-    'last_used_at, last_used_ip ' +
+    'last_used_at, last_used_ip, key_kind, device_id, bound_at, bound_host, ' +
+    'last_seen_proxy_version ' +
     'FROM client_keys WHERE developer_id = :dev_id ORDER BY COALESCE(last_used_at, ''1970-01-01'') DESC, created_at DESC');
   try
     Qry.ParamByName('dev_id').AsInteger := ADevId;
@@ -82,6 +83,21 @@ begin
         Obj.AddPair('last_used_ip', Qry.FieldByName('last_used_ip').AsString)
       else
         Obj.AddPair('last_used_ip', TJSONNull.Create);
+      // Spec#17110: binding state (sql/053)
+      Obj.AddPair('key_kind', Qry.FieldByName('key_kind').AsString);
+      Obj.AddPair('is_bound', TJSONBool.Create(not Qry.FieldByName('device_id').IsNull));
+      if not Qry.FieldByName('bound_at').IsNull then
+        Obj.AddPair('bound_at', MxDateStr(Qry.FieldByName('bound_at')))
+      else
+        Obj.AddPair('bound_at', TJSONNull.Create);
+      if not Qry.FieldByName('bound_host').IsNull then
+        Obj.AddPair('bound_host', Qry.FieldByName('bound_host').AsString)
+      else
+        Obj.AddPair('bound_host', TJSONNull.Create);
+      if not Qry.FieldByName('last_seen_proxy_version').IsNull then
+        Obj.AddPair('last_seen_proxy_version', Qry.FieldByName('last_seen_proxy_version').AsString)
+      else
+        Obj.AddPair('last_seen_proxy_version', TJSONNull.Create);
       Arr.AddElement(Obj);
       Qry.Next;
     end;
@@ -120,6 +136,10 @@ begin
     Name := Body.GetValue<string>('name', '');
     Permissions := Body.GetValue<string>('permissions', 'read');
     ExpiresAt := Body.GetValue<string>('expires_at', '');
+    // Spec#17110 Req 3: 'cloud' only by explicit admin choice; 'device' never by hand
+    var KeyKind: string := LowerCase(Body.GetValue<string>('key_kind', 'unbound'));
+    if KeyKind <> 'cloud' then
+      KeyKind := 'unbound';
 
     if Name = '' then
     begin
@@ -146,10 +166,11 @@ begin
 
     Ctx := APool.AcquireContext;
     Qry := Ctx.CreateQuery(
-      'INSERT INTO client_keys (developer_id, name, key_hash, key_prefix, permissions, expires_at) ' +
-      'VALUES (:dev_id, :name, :hash, :prefix, :perms, :expires)');
+      'INSERT INTO client_keys (developer_id, name, key_hash, key_prefix, permissions, expires_at, key_kind) ' +
+      'VALUES (:dev_id, :name, :hash, :prefix, :perms, :expires, :kind)');
     try
       Qry.ParamByName('dev_id').AsInteger := ADevId;
+      Qry.ParamByName('kind').AsWideString := KeyKind;
       Qry.ParamByName('name').AsWideString :=Name;
       Qry.ParamByName('hash').AsWideString :=KeyHash;
       Qry.ParamByName('prefix').AsWideString :=Copy(RawKey, 1, 12);
@@ -267,6 +288,57 @@ begin
   end;
 
   try
+    // Spec#17110 Req 3/6/12: PUT /keys/:id {key_kind} — admin sets 'cloud'
+    // (exempt from binding) or 'unbound' (also clears the device binding, so
+    // the next request re-binds). 'device' is never set by hand: only the
+    // atomic first-bind in mx.Auth.pas produces it.
+    var KeyKind: string := Body.GetValue<string>('key_kind', '');
+    if KeyKind <> '' then
+    begin
+      if not SameText(KeyKind, 'cloud') and not SameText(KeyKind, 'unbound') then
+      begin
+        MxSendError(C, 400, 'invalid_key_kind');
+        Exit;
+      end;
+      KeyKind := LowerCase(KeyKind);
+      Ctx := APool.AcquireContext;
+      // Existence check separate: MariaDB RowsAffected counts CHANGED rows,
+      // so re-setting the same kind would otherwise report 404.
+      Qry := Ctx.CreateQuery('SELECT id FROM client_keys WHERE id = :id');
+      try
+        Qry.ParamByName('id').AsInteger := AKeyId;
+        Qry.Open;
+        if Qry.IsEmpty then
+        begin
+          MxSendError(C, 404, 'key_not_found');
+          Exit;
+        end;
+      finally
+        Qry.Free;
+      end;
+      Qry := Ctx.CreateQuery(
+        'UPDATE client_keys SET key_kind = :kind, device_id = NULL, ' +
+        '  bound_at = NULL, bound_host = NULL ' +
+        'WHERE id = :id');
+      try
+        Qry.ParamByName('kind').AsWideString := KeyKind;
+        Qry.ParamByName('id').AsInteger := AKeyId;
+        Qry.ExecSQL;
+      finally
+        Qry.Free;
+      end;
+      ALogger.Log(mlInfo, 'Key kind changed: ID ' + IntToStr(AKeyId) +
+        ' -> ' + KeyKind + ' (device binding cleared)');
+      Json := TJSONObject.Create;
+      try
+        Json.AddPair('ok', TJSONBool.Create(True));
+        MxSendJson(C, 200, Json);
+      finally
+        Json.Free;
+      end;
+      Exit;
+    end;
+
     Permissions := Body.GetValue<string>('permissions', '');
     if (Permissions = '') or
        (not SameText(Permissions, 'read') and
@@ -514,10 +586,16 @@ begin
       Qry.Free;
     end;
 
+    // Spec#17110: rotation replaces the secret, not the device — carry
+    // key_kind + binding over from the (now revoked) old row. Re-binding
+    // would open a first-use window and turn a cloud key into unbound.
     Qry := Ctx.CreateQuery(
       'INSERT INTO client_keys ' +
-      '(developer_id, name, key_hash, key_prefix, permissions, expires_at) ' +
-      'VALUES (:dev_id, :name, :hash, :prefix, :perms, :expires)');
+      '(developer_id, name, key_hash, key_prefix, permissions, expires_at, ' +
+      ' key_kind, device_id, bound_at, bound_host) ' +
+      'SELECT :dev_id, :name, :hash, :prefix, :perms, :expires, ' +
+      '  key_kind, device_id, bound_at, bound_host ' +
+      'FROM client_keys WHERE id = :old_id');
     try
       Qry.ParamByName('dev_id').AsInteger := OwnerDevId;
       Qry.ParamByName('name').AsWideString := OldName;
@@ -525,6 +603,7 @@ begin
       Qry.ParamByName('prefix').AsWideString := Copy(NewRawKey, 1, 12);
       Qry.ParamByName('perms').AsWideString := OldPermissions;
       Qry.ParamByName('expires').AsDateTime := IncDay(Now, DefaultDays);
+      Qry.ParamByName('old_id').AsInteger := AKeyId;
       Qry.ExecSQL;
     finally
       Qry.Free;

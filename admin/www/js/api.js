@@ -98,11 +98,12 @@ const Api = (function () {
     return request('GET', '/developers/' + developerId + '/keys');
   }
 
-  function createKey(developerId, name, permissions, expiresAt) {
+  function createKey(developerId, name, permissions, expiresAt, keyKind) {
     return request('POST', '/developers/' + developerId + '/keys', {
       name: name,
       permissions: permissions,
-      expires_at: expiresAt || null
+      expires_at: expiresAt || null,
+      key_kind: keyKind || 'unbound'
     });
   }
 
@@ -112,6 +113,10 @@ const Api = (function () {
 
   function updateKey(keyId, permissions) {
     return request('PUT', '/keys/' + keyId, { permissions: permissions });
+  }
+
+  function updateKeyKind(keyId, keyKind) {
+    return request('PUT', '/keys/' + keyId, { key_kind: keyKind });
   }
 
   // --- Environments ---
@@ -318,6 +323,7 @@ const Api = (function () {
     createKey: createKey,
     deleteKey: deleteKey,
     updateKey: updateKey,
+    updateKeyKind: updateKeyKind,
     getEnvironments: getEnvironments,
     deleteEnvironment: deleteEnvironment,
     getProjects: getProjects,

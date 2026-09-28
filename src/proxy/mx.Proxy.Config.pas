@@ -11,7 +11,7 @@ const
   // hardcoded literal that had drifted four releases behind, which made the
   // version the server sees useless for exactly the kind of proxy-version
   // diagnosis it is there for. Keep in sync with VerInfo_Keys in the .dproj.
-  MXPROXY_VERSION = '1.0.10';
+  MXPROXY_VERSION = '1.0.11';
 
 type
   TMxProxyConfig = class
@@ -39,7 +39,56 @@ type
     property LogLevel: string read FLogLevel;
   end;
 
+// Stable per-machine device id for the X-Device-Id header (Spec#17110).
+// Stored in the user's LOCALAPPDATA, NOT next to the INI: a copied proxy
+// folder must not carry the device id to another machine. Loaded once, then
+// cached. Empty string when neither reading nor creating it worked — the
+// header is then omitted and the server treats the request like an old proxy.
+function MxProxyDeviceId: string;
+
 implementation
+
+uses
+  Winapi.Windows, mx.Proxy.Log;
+
+var
+  GDeviceId: string;
+  GDeviceIdLoaded: Boolean;
+
+function MxProxyDeviceId: string;
+var
+  Dir, FileName, TmpName: string;
+begin
+  if GDeviceIdLoaded then
+    Exit(GDeviceId);
+  GDeviceIdLoaded := True;
+  try
+    Dir := TPath.Combine(System.SysUtils.GetEnvironmentVariable('LOCALAPPDATA'), 'mxLore');
+    FileName := TPath.Combine(Dir, 'device.id');
+    if not TFile.Exists(FileName) then
+    begin
+      ForceDirectories(Dir);
+      // Write to a temp file and move it into place: the move fails when a
+      // parallel proxy created device.id first, and both then read the winner.
+      TmpName := FileName + '.' + IntToStr(GetCurrentProcessId) + '.tmp';
+      TFile.WriteAllText(TmpName,
+        LowerCase(TGUID.NewGuid.ToString.Trim(['{', '}'])), TEncoding.ASCII);
+      try
+        TFile.Move(TmpName, FileName);
+      except
+        TFile.Delete(TmpName);
+      end;
+    end;
+    GDeviceId := Trim(TFile.ReadAllText(FileName, TEncoding.ASCII));
+  except
+    on E: Exception do
+    begin
+      GDeviceId := '';
+      Log('WARN: device id unavailable: ' + E.Message);
+    end;
+  end;
+  Result := GDeviceId;
+end;
 
 constructor TMxProxyConfig.Create(const AIniPath: string);
 var
@@ -69,6 +118,8 @@ begin
   finally
     Ini.Free;
   end;
+  // Load now, on the main thread, before the poll thread can race the cache.
+  MxProxyDeviceId;
 end;
 
 class procedure TMxProxyConfig.WriteDefaultIni(const APath: string);

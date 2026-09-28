@@ -115,6 +115,7 @@ func (p *Poller) pollOnce(url string) {
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+	setIdentityHeaders(req)
 	resp, err := p.client.Do(req)
 	if err != nil {
 		logMsg("[mxProxy] Agent poll error: " + err.Error())

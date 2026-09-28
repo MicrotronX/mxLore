@@ -90,6 +90,7 @@ func (h *HTTPForwarder) reInitialize() bool {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+h.apiKey)
+	setIdentityHeaders(req)
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set("Mcp-Session-Id", "")
 
@@ -114,6 +115,7 @@ func (h *HTTPForwarder) reInitialize() bool {
 	if err == nil {
 		req2.Header.Set("Content-Type", "application/json")
 		req2.Header.Set("Authorization", "Bearer "+h.apiKey)
+		setIdentityHeaders(req2)
 		if h.sessionID != "" {
 			req2.Header.Set("Mcp-Session-Id", h.sessionID)
 		}
@@ -149,6 +151,7 @@ func (h *HTTPForwarder) Forward(jsonRPCLine string) (responses []string, newSess
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+h.apiKey)
+		setIdentityHeaders(req)
 		req.Header.Set("Accept", "application/json, text/event-stream")
 		if h.sessionID != "" {
 			req.Header.Set("Mcp-Session-Id", h.sessionID)

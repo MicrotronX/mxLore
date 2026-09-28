@@ -34,7 +34,7 @@ uses
   System.SysUtils, System.Classes, System.JSON, System.Generics.Collections,
   System.SyncObjs, System.Net.HttpClient, System.Net.URLClient,
   Winapi.Windows,
-  mx.Proxy.Log;
+  mx.Proxy.Log, mx.Proxy.Config;
 
 type
   TMxAgentPollThread = class(TThread)
@@ -245,6 +245,9 @@ begin
     Http.ConnectionTimeout := 5000;
     Http.ResponseTimeout := 5000;
     Http.CustomHeaders['Authorization'] := 'Bearer ' + FApiKey;
+    if MxProxyDeviceId <> '' then
+      Http.CustomHeaders['X-Device-Id'] := MxProxyDeviceId;
+    Http.CustomHeaders['X-Proxy-Version'] := MXPROXY_VERSION;
     Response := Http.Get(AUrl);
     if Response.StatusCode <> 200 then Exit;
 

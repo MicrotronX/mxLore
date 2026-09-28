@@ -63,6 +63,9 @@ type
     FEmbeddingBatchSize: Integer;
     // Identity
     FSelfSlug: string;
+    // Spec#17110: minimum proxy version + enforcement kill-switch (M1: read+log only)
+    FMinProxyVersion: string;
+    FEnforceDeviceBinding: Boolean;
     // Fetch (mx_fetch tool — Build 85, ADR #2078; Bug#2866 redesign: caller-id whitelist)
     FFetchAllowedCallers: TArray<string>;
   public
@@ -122,6 +125,8 @@ type
     property EmbeddingBatchSize: Integer read FEmbeddingBatchSize;
     // Identity
     property SelfSlug: string read FSelfSlug;
+    property MinProxyVersion: string read FMinProxyVersion;
+    property EnforceDeviceBinding: Boolean read FEnforceDeviceBinding;
     // Fetch (mx_fetch tool — Build 85, ADR #2078; Bug#2866 redesign: caller-id whitelist)
     property FetchAllowedCallers: TArray<string> read FFetchAllowedCallers;
   end;
@@ -315,6 +320,8 @@ begin
     FMaxConnections := Ini.ReadInteger('Server', 'MaxConnections', 10);
     FSetupVersion   := Ini.ReadString('Server', 'SetupVersion', '');
     FSelfSlug       := Ini.ReadString('Server', 'SelfSlug', 'mxLore');
+    FMinProxyVersion := Trim(Ini.ReadString('Server', 'MinProxyVersion', ''));
+    FEnforceDeviceBinding := Ini.ReadBool('Server', 'Enforce', False);
 
     // Limits
     FDefaultTokenBudget   := Ini.ReadInteger('Limits', 'DefaultTokenBudget', 2000);

@@ -24,15 +24,15 @@
         <CfgParent>Base</CfgParent>
         <Base>true</Base>
     </PropertyGroup>
-    <PropertyGroup Condition="'$(Config)'=='Debug' or '$(Cfg_2)'!=''">
-        <Cfg_2>true</Cfg_2>
-        <CfgParent>Base</CfgParent>
-        <Base>true</Base>
-    </PropertyGroup>
     <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Cfg_1)'=='true') or '$(Cfg_1_Win32)'!=''">
         <Cfg_1_Win32>true</Cfg_1_Win32>
         <CfgParent>Cfg_1</CfgParent>
         <Cfg_1>true</Cfg_1>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Debug' or '$(Cfg_2)'!=''">
+        <Cfg_2>true</Cfg_2>
+        <CfgParent>Base</CfgParent>
         <Base>true</Base>
     </PropertyGroup>
     <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Cfg_2)'=='true') or '$(Cfg_2_Win32)'!=''">
@@ -53,9 +53,9 @@
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_MajorVer>1</VerInfo_MajorVer>
         <VerInfo_MinorVer>0</VerInfo_MinorVer>
-        <VerInfo_Release>10</VerInfo_Release>
+        <VerInfo_Release>11</VerInfo_Release>
         <VerInfo_Build>0</VerInfo_Build>
-        <VerInfo_Keys>CompanyName=MicrotronX - Speditionssoftware vom Profi;FileDescription=mxMCPProxy - MCP stdio-to-HTTP Proxy;FileVersion=1.0.10.0;InternalName=mxMCPProxy;LegalCopyright=Copyright 2026 MicrotronX - Speditionssoftware vom Profi;LegalTrademarks=;OriginalFilename=mxMCPProxy.exe;ProductName=mxLore;ProductVersion=1.0.10.0;Comments=MCP Proxy for Claude Code (Win32);CFBundleName=</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX - Speditionssoftware vom Profi;FileDescription=mxMCPProxy - MCP stdio-to-HTTP Proxy;FileVersion=1.0.11.0;InternalName=mxMCPProxy;LegalCopyright=Copyright 2026 MicrotronX - Speditionssoftware vom Profi;LegalTrademarks=;OriginalFilename=mxMCPProxy.exe;ProductName=mxLore;ProductVersion=1.0.11.0;Comments=MCP Proxy for Claude Code (Win32);CFBundleName=</VerInfo_Keys>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;$(DCC_Namespace)</DCC_Namespace>
         <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
         <Icns_MainIcns>$(BDS)\bin\delphi_PROJECTICNS.icns</Icns_MainIcns>
@@ -63,7 +63,7 @@
     <PropertyGroup Condition="'$(Base_Win32)'!=''">
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;$(DCC_Namespace)</DCC_Namespace>
         <BT_BuildType>Debug</BT_BuildType>
-        <VerInfo_Keys>CompanyName=MicrotronX - Speditionssoftware vom Profi;FileDescription=mxMCPProxy - MCP stdio-to-HTTP Proxy;FileVersion=1.0.10.0;InternalName=mxMCPProxy;LegalCopyright=Copyright 2026 MicrotronX - Speditionssoftware vom Profi;LegalTrademarks=;OriginalFilename=mxMCPProxy.exe;ProgramID=com.microtronx.mxMCPProxy;ProductName=mxLore;ProductVersion=1.0.10.0;Comments=MCP Proxy for Claude Code (Win32)</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX - Speditionssoftware vom Profi;FileDescription=mxMCPProxy - MCP stdio-to-HTTP Proxy;FileVersion=1.0.11.0;InternalName=mxMCPProxy;LegalCopyright=Copyright 2026 MicrotronX - Speditionssoftware vom Profi;LegalTrademarks=;OriginalFilename=mxMCPProxy.exe;ProgramID=com.microtronx.mxMCPProxy;ProductName=mxLore;ProductVersion=1.0.11.0;Comments=MCP Proxy for Claude Code (Win32)</VerInfo_Keys>
         <VerInfo_Locale>1033</VerInfo_Locale>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1)'!=''">
@@ -72,6 +72,14 @@
         <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
         <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
     </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
+        <DCC_ExeOutput>..\..\bin</DCC_ExeOutput>
+        <VerInfo_Release>11</VerInfo_Release>
+        <VerInfo_Locale>1033</VerInfo_Locale>
+        <VerInfo_Keys>CompanyName=MicrotronX - Speditionssoftware vom Profi;FileDescription=mxMCPProxy - MCP stdio-to-HTTP Proxy;FileVersion=1.0.11.0;InternalName=mxMCPProxy;LegalCopyright=Copyright 2026 MicrotronX - Speditionssoftware vom Profi;LegalTrademarks=;OriginalFilename=mxMCPProxy.exe;ProgramID=com.microtronx.mxMCPProxy;ProductName=mxLore;ProductVersion=1.0.11.0;Comments=MCP Proxy for Claude Code (Win32)</VerInfo_Keys>
+        <Manifest_File>(Ohne)</Manifest_File>
+        <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
+    </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
         <DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
         <DCC_Optimize>false</DCC_Optimize>
@@ -79,13 +87,10 @@
         <DCC_RangeChecking>true</DCC_RangeChecking>
         <DCC_IntegerOverflowCheck>true</DCC_IntegerOverflowCheck>
     </PropertyGroup>
-    <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
-        <DCC_ExeOutput>..\..\bin</DCC_ExeOutput>
-    </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2_Win32)'!=''">
         <DCC_ExeOutput>..\..\bin\debug</DCC_ExeOutput>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=MicrotronX - Speditionssoftware vom Profi;FileDescription=mxMCPProxy - MCP stdio-to-HTTP Proxy (Debug);FileVersion=1.0.10.0;InternalName=mxMCPProxy;LegalCopyright=Copyright 2026 MicrotronX - Speditionssoftware vom Profi;LegalTrademarks=;OriginalFilename=mxMCPProxy.exe;ProgramID=com.microtronx.mxMCPProxy;ProductName=mxLore;ProductVersion=1.0.10.0;Comments=MCP Proxy for Claude Code (Win32 Debug)</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=MicrotronX - Speditionssoftware vom Profi;FileDescription=mxMCPProxy - MCP stdio-to-HTTP Proxy (Debug);FileVersion=1.0.11.0;InternalName=mxMCPProxy;LegalCopyright=Copyright 2026 MicrotronX - Speditionssoftware vom Profi;LegalTrademarks=;OriginalFilename=mxMCPProxy.exe;ProgramID=com.microtronx.mxMCPProxy;ProductName=mxLore;ProductVersion=1.0.11.0;Comments=MCP Proxy for Claude Code (Win32 Debug)</VerInfo_Keys>
         <Manifest_File>(Ohne)</Manifest_File>
         <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
     </PropertyGroup>

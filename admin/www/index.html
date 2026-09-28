@@ -320,6 +320,7 @@
                 <th>Name</th>
                 <th>Prefix</th>
                 <th>Role</th>
+                <th title="Device binding: unbound / device / cloud">Binding</th>
                 <th>Last access</th>
                 <th>IP</th>
                 <th>Status</th>
@@ -1836,6 +1837,14 @@
         <div class="form-group">
           <label class="form-label" for="new-key-expires">Expiration date</label>
           <input id="new-key-expires" class="form-input" type="date" placeholder="optional">
+          <div id="new-key-expires-hint" class="text-secondary" style="font-size:0.78rem;margin-top:4px"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="new-key-kind">Binding</label>
+          <select id="new-key-kind" class="form-input">
+            <option value="unbound" selected>unbound (binds to the first proxy device)</option>
+            <option value="cloud">cloud (no device binding, e.g. ChatGPT / claude.ai connector)</option>
+          </select>
         </div>
         <!-- Key reveal (one-time) -->
         <div id="key-reveal" class="key-reveal">

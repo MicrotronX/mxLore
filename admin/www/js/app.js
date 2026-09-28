@@ -469,7 +469,7 @@ var App = (function () {
   // --- Keys ---
   async function loadKeys(developerId) {
     var tbody = $('#keys-table-body');
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:16px"><span class="spinner"></span></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:16px"><span class="spinner"></span></td></tr>';
 
     try {
       var data = await Api.getKeys(developerId);
@@ -488,6 +488,16 @@ var App = (function () {
           '<option value="readwrite"' + (k.permissions === 'readwrite' ? ' selected' : '') + '>readwrite</option>' +
           '<option value="admin"' + (k.permissions === 'admin' ? ' selected' : '') + '>admin</option>' +
           '</select>';
+        var kind = k.key_kind || 'unbound';
+        var bindTitle = kind === 'device'
+          ? 'Bound ' + (k.bound_at ? formatDate(k.bound_at) : '') + (k.bound_host ? ' @ ' + k.bound_host : '')
+          : (kind === 'cloud' ? 'No device binding' : 'Binds on first proxy request');
+        if (k.last_seen_proxy_version) bindTitle += ' | Proxy ' + k.last_seen_proxy_version;
+        var kindSelect = '<select class="form-input" title="' + escHtml(bindTitle) + '" style="width:auto;min-width:100px;padding:2px 22px 2px 6px;font-size:0.78rem" onchange="App.changeKeyKind(' + k.id + ',this.value)">' +
+          (kind === 'device' ? '<option value="device" selected>device</option>' : '') +
+          '<option value="unbound"' + (kind === 'unbound' ? ' selected' : '') + '>' + (kind === 'device' ? 'unbound (reset)' : 'unbound') + '</option>' +
+          '<option value="cloud"' + (kind === 'cloud' ? ' selected' : '') + '>cloud</option>' +
+          '</select>';
         var actions = '';
         if (k.is_active)
           actions += '<button class="btn btn--small btn--danger" onclick="App.deactivateKey(' + k.id + ')">Deactivate</button> ';
@@ -496,6 +506,7 @@ var App = (function () {
           '<td class="mono">' + escHtml(k.name) + '</td>' +
           '<td class="mono text-secondary" style="font-size:0.78rem">' + escHtml(k.key_prefix || '\u2014') + '</td>' +
           '<td>' + roleSelect + '</td>' +
+          '<td>' + kindSelect + '</td>' +
           '<td class="text-secondary mono" style="font-size:0.78rem">' + formatDate(k.last_used_at) + '</td>' +
           '<td class="text-secondary mono" style="font-size:0.78rem">' + escHtml(k.last_used_ip || '\u2014') + '</td>' +
           '<td><span class="badge badge--' + statusClass + '">' + (k.is_active ? 'Active' : 'Inactive') + '</span></td>' +
@@ -511,13 +522,26 @@ var App = (function () {
       $('#new-key-name').value = '';
       $('#new-key-permissions').value = 'readwrite';
       $('#new-key-expires').value = '';
+      $('#new-key-kind').value = 'unbound';
+      updateExpiresHint();
       $('#key-reveal').classList.remove('visible');
       var genBtn = $('#btn-generate-key');
       if (genBtn) { genBtn.disabled = false; genBtn.style.display = ''; }
       $('#new-key-name').disabled = false;
       $('#new-key-permissions').disabled = false;
       $('#new-key-expires').disabled = false;
+      $('#new-key-kind').disabled = false;
       $('#new-key-name').focus();
+    });
+
+    $('#new-key-permissions').addEventListener('change', updateExpiresHint);
+    $('#new-key-expires').addEventListener('input', updateExpiresHint);
+    $('#new-key-expires-hint').addEventListener('click', function (e) {
+      if (e.target && e.target.id === 'btn-expires-suggest') {
+        e.preventDefault();
+        $('#new-key-expires').value = defaultExpiryDate();
+        updateExpiresHint();
+      }
     });
 
     $('#new-key-form').addEventListener('submit', async function (e) {
@@ -527,10 +551,11 @@ var App = (function () {
       var name = $('#new-key-name').value.trim();
       var permissions = $('#new-key-permissions').value;
       var expires = $('#new-key-expires').value || null;
+      var keyKind = $('#new-key-kind').value;
       if (!name) return;
 
       try {
-        var data = await Api.createKey(currentDeveloper, name, permissions, expires);
+        var data = await Api.createKey(currentDeveloper, name, permissions, expires, keyKind);
         // Show the key ONE TIME
         $('#key-reveal-value').textContent = data.key;
         $('#key-reveal').classList.add('visible');
@@ -540,6 +565,7 @@ var App = (function () {
         $('#new-key-name').disabled = true;
         $('#new-key-permissions').disabled = true;
         $('#new-key-expires').disabled = true;
+        $('#new-key-kind').disabled = true;
         loadKeys(currentDeveloper);
       } catch (err) {
         showAlert('detail-alert', 'error', 'Key creation failed: ' + err.message);
@@ -554,6 +580,28 @@ var App = (function () {
         setTimeout(function () { $('#btn-copy-key').textContent = 'Copy'; }, 2000);
       });
     });
+  }
+
+  function roleDefaultDays() {
+    var role = $('#new-key-permissions').value;
+    return role === 'admin' ? 180 : (role === 'readwrite' ? 90 : 30);
+  }
+
+  function defaultExpiryDate() {
+    var d = new Date();
+    d.setDate(d.getDate() + roleDefaultDays());
+    return d.toISOString().slice(0, 10);
+  }
+
+  function updateExpiresHint() {
+    var hint = $('#new-key-expires-hint');
+    if (!hint) return;
+    if ($('#new-key-expires').value) {
+      hint.textContent = '';
+      return;
+    }
+    hint.innerHTML = '⚠ No date set: the key expires automatically after ' + roleDefaultDays() +
+      ' days (' + defaultExpiryDate() + '). <a href="#" id="btn-expires-suggest">Use this date</a>';
   }
 
   function deactivateKey(keyId) {
@@ -578,6 +626,17 @@ var App = (function () {
   function changeKeyRole(keyId, newRole) {
     Api.updateKey(keyId, newRole).then(function () {
       showAlert('detail-alert', 'success', 'Rolle geaendert.');
+    }).catch(function (err) {
+      showAlert('detail-alert', 'error', 'Error: ' + err.message);
+      loadKeys(currentDeveloper);
+    });
+  }
+
+  function changeKeyKind(keyId, newKind) {
+    if (newKind === 'device') return;
+    Api.updateKeyKind(keyId, newKind).then(function () {
+      showAlert('detail-alert', 'success', 'Binding updated.');
+      loadKeys(currentDeveloper);
     }).catch(function (err) {
       showAlert('detail-alert', 'error', 'Error: ' + err.message);
       loadKeys(currentDeveloper);
@@ -4095,6 +4154,7 @@ var App = (function () {
     deleteEnvironment: deleteEnvironment,
     hardDeleteKey: hardDeleteKey,
     changeKeyRole: changeKeyRole,
+    changeKeyKind: changeKeyKind,
     loadGlobalPage: loadGlobalPage,
     loadSkillsPage: loadSkillsPage,
     switchSettingsTab: switchSettingsTab,

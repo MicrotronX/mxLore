@@ -170,6 +170,25 @@ begin
   C.Response.Close(Bytes);
 end;
 
+// Plan#17121 M1 — validate the key together with the proxy identity headers,
+// shared by the MCP, inbox and ack endpoints so binding/logging stays in one
+// place (TMxAuthManager.CheckDeviceBinding).
+function ValidateRequestKey(AAuth: TMxAuthManager; const C: THttpServerContext;
+  const AAuthHeader: string): TMxAuthResult;
+var
+  DeviceId, ProxyVersion, Host: string;
+begin
+  DeviceId := '';
+  ProxyVersion := '';
+  Host := '';
+  C.Request.Headers.GetIfExists('X-Device-Id', DeviceId);
+  C.Request.Headers.GetIfExists('X-Proxy-Version', ProxyVersion);
+  C.Request.Headers.GetIfExists('X-Forwarded-For', Host);
+  if Host = '' then
+    Host := C.Request.RemoteIp;
+  Result := AAuth.ValidateKey(AAuthHeader, DeviceId, ProxyVersion, Host);
+end;
+
 // FR#2936/Plan#3266 M3.4b — set X-Key-Expires-In header when the authenticated
 // key has a finite expiry. Value = integer seconds remaining (analogous to
 // HTTP Retry-After). Skipped when ExpiresAt=0 (unlimited key).
@@ -275,7 +294,7 @@ begin
       Exit;
     end;
 
-    AuthResult := FAuth.ValidateKey(AuthHeader);
+    AuthResult := ValidateRequestKey(FAuth, C, AuthHeader);
     if not AuthResult.Valid then
     begin
       // M3.11b forward-proof: pass AuthResult.AuthReason so future-
@@ -407,7 +426,7 @@ begin
     Exit;
   end;
 
-  AuthResult := FAuth.ValidateKey(AuthHeader);
+  AuthResult := ValidateRequestKey(FAuth, C, AuthHeader);
   if not AuthResult.Valid then
   begin
     SendAuthProblem(C, 403, AuthResult.AuthReason,
@@ -574,7 +593,7 @@ begin
     Exit;
   end;
 
-  AuthResult := FAuth.ValidateKey(AuthHeader);
+  AuthResult := ValidateRequestKey(FAuth, C, AuthHeader);
   if not AuthResult.Valid then
   begin
     SendAuthProblem(C, 403, AuthResult.AuthReason,
