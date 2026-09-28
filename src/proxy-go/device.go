@@ -33,7 +33,7 @@ func deviceIDDir() (string, error) {
 	return filepath.Join(d, "mxLore"), nil
 }
 
-func newUUID() (string, error) {
+func newDeviceUUID() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -53,7 +53,7 @@ func loadDeviceID() (string, error) {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return "", err
 		}
-		id, err := newUUID()
+		id, err := newDeviceUUID()
 		if err != nil {
 			return "", err
 		}
