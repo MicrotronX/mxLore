@@ -23,4 +23,4 @@ Mode-agnostic threshold emit consuming `N` (normal: `last_save_deltas` set by St
 | `>=1` | Marketing: `Clear-Cycle: <N> deltas persisted. /clear + manual mx_briefing ready.` | No token-multiplier numbers (state_deltas counts DB events not transcript tokens) |
 | `==0` | silent | |
 
-⚡ PreCompact/PostCompact hooks dormant (prompt-type hooks blocked upstream); `/clear` + manual `mx_briefing` is the active path. Re-activation: `~/.claude/hooks/dormant-pre-post-compact.md`.
+⚡ PreCompact hook (command type) blocks a manual `/compact` with unsaved work once; PostCompact is not installed. After `/compact` or `/clear`, SessionStart re-briefs (resume handoff, else mxOrchestrate resume).

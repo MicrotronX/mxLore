@@ -9,7 +9,7 @@
 chat!=storage →docs/. decisions→/mxDecision plans→/mxPlan specs→/mxSpec session-end→/mxSave
 session-words resume/continue/park/status/suggest (any-language phrasing maps to these)→/mxOrchestrate
 proactive: persist when decision/plan/spec emerges in chat
-PreCompact/PostCompact hooks DORMANT (prompt-type hooks blocked upstream in current Claude Code). Run /mxSave manually BEFORE /compact + mx_briefing manually after. Re-activate backup: ~/.claude/hooks/dormant-pre-post-compact.md. ~15-20 tool calls→proactive /mxSave
+PreCompact hook ACTIVE (command-type): manual /compact with unsaved work is blocked once → /mxSave first; auto-compact is not hooked. After compact SessionStart re-briefs (resume handoff, else mxOrchestrate resume). ~15-20 tool calls→proactive /mxSave
 Cycle (manual): /mxSave→/compact→new session→mx_briefing manually→lean main context, MCP holds detail history
 ⚡ resume-quality = DEFAULT of EVERY /mxSave. save+clear/new-session (any phrasing)→/mxSave FIRST — save+clear = the OCCASION for /clear, !the condition for resume-quality. `--delta-check` flag = check only, !a save. Mechanics=mxSave skill (SSoT), !duplicate here
 last_save_deltas≥15→mxSave aktive Compact-Frage. ≥10→Tipp-Zeile. ≥1→Marketing-Zeile. ==0→silent

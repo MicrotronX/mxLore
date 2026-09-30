@@ -15,6 +15,12 @@ const STATE_FILE = path.join(process.cwd(), '.claude', 'orchestrate-state.json')
 
 try {
   if (!fs.existsSync(STATE_FILE)) process.exit(0);
+  let input = '';
+  try { input = fs.readFileSync(0, 'utf8'); } catch (e) { /* no stdin */ }
+  // Only real Agent-tool subagents carry a non-empty agent_type; compaction fires SubagentStop with agent_type "" (UNDOCUMENTED, observed live — recheck after Claude Code updates).
+  let payload = {};
+  try { payload = JSON.parse(input || '{}'); } catch (e) { /* keep {} */ }
+  if (!payload.agent_id || !payload.agent_type) process.exit(0);
 
   const raw = fs.readFileSync(STATE_FILE, 'utf8');
   let state;

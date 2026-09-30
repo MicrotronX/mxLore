@@ -40,7 +40,7 @@ function readHandoff(state) {
     if (!state.last_save || !state.last_save_session_note_doc_id) return null;
     if (!fs.existsSync(HANDOFF_FILE)) return null;
     if (fs.statSync(HANDOFF_FILE).size > HANDOFF_MAX_BYTES) return null;
-    const text = fs.readFileSync(HANDOFF_FILE, 'utf8').replace(/^﻿/, '');
+    const text = fs.readFileSync(HANDOFF_FILE, 'utf8').replace(/^\uFEFF/, '');
     const nl = text.indexOf('\n');
     if (nl < 0) return null;
     const m = /^<!-- resume-handoff note_id=(\d+) last_save=(\S+) -->\s*$/.exec(text.slice(0, nl));
@@ -184,18 +184,22 @@ try {
   if (handoff) {
     console.log(
       `[mxOrchestrate] Resume handoff loaded (session note #${state.last_save_session_note_doc_id}, ` +
-      `saved ${state.last_save}). This IS the briefing — do NOT invoke the mxOrchestrate resume ritual. ` +
-      `No MCP session is open yet: the first /mxOrchestrate call (start/track) opens it. ` +
+      `saved ${state.last_save}). This IS the briefing — skip the resume ritual UNLESS the user's prompt asks to resume/continue ` +
+      `(any language) — then invoke the mxOrchestrate SKILL (args "resume") FIRST, before any other tool. ` +
+      `Otherwise open the MCP session yourself before any work (registers this agent): ` +
+      `mx_session_start(project=<Slug from CLAUDE.md>, since="${state.last_save}", setup_version=<~/.claude/setup-version.json .version>), ` +
+      `then in .claude/orchestrate-state.json set session_id, set last_reconciliation to now (date -u) and delete context_cleared_at + context_cleared_source (re-read the file to verify). ` +
+      `Docs it reports as changed since the save are newer than this handoff — mention them. ` +
       `Full note on demand via mx_detail.\n` + handoff
     );
-    // The MCP resume would have run the tracker-gap guard; the handoff path cannot
-    // reach MCP, so surface what the state itself knows about work after the save.
+    // Surface what the state itself knows about work after the save. Same path as
+    // above (no second instruction): the since-call already lists the MCP changes.
     const deltas = Number(state.state_deltas) || 0;
     if (deltas > 0 || state.subagent_ran_since_save === true) {
       console.log(
         `[mxOrchestrate] WARNING: work happened after that save (state_deltas=${deltas}` +
         (state.subagent_ran_since_save === true ? ', subagent ran since save' : '') +
-        `) — the handoff is behind. Invoke the mxOrchestrate SKILL (args "resume") for the MCP delta.`
+        `) — the handoff is behind. Tell the user and recommend /mxSave.`
       );
     }
   } else if (contextGone) {

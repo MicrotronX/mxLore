@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// mxOrchestrate UserPromptSubmit Hook — reads local state, outputs 3-line context
-// JS-Gate: only output when workflow_stack is non-empty AND has active WF.
+// mxOrchestrate SessionStart + UserPromptSubmit Hook — reads local state.
+// Active workflow → 3-line context. Empty stack → NO_WORKFLOW / JUST_COMPLETED hint
+// (full text once per session). Resume/continue wording in the prompt → RESUME intent line.
 // Performance target: <50ms. Silent fail on any error.
 
 const fs = require('fs');
@@ -8,7 +9,22 @@ const path = require('path');
 
 const STATE_FILE = path.join(process.cwd(), '.claude', 'orchestrate-state.json');
 
+// Hook payload (stdin JSON): prompt + session_id. Empty/invalid → {}.
+function readPayload() {
+  try { return JSON.parse(fs.readFileSync(0, 'utf8') || '{}'); } catch (e) { return {}; }
+}
+
+// Resume/continue intent in DE/EN. Explicit words only — avoids firing on "weiter unten".
+const RESUME_RE = /^\s*(weiter|continue|fortsetzen|weitermachen)\s*[.!]?\s*$|\b(resume|pick up where|where were we|wo waren wir|mach(en)? (wir )?weiter|keep going)\b/i;
+
 try {
+  const payload = readPayload();
+  const prompt = String(payload.prompt || '');
+  // Harness-injected prompts (task notifications, agent hand-backs) are not user intent.
+  const injected = /<task-notification>|\[SYSTEM NOTIFICATION|<agent-message|<command-name>/i.test(prompt);
+  if (!injected && RESUME_RE.test(prompt) && !/^\s*\/mxOrchestrate/i.test(prompt)) {
+    console.log('[mxOrchestrate] ⚡ RESUME intent — invoke the mxOrchestrate SKILL (args "resume") FIRST, before any other tool; answer the rest of the prompt afterwards.');
+  }
   if (!fs.existsSync(STATE_FILE)) process.exit(0);
 
   const raw = fs.readFileSync(STATE_FILE, 'utf8');
@@ -35,7 +51,18 @@ try {
         process.exit(0);
       }
     }
-    console.log('[mxOrchestrate] \u26a1 NO_WORKFLOW \u2014 If this prompt is substantive work (code/fix/feature/refactor), you MUST run: /mxOrchestrate start ad-hoc "<summary>". For questions/chat/save: ignore.');
+    // Full directive once per Claude session (sidecar file, never the state file \u2014
+    // mxOrchestrate/mxSave own that). Later prompts get a 1-line reminder.
+    const seenFile = path.join(process.cwd(), '.claude', 'orchestrate-hook-seen.json');
+    let seen = {};
+    try { seen = JSON.parse(fs.readFileSync(seenFile, 'utf8')); } catch (e) { /* first run */ }
+    const sid = payload.session_id || '';
+    if (sid && seen.no_workflow_session === sid) {
+      console.log('[mxOrchestrate] NO_WORKFLOW (substantive work \u2192 /mxOrchestrate start ad-hoc first)');
+    } else {
+      console.log('[mxOrchestrate] \u26a1 NO_WORKFLOW \u2014 If this prompt is substantive work (code/fix/feature/refactor), you MUST run: /mxOrchestrate start ad-hoc "<summary>". For questions/chat/save: ignore.');
+      try { fs.writeFileSync(seenFile, JSON.stringify({ no_workflow_session: sid }) + '\n', 'utf8'); } catch (e) { /* ignore */ }
+    }
     process.exit(0);
   }
 

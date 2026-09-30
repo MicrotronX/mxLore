@@ -18,24 +18,13 @@ mxOrchestrate is hook-driven. The hooks live in `~/.claude/hooks/` and are regis
 - **Auto-tracking signals:** see "Auto-Tracking" section in SKILL.md (Rules 1-3).
 - Agent messages: delivered via the mxMCPProxy session-inbox delivery (proxy >= 1.0.9, `CLAUDE_CODE_MESSAGING_SOCKET`) — no client-side hook or watcher involved.
 
-## PreCompact hook — ⚡ DORMANT
+## PreCompact hook — ACTIVE (command type)
 
-- **Status:** NOT installed — prompt-type PreCompact hooks are blocked upstream in Claude Code's harness.
-- **Dormant marker file:** `~/.claude/hooks/dormant-pre-post-compact.md` (contains re-activation instructions if upstream lifts the block).
-- **Manual workaround:** run `/mxSave` manually BEFORE `/compact`, then invoke `mx_briefing` manually in the new context after the compact.
-- **Alternative:** use `/mxSave --delta-check` for the threshold emit without a full save.
-- ⚡ Do NOT install this hook. It will silently fail and mask real compact-cycle bugs.
+- **Script:** `orchestrate-precompact.js` (one registration: matcher `manual`, flag `--manual`).
+- **Manual `/compact`:** with unsaved work (state_deltas > 0 or subagent_ran_since_save) it is blocked once with "run /mxSave first"; a second `/compact` within 2 minutes passes.
+- **Auto compact:** not hooked, never blocked. PreCompact output cannot reach the model or the summary (`systemMessage` is user-only, no `hookSpecificOutput`) — the unsaved-work hint after a compact comes from SessionStart.
+- **Alternative:** `/mxSave --delta-check` for the threshold emit without a full save.
 
-## PostCompact hook — ⚡ ALSO DORMANT
+## PostCompact hook — intentionally not installed
 
-- **Status:** NOT installed. Same upstream block as PreCompact.
-- **Role (if reactivated):** would emit the re-brief-last-save line using `last_save_deltas` from the state file.
-- **Manual workaround:** the mxSave Final Block handles the threshold logic on the next manual `/mxSave` invocation.
-- ⚡ Do NOT install this hook.
-
-## Re-activation procedure (if upstream lifts the block)
-
-1. Read `~/.claude/hooks/dormant-pre-post-compact.md` for the most recent reactivation notes.
-2. Verify with a minimal PreCompact prompt-hook test in a scratch project first.
-3. Only after verification, install in global `~/.claude/settings.json`.
-4. Update this document + the CLAUDE.md global rule block (`mx-rules` marker).
+- PostCompact cannot inject context. Re-briefing after a compact is covered by SessionStart (`source=compact`) via `orchestrate-reconcile.js`.

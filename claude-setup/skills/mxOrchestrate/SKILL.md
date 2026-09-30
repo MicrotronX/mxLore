@@ -29,7 +29,7 @@ Central session manager: workflow stack (LIFO), ad-hoc tasks, team agents. Skill
    - else (hook-triggered, fresh) → `mx_ping()` → OK=MCP | Error=Local.
    - `mx_session_start(project, include_briefing=true, setup_version=<~/.claude/setup-version.json .version, ∅→''>)` → overwrite session_id + response into state, `last_reconciliation ← now_utc`, delete `context_cleared_at` + `context_cleared_source` in the SAME write. Error → Local (`docs/ops/workflow-log.md` + warning).
    - ⚡ **Verify-after-write:** re-read the file, flag must be gone; still present → re-Edit + re-verify. A subagent's "cleared" is NOT proof.
-   - ⚡ **Handoff path:** SessionStart printed `Resume handoff loaded` → that text IS the briefing; no skill call just to brief. Flag stays set on purpose until the first real call (`start`/`track`/`park`/explicit `resume`), which clears it here. Explicit user `resume` still runs Mode 5 in full.
+   - ⚡ **Handoff path:** SessionStart printed `Resume handoff loaded` → that text IS the briefing: Main runs ONLY this step with `since=state.last_save` (opens the session = registers the agent, clears the flag) — no Mode 5 enrichment/open-items. Docs returned as changed = newer than the handoff → mention. Explicit user `resume` still runs Mode 5 in full.
    - ⚡ Hooks NEVER stamp `last_reconciliation` (means "reconciled against MCP"; JS hooks cannot reach MCP).
 3a. Agent messages arrive via mxMCPProxy session-inbox (proxy >= 1.0.9); nothing to arm.
 4. Auto-Detect Project Setup (checks CLAUDE.md presence, MCP project registration, local migration candidates): 0 extra MCP calls (session_start response + ≤2 Globs); only suggests, never executes → `references/auto-detect.md`.

@@ -22,7 +22,7 @@ argument-hint: "<api-key> | --update | --update-rules | --update-proxy | --with-
 
 ## Prerequisites
 - **Required CLI tools:** `curl`, `unzip`, `claude` (Claude Code CLI). Git-Bash on Windows includes curl+unzip.
-- **Node.js** — Recommended. Required for 8 of 11 hooks (Orchestrate, Recall-Gate, Knowledge-Gate, Recall-Outcome, env-guard). Without Node.js the session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/
+- **Node.js** — Recommended. Required for 11 of 12 hook registrations (Orchestrate, Recall-Gate, Knowledge-Gate, Recall-Outcome, env-guard). Without Node.js the session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/
 
 ## First Installation (with API key)
 
@@ -137,11 +137,11 @@ On every `--update` run (and on a fresh install, where it is a no-op): for each 
 node --version 2>/dev/null
 ```
 If `node` not found: show warning:
-> "Node.js not found. 8 of 11 hooks (Orchestrate, Recall-Gate, Knowledge-Gate, Recall-Outcome, env-guard) will not work without Node.js. Session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/"
-→ Only install Bash hooks, skip JS hooks (PreCompact/PostCompact prompts are DORMANT — see pointer below).
+> "Node.js not found. 11 of 12 hook registrations (Orchestrate, Recall-Gate, Knowledge-Gate, Recall-Outcome, env-guard) will not work without Node.js. Session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/"
+→ Only install Bash hooks, skip JS hooks (including PreCompact, see below).
 
 Hooks table (Event → hooks → Requires) — see `references/hooks-table.md` for details.
-⚡ Load-bearing: without Node.js, 8 of 11 hooks degrade (see references file).
+⚡ Load-bearing: without Node.js, 11 of 12 hook registrations degrade (see references file).
 
 **5b-StatusLine** — Add `statusLine` block at top level of settings.json (NOT inside `hooks`):
 ```json
@@ -152,7 +152,13 @@ Hooks table (Event → hooks → Requires) — see `references/hooks-table.md` f
 ```
 Shows: `<slug> | <model> | <context%> | <$cost> | <tasks>`. Reads slug from `CLAUDE.md` (`**Slug:**` line, accepts both backticked and plain format). ⚡ Legacy path `~/.claude/statusline-command.sh` (pre-2026-04): delete it and ensure command points to `~/.claude/hooks/statusline-command.sh` — all hooks live under `~/.claude/hooks/` for consistency.
 
-**PreCompact / PostCompact prompts** — **DORMANT, do NOT install.** See `references/dormant-precompact.md` for rationale and re-activation steps. Manual workaround: user calls `/mxSave` before `/compact` and `mx_briefing` after.
+**PreCompact (command hook)** — Install under `hooks.PreCompact` (merge, do not replace; skip an entry whose `command` already exists; idempotent):
+```json
+"PreCompact": [
+  {"matcher":"manual","hooks":[{"type":"command","command":"node ~/.claude/hooks/orchestrate-precompact.js --manual"}]}
+]
+```
+Manual `/compact` with unsaved work is blocked once ("run /mxSave first"); auto compact is not hooked (PreCompact output cannot reach the model: `systemMessage` is user-only, no `hookSpecificOutput`). **PostCompact: do NOT install** (cannot inject context; SessionStart `source=compact` re-briefs). See `references/dormant-precompact.md`.
 
 **5c. CLAUDE.md** — Use `/tmp/mxLore-skills-CLAUDE.md` (saved in Phase 2). Three-branch merge logic (no file / marker present / marker absent) — see `references/claude-md-merge.md` for details. Afterwards: `rm /tmp/mxLore-skills-CLAUDE.md`.
 

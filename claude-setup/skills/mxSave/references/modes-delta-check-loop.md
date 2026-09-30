@@ -5,7 +5,7 @@
 
 ⚡ **Legacy flag:** `--clear-cycle` was the former name. It falsely implied the flag performed the Clear-Cycle *save*; it never did. Accept `--clear-cycle` as a deprecated alias for `--delta-check` and warn once (`--clear-cycle is deprecated, use --delta-check`). Do NOT silently ignore it — a dropped flag looks like a completed check.
 
-⚡ Manual replacement for dormant PreCompact/PostCompact hooks. Skips Steps 1-6 and runs ONLY the Final Block, using **`N = state.state_deltas`** (in-flight, NOT the stale `last_save_deltas` — Step 4 snapshot is skipped in this mode). Flag precedence: `--delta-check` — and its deprecated `--clear-cycle` alias, which resolves to `--delta-check` BEFORE precedence is evaluated — wins over `--loop`.
+⚡ Check only, not a save. Skips Steps 1-6 and runs ONLY the Final Block, using **`N = state.state_deltas`** (in-flight, NOT the stale `last_save_deltas` — Step 4 snapshot is skipped in this mode). Flag precedence: `--delta-check` — and its deprecated `--clear-cycle` alias, which resolves to `--delta-check` BEFORE precedence is evaluated — wins over `--loop`.
 
 Sequence:
 1. Init (read state file only — no MCP roundtrip; loadState contract: corrupt/missing → empty state).
