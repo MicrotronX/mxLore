@@ -1862,11 +1862,12 @@ begin
         Title, Tags, Content, FConfig.EmbeddingMaxInputChars);
 
       Embedding := FEmbeddingClient.GetEmbedding(InputText);
-      // Retry with halved input on failure (likely token limit exceeded)
-      if (Length(Embedding) = 0) and (Length(InputText) > 5000) then
+      // Retry with hard-capped input on failure (token limit exceeded).
+      // Halving is not enough for number-dense content (~2 chars/token).
+      if (Length(Embedding) = 0) and (Length(InputText) > 8000) then
       begin
         InputText := TMxEmbeddingClient.BuildEmbeddingInput(
-          Title, Tags, Content, FConfig.EmbeddingMaxInputChars div 2);
+          Title, Tags, Content, 8000);
         Embedding := FEmbeddingClient.GetEmbedding(InputText);
       end;
       if Length(Embedding) > 0 then
@@ -1895,7 +1896,18 @@ begin
       begin
         Inc(Errors);
         FLogger.Log(mlWarning, Format(
-          'Embedding failed for doc_id=%d (title: %s)', [DocId, Copy(Title, 1, 50)]));
+          'Embedding failed for doc_id=%d (title: %s) - parked (embedding_stale=2)',
+          [DocId, Copy(Title, 1, 50)]));
+        // Park: stale=2 is skipped by the batch query; the update trigger
+        // resets it to 1 on the next title/content change.
+        UpdQry := Ctx.CreateQuery(
+          'UPDATE documents SET embedding_stale = 2 WHERE id = :did');
+        try
+          UpdQry.ParamByName('did').AsInteger := DocId;
+          UpdQry.ExecSQL;
+        finally
+          UpdQry.Free;
+        end;
       end;
 
       Qry.Next;

@@ -79,9 +79,11 @@ begin
 
         if Response.StatusCode <> 200 then
         begin
-          FLogger.Log(mlDebug,
+          FLogger.Log(mlWarning,
             'Embedding API returned ' + IntToStr(Response.StatusCode) +
-            ' (URL: ' + FConfig.EmbeddingUrl + ')');
+            ' (URL: ' + FConfig.EmbeddingUrl + ', input_chars=' +
+            IntToStr(Length(AText)) + '): ' +
+            Copy(Response.ContentAsString(TEncoding.UTF8), 1, 200));
           Exit;
         end;
 
