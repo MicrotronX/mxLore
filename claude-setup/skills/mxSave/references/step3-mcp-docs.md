@@ -55,6 +55,7 @@ FR/BR are NOT FS-anchor-capable (no checkbox / impl-target — see `~/.claude/sk
   - `pending-verify` → set BOTH marker parts per `~/.claude/skills/_shared/backlog-hygiene.md` (tag + dated line), status stays `active`.
   - `keep` → no-op (keep open this session).
 - Output: `FR/BR-Closure: <Y> archived, <P> pending-verify (of <C> session-referenced candidates)`. Silent if ∅candidates.
+- ⚡ **Linked-items net (runs also in `--loop`, no prompt):** plans/specs archived in THIS session (tool returns + Step 3 Stale-Sweep) → run `~/.claude/skills/_shared/backlog-hygiene.md` "Plan/Spec -> FR/BR link" Mark-on-archive rule for each. Skip only if `!mcp_available`. Output as defined there.
 
 **Backlog auto-close + stale count (every run, incl. `--loop`, no prompt):**
 Read `~/.claude/skills/_shared/backlog-hygiene.md` and run its "Auto-close" block verbatim (this step is its single locus), then its stale count (reuse the auto-close tag search ids; one extra `mx_search` for the active list). Skip if `!mcp_available`. Output lines exactly as defined there, silent if 0.

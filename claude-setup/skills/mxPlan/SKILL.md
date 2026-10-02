@@ -58,6 +58,7 @@ Template → `~/.claude/skills/mxPlan/assets/plan-template.md` (8 sections: Goal
 2. For each referenced item → `mx_search(project, doc_type='spec,decision', query='<title>', status='active', limit=3)` to resolve target_id
 3. For each resolved target → `mx_add_relation(source_doc_id=<new plan doc_id>, target_doc_id=<target doc_id>, relation_type='references')` — ⚡ **source_doc_id is ALWAYS the new plan**, target_doc_id is the referenced spec/decision. Never reverse. The server dedupes duplicate edges, so no pre-check required. ⚡ Param names are literally `source_doc_id`/`target_doc_id` (NOT `source`/`target`) — confirmed at `mx.Tool.Write.Meta.pas:365-366`.
 4. Loop until all Related items processed.
+5. ⚡ **Source FR/BR → `implements`:** every `FR#`/`BR#`/`todo#` in the argument or `## Related` → link per `~/.claude/skills/_shared/backlog-hygiene.md` "Plan/Spec -> FR/BR link" (Link rule). Also on the Update path when an FR is newly named as co-implemented. Without this edge the FR never closes.
 
 **Local (Fallback):** ensure `docs/plans/` exists (`mkdir -p docs/plans`); if absent create + initial `index.md`. Write `docs/plans/PLAN-<slug>.md` + append index entry + warning.
 
@@ -93,6 +94,7 @@ Counts:
   - Content: `**Status:** active` → `**Status:** completed`
   - `mx_update_doc(doc_id, content, status='archived', change_reason='All tasks completed')`
   - Output: `Plan #<doc_id> archived — all tasks completed`
+  - ⚡ Then mark the linked FR/BR per `~/.claude/skills/_shared/backlog-hygiene.md` "Plan/Spec -> FR/BR link" (Mark on archive rule).
 - **Mixed (N < M):** ∅change, info only: `<N>/<M> tasks completed`
 - ⚡ Only for clearly completed plans with status=`active`. Doubt → leave open + ?user
 

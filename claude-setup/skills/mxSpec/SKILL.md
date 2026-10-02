@@ -68,6 +68,7 @@ Template → `~/.claude/skills/mxSpec/assets/spec-template.md` (9 sections: Over
 1. Parse the Related section for ALL referenced ADRs + plans. Canonical bracket form: `[ADR-NNNN]`, `[PLAN-slug]`. Reject ambiguous formats like `ADR#12` — warn and skip.
 2. For each → `mx_search(project, doc_type='decision,plan', query='<id-or-slug>', status='active', limit=3)` to resolve target_id.
 3. For each resolved target → `mx_add_relation(source_doc_id=<new spec doc_id>, target_doc_id=<target doc_id>, relation_type='references')`. ⚡ source = new spec, target = ADR/plan; never reverse. Server dedupes.
+   ⚡ **Source FR/BR → `implements`:** every `FR#`/`BR#`/`todo#` in the input, `## Related` or the supersedes-list → link per `~/.claude/skills/_shared/backlog-hygiene.md` "Plan/Spec -> FR/BR link" (Link rule; supersedes FRs get `implements` too). Also on the Update path when an FR is newly named. Without this edge the FR never closes.
 4. Loop until all Related items processed.
 
 **Local (Fallback):** ensure `docs/specs/` exists (`mkdir -p docs/specs`); if `index.md` is absent create it with a minimal header, otherwise APPEND the new entry to the existing index (never overwrite). Write `docs/specs/SPEC-<slug>.md` + warning. ⚡ This fallback violates the ADR-0004 "local docs/ = only CLAUDE.md+status.md" rule — only used when MCP is unavailable; re-sync via `/mxMigrateToDb` once MCP is back.
@@ -118,7 +119,7 @@ Multiple markers → list all in single batched prompt with line refs, accept us
 **AC counting:** Count `- [ ]` / `- [x]` lines under `## Acceptance Criteria`. Skip fenced code blocks. Exclude `~~text~~ (dropped)` lines. M = total live, N = checked. If M == 0: skip transition (output `Spec has no acceptance criteria yet`). Status whitelist: only `active` auto-transitions.
 
 - **Open Questions:** unresolved if line does NOT match case-insensitive `^\s*\[(resolved|done)\]`.
-- **M > 0 AND N == M AND no unresolved Open Questions AND status == `active`** → add `**Status:** implemented`, call `mx_update_doc(doc_id, content, status='archived', change_reason='All AC fulfilled')`, output `Spec #<doc_id> archived — all Acceptance Criteria fulfilled`. ⚡ If any AC is `(dropped)`, warn `Auto-archive skipped — spec has <K> dropped AC. Confirm intent before archiving.` and only archive after user confirmation.
+- **M > 0 AND N == M AND no unresolved Open Questions AND status == `active`** → add `**Status:** implemented`, call `mx_update_doc(doc_id, content, status='archived', change_reason='All AC fulfilled')`, output `Spec #<doc_id> archived — all Acceptance Criteria fulfilled`, then mark the linked FR/BR per `~/.claude/skills/_shared/backlog-hygiene.md` "Plan/Spec -> FR/BR link" (Mark on archive rule; also after a user-confirmed archive). ⚡ If any AC is `(dropped)`, warn `Auto-archive skipped — spec has <K> dropped AC. Confirm intent before archiving.` and only archive after user confirmation.
 - **Mixed (N < M):** info only `<N>/<M> AC fulfilled`. No change.
 - **Open Questions unresolved:** no archive even if AC complete. Note `AC complete but open questions remain`.
 - ⚡ Doubt → leave open + ?user.

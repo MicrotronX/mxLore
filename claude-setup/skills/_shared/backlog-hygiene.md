@@ -34,3 +34,9 @@ Output: `Auto-closed: <N> (fixed-pending-verify >= 14d)` — silent if 0. MCP er
 
 ## Setting the marker — mxSave FR/BR closure sweep
 Per candidate: `archive` | `pending-verify` (apply both marker parts) | `keep`.
+
+## Plan/Spec -> FR/BR link (`implements`) — closes the gap when an item is built inside another plan
+An FR/BR built by a plan/spec must not wait for a session to name its id. Server relation `implements` (existing type, no new one).
+- **Link (mxPlan Step 2/3, mxSpec Section 2/3):** every `FR#`/`BR#`/`todo#` id named in the input or in `## Related` as source or co-implemented -> `mx_batch_detail` -> keep `doc_type in {feature_request, bugreport, todo}` -> `mx_add_relation(source_doc_id=<plan|spec>, target_doc_id=<item>, relation_type='implements')`. Server dedupes, re-run is safe. Output `Linked: <N> FR/BR (implements)` — silent if 0.
+- **Mark on archive (mxPlan Step 4, mxSpec Step 4, right after the archiving `mx_update_doc` succeeded):** `mx_detail(<plan|spec>, max_content_tokens=1)` -> relations with `relation_type='implements'` AND `source_doc_id=<plan|spec>` -> `mx_batch_detail(target ids)` -> keep `doc_type in {feature_request, bugreport, todo}` AND `status='active'` AND tag `fixed-pending-verify` absent -> apply BOTH marker parts, line `fixed-pending-verify since YYYY-MM-DD (Plan#<id>)` / `(Spec#<id>)`. No prompt: the finished plan is the evidence, the 14-day window is the safety net. Output `Marked pending-verify: <N> FR/BR` — silent if 0. MCP error -> one warning line, never undo the archive.
+- **Net (mxSave Step 3):** plans/specs archived in this session (tool returns) -> same mark rule, also in `--loop` mode. Catches archives done by hand (`mx_update_doc status='archived'`) outside the skills.

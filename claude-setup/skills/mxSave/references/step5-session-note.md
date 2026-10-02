@@ -20,5 +20,6 @@ mx_create_doc(project, doc_type='session_note', title='Session Notes YYYY-MM-DD[
 - `## Tooling gotchas + verify` — ⚡ALWAYS (∅→`keine`, never omit). Verify commands to re-confirm state after resume (build/test/run one-liners) + non-obvious pitfalls this session hit (local-binary-vs-npx, build prerequisites, encoding traps, env quirks). Purpose: the next session re-verifies instead of re-discovering.
 - `## Open bugs / TODOs` — inline code-TODOs, pending MCP findings, version-bumps pending, push-pending
 - `## User notes` — explicit user corrections, feedback, near-misses
+⚡ **Carried-id status check (before `mx_create_doc`):** collect every `FR#`/`BR#`/`Bug#`/`todo#`/`Plan#`/`Spec#` id in `## Blocked on me`, `## Next step` and `## Open bugs / TODOs` → `mx_batch_detail(level='summary')` (max 10/call) → drop lines whose id is `archived`/`superseded`; tagged `fixed-pending-verify` → keep but suffix `(pending-verify)`. Never carry a closed id forward from the previous note. The handoff (Step 5b) is built from these sections, so it inherits the check. MCP error → keep lines, one warning.
 **Numbering:** mx_search(project=<slug>, doc_type='session_note', query='YYYY-MM-DD')→exists→append number
 **if !mcp_available →** Fallback local `docs/plans/session-notes-YYYY-MM-DD.md`+warning
