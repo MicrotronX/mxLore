@@ -95,6 +95,8 @@ b = run(ST, d, { prompt: 'fix x', session_id: 'S9' }).out;
 t('sessionstart full, no resume', a.includes('MUST run') && !a.includes(RES), a);
 t('first prompt after start short', b.includes('NO_WORKFLOW') && !b.includes('MUST run'), b);
 t('just completed (<5min)', run(ST, mkcwd({ ...clean, events_log: [{ type: 'completed', ts: new Date().toISOString() }] }), { prompt: 'x' }).out.includes('JUST_COMPLETED'), 0);
+{ const sameTs = new Date().toISOString().slice(0, 16) + 'Z';
+  t('just completed (same-minute tie, newest index wins)', run(ST, mkcwd({ ...clean, events_log: [{ type: 'step_done', ts: sameTs }, { type: 'completed', ts: sameTs }] }), { prompt: 'x' }).out.includes('JUST_COMPLETED'), 0); }
 t('completed long ago -> NO_WORKFLOW', run(ST, mkcwd({ ...clean, events_log: [{ type: 'completed', ts: new Date(Date.now() - 600000).toISOString() }] }), { prompt: 'x' }).out.includes('NO_WORKFLOW'), 0);
 
 // ---------- status: active workflow ----------
@@ -134,7 +136,7 @@ t('reconcile corrupt: warns, file untouched', r.out.includes('corrupt') && rawOf
 // ---------- reconcile: repair / migration ----------
 d = mkcwd({ active_workflows: [{ wf_id: 'WF-1', title: 'T', doc_id: 5 }] }); r = run(RC, d, { source: 'resume' });
 a = stateOf(d);
-t('reconcile v1 migration', a.schema_version === 2 && a.workflow_stack[0].id === 'WF-1' && a.workflow_stack[0].name === 'T' && !a.active_workflows && r.out.includes('schema v2'), { a, out: r.out });
+t('reconcile v1 migration', a.schema_version === 2 && a.workflow_stack[0].id === 'WF-1' && a.workflow_stack[0].name === 'T' && !a.active_workflows && r.out.includes('migrated/repaired') && !r.out.includes('schema v2'), { a, out: r.out });
 d = mkcwd({ ...full, workflow_stack: [{ name: 'x' }, WF] }); r = run(RC, d, { source: 'resume' });
 t('reconcile drops malformed WF loudly', r.out.includes('dropped 1 malformed') && stateOf(d).workflow_stack.length === 1, r);
 const evs = [];

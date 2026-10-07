@@ -83,7 +83,8 @@ Skills running with v2-aware-only code IGNORE the new fields. mxSave Step 4b.3 s
 ## Stack rules
 
 - `workflow_stack[0]` = active workflow
-- park = move active WF to index 1+, new one at [0]
+- park = set stack[0].status='parked' in place; a newly started WF is pushed to [0] (the parked one moves to index 1+)
+- resume without ID = stack[0] parked → reactivate it; otherwise bring stack[1] to [0]
 - resume = bring WF to [0] (LIFO or by ID)
 - ⚡ Max 5 stack entries. >3 parked → warning "N parked WFs — recommend completing?"
 - `state_deltas++`: on every step-done, ad-hoc, park, resume, start

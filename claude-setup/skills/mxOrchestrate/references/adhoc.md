@@ -8,7 +8,8 @@ Detail behind the 3-line summary in `SKILL.md` Mode 3.
    stack[0].id, mcp_note_id: null}`.
 2. Push to `adhoc_tasks[]`.
 3. Persist to MCP: `mx_create_doc(project, doc_type='todo', title=note,
-   content='Origin: <WF-ID>')` -> set `mcp_note_id`. On error -> null (local
+   content='Origin: <WF-ID>. Ad-hoc task tracked during this workflow: <note>')`
+   (todo body needs at least 50 chars) -> set `mcp_note_id`. On error -> null (local
    only).
 4. Log event (`type='track_adhoc'`).
 5. **Escalation check** (Claude decides based on context):

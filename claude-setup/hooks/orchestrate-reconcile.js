@@ -173,7 +173,7 @@ try {
     fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2) + '\n', 'utf8');
   }
   if (changed) {
-    console.log('[Orchestrate] State file migrated/repaired to schema v2.');
+    console.log('[Orchestrate] State file migrated/repaired (v1 fields upgraded; schema_version bump to current is done by mxSave).');
   }
   // --- Resume handoff (local cache of the last session note's quickstart) ---
   // mxSave writes the file AFTER the MCP note write succeeded. It is a cache with a

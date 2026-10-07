@@ -24,9 +24,9 @@ Compare local `current_step` vs `mcp_step`:
 
 - **Local > MCP (local is ahead):** push ALL locally-done steps to MCP via
   `mx_update_doc(doc_id, content with Steps=done+Timestamps, change_reason='Reconcile: Steps N-M→done')`
-  → update `doc_revision` from response → set `unsynced=false`.
+  → set `unsynced=false` (leave `doc_revision` as is: mx_update_doc returns no revision number, and reconciliation compares steps, not revisions).
 - **MCP > local (MCP is ahead):** update local → `current_step=mcp_step`, `total_steps=mcp_total`,
-  `doc_revision` from response, `unsynced=false`.
+  `unsynced=false`.
 - **Both diverged** (steps overlap with different results, e.g. team-agent vs local):
   WARN user, show both versions, ask which to keep before pushing.
 - **Equal:** no action needed.

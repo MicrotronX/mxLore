@@ -9,9 +9,9 @@ Enforce in Step 5 BEFORE `mx_create_doc`: validate length≥500 / ≥3 template 
 ```
 mx_create_doc(project, doc_type='session_note', title='Session Notes YYYY-MM-DD[-N]', content, status='active')
 ```
-**Template (all sections required — omit only if truly ∅, do NOT paraphrase absence). ⚡ Resume-Quality is the DEFAULT, not a mode: EVERY save (incl. `--loop`, incl. doc-only sessions) MUST produce a note from which a fresh `/clear` context is fully reconstructable in ONE read. The two ⚡ALWAYS sections below are never omitted — empty → literal `keine`, never dropped:**
+**Template (all sections required — omit only if truly ∅, do NOT paraphrase absence). ⚡ Resume-Quality is the DEFAULT, not a mode: EVERY save (incl. `--loop`, incl. doc-only sessions) MUST produce a note from which a fresh `/clear` context is fully reconstructable in ONE read. The three ⚡ALWAYS sections below are never omitted — empty → literal `keine`, never dropped:**
 - `## Quickstart after /clear` — ⚡ALWAYS (∅→`keine`, never omit). FIRST section. 1-sentence situation ("where we are") + `mx_briefing(project=<slug>)` hint + the single most-actionable NEXT action (file/function/task). A save you cannot resume from in one read is worthless.
-- `## Blocked on me` — directly below Quickstart. Open items that wait on the user's decision/action (1 line each, id + what is needed); none -> `none`.
+- `## Blocked on me` — ⚡ALWAYS (∅→`keine`, never omit). Directly below Quickstart. Open items that wait on the user's decision/action (1 line each, id + what is needed).
 - `## What was done` — numbered per work stream
 - `## Changed files` — git-status / file-touch list verbatim
 - `## Commits` — `<hash> — <subject>` + explicit push status (`pushed` / `NOT pushed`)

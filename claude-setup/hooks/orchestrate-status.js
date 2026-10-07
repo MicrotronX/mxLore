@@ -41,7 +41,9 @@ try {
     const events = state.events_log || [];
     // Fix: events_log may be reverse-chrono (newest at [0]) or chrono (newest at end).
     // Sort defensively by ts desc so we always get the truly most-recent event.
-    const sortedDesc = events.slice().sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0));
+    const sortedDesc = events.map((e, i) => ({ e, i }))
+      .sort((a, b) => (new Date(b.e.ts || 0) - new Date(a.e.ts || 0)) || (b.i - a.i))
+      .map(x => x.e);
     const last = sortedDesc.length > 0 ? sortedDesc[0] : null;
     if (last && last.type === 'completed') {
       const completedMs = new Date(last.ts).getTime();
@@ -75,7 +77,9 @@ try {
   // max 200 chars, narrative pointer). Fallback to events_log ts-desc sort for backward-compat
   // with pre-fix state files.
   const events = state.events_log || [];
-  const sortedEvents = events.slice().sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0));
+  const sortedEvents = events.map((e, i) => ({ e, i }))
+    .sort((a, b) => (new Date(b.e.ts || 0) - new Date(a.e.ts || 0)) || (b.i - a.i))
+    .map(x => x.e);
   const lastEvent = sortedEvents.length > 0 ? sortedEvents[0] : null;
   const lastAction = state.last_save_summary
     ? `mxsave: ${state.last_save_summary}`

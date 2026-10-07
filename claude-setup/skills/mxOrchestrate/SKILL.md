@@ -54,7 +54,7 @@ Main on premium (Fable/Opus) → every spawn sets `model` to the cheapest suffic
 
 ## Mode 2: Start
 1. Template: `docs/workflows.md` (project, priority) → `~/.claude/skills/mxOrchestrate/workflows.md`. ∅ → ?user → ad-hoc.
-2. ID `WF-YYYY-MM-DD-NNN`. 3. `mx_create_doc(project, doc_type='workflow_log', title='WF-...: <Title>', content)`.
+2. ID `WF-YYYY-MM-DD-NNN`. 3. `mx_create_doc(project, doc_type='workflow_log', title='WF-...: <Title>', content, status='active')` — ⚡ `status='active'` is mandatory (server default is `draft`, which hides the WF from `mx_session_start` and Mode 6).
 4. Push onto stack ([0]=active, previous [0] → parked). ⚡ **Canonical keys:** `id`, `name`, `doc_id`, `doc_revision`, `status`, `current_step`, `total_steps`, `started`, `unsynced` — **NOT `wf_id`/`title`** (hook drops WFs missing `id`).
 5. Save state + event `start`. 6. Output `Workflow "<Name>" started (WF-xxx, doc_id=<id>). Stack: <N> WFs.` 7. Auto-invoke step 1.
 
@@ -67,14 +67,14 @@ Main on premium (Fable/Opus) → every spawn sets `model` to the cheapest suffic
 ```
 
 ## Mode 3: Track
-Push `{note, created, origin_workflow: stack[0].id, mcp_note_id}` to `adhoc_tasks[]` + `mx_create_doc(doc_type='todo', title=note, content='Origin: <WF-ID>')` + event `track_adhoc`. Escalation (Claude decides): **note** (default) | **park+start** | **spawn** (`references/team-agents.md`). Steps → `references/adhoc.md`.
+Push `{note, created, origin_workflow: stack[0].id, mcp_note_id}` to `adhoc_tasks[]` + `mx_create_doc(doc_type='todo', title=note, content='Origin: <WF-ID>. Ad-hoc task tracked during this workflow: <note>')` (⚡ todo body needs >= 50 chars) + event `track_adhoc`. Escalation (Claude decides): **note** (default) | **park+start** | **spawn** (`references/team-agents.md`). Steps → `references/adhoc.md`.
 
 ## Mode 4: Park
 stack[0].status='parked' + `parked_reason`; ⚡ >3 parked → warning + suggest completing oldest; event `park`; save; output `WF "<Name>" parked. Reason: <reason>. Stack: <N> WFs.`; ∅new WF started → Mode 7.
 
 ## Mode 5: Resume
 Empty stack → MINI (steps 5 = no-op); stack-pop / ID → HEAVY subagent. Init already ran in Main.
-1. ∅ID → stack[1] to [0] (LIFO); ID → move that WF to [0]. 2. status='active'. 3. Event `resume`.
+1. ∅ID → stack[0] parked → reactivate it in place; else stack[1] to [0] (LIFO); ID → move that WF to [0]. 2. status='active'. 3. Event `resume`.
 4. ⚡ **Reconciliation** (stack only): `mx_detail` vs local, push/pull whichever is ahead, handle archived; **diverged → STOP + ?user, NEVER silently overwrite**; clamp; **FS-Anchor post-check** on every `pending` step (structured paths → Glob; Grep only on a named symbol); code contradicts doc → STOP + ?user; ∅paths → `unverified against code`. `last_reconciliation ← now_utc`. → `references/reconciliation.md`.
 5. ⚡ **Context-Note Enrichment — MANDATORY, NEVER SKIP, BOTH PATHS** (calls parallel in one message):
    - stack: `mx_search(project, doc_type='session_note', query='<WF-ID> OR <primary_artifact_IDs> OR <outcome-keywords>', limit=4)` always; hit → `mx_detail(id, max_content_tokens=1500)`; 0 hits valid.
