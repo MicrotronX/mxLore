@@ -272,19 +272,25 @@ begin
         Edges := TMxGraphData.GetEdgesFrom(AContext, Pair.Key, EdgeTypeFilter);
         for Edge in Edges do
         begin
-          CollectedEdges.Add(Edge);
           NeighborId := Edge.TargetNodeId;
           if not VisitedNodes.ContainsKey(NeighborId) then
           begin
             Node := TMxGraphData.GetNode(AContext, NeighborId);
-            if Node.Id > 0 then
+            // Bug#17686: neighbours of a project the caller cannot read are
+            // dropped with their edge (0 = cross-project node, always shown).
+            if (Node.Id > 0) and ((Node.ProjectId = 0) or (Node.ProjectId = ProjectId) or
+               AContext.AccessControl.CheckProject(Node.ProjectId, alReadOnly)) then
             begin
               VisitedNodes.AddOrSetValue(NeighborId, Node);
               BfsQueue.Enqueue(TPair<Integer, Integer>.Create(NeighborId, CurrentDepth + 1));
             end;
+            if VisitedNodes.ContainsKey(NeighborId) then
+              CollectedEdges.Add(Edge);
             if VisitedNodes.Count >= MAX_NODES then
               Break;
-          end;
+          end
+          else
+            CollectedEdges.Add(Edge);
         end;
       end;
 
@@ -294,19 +300,24 @@ begin
         Edges := TMxGraphData.GetEdgesTo(AContext, Pair.Key, EdgeTypeFilter);
         for Edge in Edges do
         begin
-          CollectedEdges.Add(Edge);
           NeighborId := Edge.SourceNodeId;
           if not VisitedNodes.ContainsKey(NeighborId) then
           begin
             Node := TMxGraphData.GetNode(AContext, NeighborId);
-            if Node.Id > 0 then
+            // Bug#17686: same visibility rule as outgoing edges
+            if (Node.Id > 0) and ((Node.ProjectId = 0) or (Node.ProjectId = ProjectId) or
+               AContext.AccessControl.CheckProject(Node.ProjectId, alReadOnly)) then
             begin
               VisitedNodes.AddOrSetValue(NeighborId, Node);
               BfsQueue.Enqueue(TPair<Integer, Integer>.Create(NeighborId, CurrentDepth + 1));
             end;
+            if VisitedNodes.ContainsKey(NeighborId) then
+              CollectedEdges.Add(Edge);
             if VisitedNodes.Count >= MAX_NODES then
               Break;
-          end;
+          end
+          else
+            CollectedEdges.Add(Edge);
         end;
       end;
     end;

@@ -5,7 +5,7 @@ interface
 uses
   System.SysUtils, System.JSON, System.Generics.Collections,
   FireDAC.Comp.Client,
-  mx.Types, mx.Errors, mx.Data.Pool;
+  mx.Types, mx.Errors, mx.Data.Pool, mx.Logic.AccessControl;
 
 const
   TRAVERSE_FORWARD:  array[0..0] of string = ('leads_to');
@@ -96,7 +96,7 @@ begin
       if Forward then
         Qry := AContext.CreateQuery(Format(
           'SELECT r.target_doc_id AS doc_id, r.relation_type, ' +
-          'd.title, d.doc_type, d.status, d.summary_l1 ' +
+          'd.title, d.doc_type, d.status, d.summary_l1, d.project_id ' +
           'FROM doc_relations r ' +
           'LEFT JOIN documents d ON d.id = r.target_doc_id ' +
           'WHERE r.source_doc_id IN (%s) AND r.relation_type IN (%s)',
@@ -104,7 +104,7 @@ begin
       else
         Qry := AContext.CreateQuery(Format(
           'SELECT r.source_doc_id AS doc_id, r.relation_type, ' +
-          'd.title, d.doc_type, d.status, d.summary_l1 ' +
+          'd.title, d.doc_type, d.status, d.summary_l1, d.project_id ' +
           'FROM doc_relations r ' +
           'LEFT JOIN documents d ON d.id = r.source_doc_id ' +
           'WHERE r.target_doc_id IN (%s) AND r.relation_type IN (%s)',
@@ -128,11 +128,26 @@ begin
             Node.Depth := Depth;
             Node.SummaryL1 := Qry.FieldByName('summary_l1').AsString;
 
-            // ACL Phase 1: always allowed (read-only metadata)
-            Node.AccessDenied := False;
-
-            Results.Add(Node);
-            NextLevel.Add(DocId);
+            // Bug#17686: node from an unreadable project -> id + access=denied
+            // only, no title/summary, and the walk does not continue through it.
+            // Drafts hidden for exactly-alReadOnly callers stay invisible.
+            Node.AccessDenied := not AContext.AccessControl.CheckProject(
+              Qry.FieldByName('project_id').AsInteger, alReadOnly);
+            if Node.AccessDenied then
+            begin
+              Node.Title := '';
+              Node.DocType := '';
+              Node.Status := '';
+              Node.SummaryL1 := '';
+              Results.Add(Node);
+            end
+            else if not (SameText(Node.Status, 'draft') and
+                         ShouldFilterDrafts(AContext,
+                           Qry.FieldByName('project_id').AsInteger)) then
+            begin
+              Results.Add(Node);
+              NextLevel.Add(DocId);
+            end;
           end;
           Qry.Next;
         end;
@@ -183,11 +198,21 @@ begin
 
     // Load start document
     Qry := AContext.CreateQuery(
-      'SELECT title, doc_type, status FROM documents WHERE id = :id');
+      'SELECT d.title, d.doc_type, d.status, d.project_id, p.slug AS project ' +
+      'FROM documents d JOIN projects p ON d.project_id = p.id ' +
+      'WHERE d.id = :id');
     try
       Qry.ParamByName('id').AsInteger := DocId;
       Qry.Open;
       if Qry.Eof then
+        raise EMxNotFound.Create(Format('Document not found: %d', [DocId]));
+
+      // Bug#17686: same project-read check as mx_detail (incl. draft filter)
+      if not AContext.AccessControl.CheckProject(
+               Qry.FieldByName('project_id').AsInteger, alReadOnly) then
+        raise EMxAccessDenied.Create(Qry.FieldByName('project').AsString, alReadOnly);
+      if SameText(Qry.FieldByName('status').AsString, 'draft')
+         and ShouldFilterDrafts(AContext, Qry.FieldByName('project_id').AsInteger) then
         raise EMxNotFound.Create(Format('Document not found: %d', [DocId]));
 
       Decision := TJSONObject.Create;

@@ -1207,7 +1207,7 @@ begin
         // Append path: OldContent + blank line + AppendContent becomes the
         // new body. Empty OldContent degrades to a plain write.
         if OldContent <> '' then
-          Content := OldContent + sLineBreak + sLineBreak + AppendContent
+          Content := OldContent + #10#10 + AppendContent
         else
           Content := AppendContent;
       end

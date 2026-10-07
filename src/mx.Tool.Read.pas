@@ -32,6 +32,16 @@ function ResolveProxyExePath: string;
 
 implementation
 
+// Bug#17686: may the caller see the other end of a relation? Same rules as
+// mx_detail on that doc: project readable, and drafts hidden for callers
+// that are exactly alReadOnly on its project (M2.9 Draft-Filter X2).
+function RelationEndVisible(AContext: IMxDbContext; AProjectId: Integer;
+  const AStatus: string): Boolean;
+begin
+  Result := AContext.AccessControl.CheckProject(AProjectId, alReadOnly) and
+    not (SameText(AStatus, 'draft') and ShouldFilterDrafts(AContext, AProjectId));
+end;
+
 // ---------------------------------------------------------------------------
 // proxy_sha256 helper: lazy SHA-256 of the shipped mxMCPProxy.exe, cached
 // per (path, file timestamp). ResolveProxyExePath is exported and reused by
@@ -387,12 +397,12 @@ begin
   // Project relations (depends_on, related_to)
   try
     Qry := AContext.CreateQuery(
-      'SELECT p.slug, p.name, pr.relation_type, ''outgoing'' AS direction ' +
+      'SELECT p.id, p.slug, p.name, pr.relation_type, ''outgoing'' AS direction ' +
       'FROM project_relations pr ' +
       'JOIN projects p ON pr.target_project_id = p.id ' +
       'WHERE pr.source_project_id = :proj_id ' +
       'UNION ALL ' +
-      'SELECT p.slug, p.name, pr.relation_type, ' +
+      'SELECT p.id, p.slug, p.name, pr.relation_type, ' +
       '  CASE WHEN pr.relation_type = ''related_to'' THEN ''outgoing'' ' +
       '       ELSE ''incoming'' END AS direction ' +
       'FROM project_relations pr ' +
@@ -408,6 +418,14 @@ begin
         try
           while not Qry.Eof do
           begin
+            // Bug#17686: project names may be customer names - list only
+            // related projects the caller can read.
+            if not AContext.AccessControl.CheckProject(
+                     Qry.FieldByName('id').AsInteger, alReadOnly) then
+            begin
+              Qry.Next;
+              Continue;
+            end;
             Row := TJSONObject.Create;
             Row.AddPair('slug', Qry.FieldByName('slug').AsString);
             Row.AddPair('name', Qry.FieldByName('name').AsString);
@@ -459,7 +477,7 @@ begin
   try
     Qry := AContext.CreateQuery(
       'SELECT d.id as decision_id, d.title as decision_title, ' +
-      '  a.id as assumption_id, a.title as assumption_title ' +
+      '  a.id as assumption_id, a.title as assumption_title, a.project_id as assumption_project_id ' +
       'FROM doc_relations r ' +
       'INNER JOIN documents d ON d.id = r.source_doc_id ' +
       'INNER JOIN documents a ON a.id = r.target_doc_id ' +
@@ -472,11 +490,20 @@ begin
       Qry.Open;
       while not Qry.Eof do
       begin
-        WarningsArr.Add(Format('%s (doc_id=%d) basiert auf invalidierter Annahme #%d: ''%s''',
-          [Qry.FieldByName('decision_title').AsString,
-           Qry.FieldByName('decision_id').AsInteger,
-           Qry.FieldByName('assumption_id').AsInteger,
-           Qry.FieldByName('assumption_title').AsString]));
+        // Bug#17686: assumption may live in another project -> hide its title
+        // when the caller cannot read that project (warning itself stays).
+        if AContext.AccessControl.CheckProject(
+             Qry.FieldByName('assumption_project_id').AsInteger, alReadOnly) then
+          WarningsArr.Add(Format('%s (doc_id=%d) basiert auf invalidierter Annahme #%d: ''%s''',
+            [Qry.FieldByName('decision_title').AsString,
+             Qry.FieldByName('decision_id').AsInteger,
+             Qry.FieldByName('assumption_id').AsInteger,
+             Qry.FieldByName('assumption_title').AsString]))
+        else
+          WarningsArr.Add(Format('%s (doc_id=%d) basiert auf invalidierter Annahme #%d (kein Zugriff)',
+            [Qry.FieldByName('decision_title').AsString,
+             Qry.FieldByName('decision_id').AsInteger,
+             Qry.FieldByName('assumption_id').AsInteger]));
         Qry.Next;
       end;
     finally
@@ -957,8 +984,10 @@ begin
             end;
             // Load relations for all result docs
             SubQry := AContext.CreateQuery(
-              'SELECT dr.source_doc_id, dr.target_doc_id, dr.relation_type, ' +
-              'ds.title AS source_title, dt.title AS target_title ' +
+              'SELECT dr.id AS relation_id, dr.source_doc_id, dr.target_doc_id, dr.relation_type, ' +
+              'ds.title AS source_title, dt.title AS target_title, ' +
+              'ds.project_id AS source_project_id, dt.project_id AS target_project_id, ' +
+              'ds.status AS source_status, dt.status AS target_status ' +
               'FROM doc_relations dr ' +
               'JOIN documents ds ON ds.id = dr.source_doc_id ' +
               'JOIN documents dt ON dt.id = dr.target_doc_id ' +
@@ -974,22 +1003,40 @@ begin
               end;
               while not SubQry.Eof do
               begin
-                Row := nil;
-                ProjId := SubQry.FieldByName('source_doc_id').AsInteger;
-                if not IdMap.TryGetValue(ProjId, Row) then
+                // Bug#17686: same ACL rule as mx_detail - both ends must be readable
+                if not (RelationEndVisible(AContext,
+                          SubQry.FieldByName('source_project_id').AsInteger,
+                          SubQry.FieldByName('source_status').AsString) and
+                        RelationEndVisible(AContext,
+                          SubQry.FieldByName('target_project_id').AsInteger,
+                          SubQry.FieldByName('target_status').AsString)) then
                 begin
-                  ProjId := SubQry.FieldByName('target_doc_id').AsInteger;
-                  IdMap.TryGetValue(ProjId, Row);
+                  SubQry.Next;
+                  Continue;
                 end;
-                if Row <> nil then
+                // Bug#17684: attach to BOTH ends when both are in the result set
+                var SrcId: Integer := SubQry.FieldByName('source_doc_id').AsInteger;
+                var TgtId: Integer := SubQry.FieldByName('target_doc_id').AsInteger;
+                for var EndIdx: Integer := 0 to 1 do
                 begin
-                  var RelObj := TJSONObject.Create;
-                  RelObj.AddPair('relation_type', SubQry.FieldByName('relation_type').AsString);
-                  RelObj.AddPair('source_doc_id', TJSONNumber.Create(SubQry.FieldByName('source_doc_id').AsInteger));
-                  RelObj.AddPair('source_title', SubQry.FieldByName('source_title').AsString);
-                  RelObj.AddPair('target_doc_id', TJSONNumber.Create(SubQry.FieldByName('target_doc_id').AsInteger));
-                  RelObj.AddPair('target_title', SubQry.FieldByName('target_title').AsString);
-                  (Row.GetValue('relations') as TJSONArray).Add(RelObj);
+                  if (EndIdx = 1) and (TgtId = SrcId) then
+                    Break;
+                  if EndIdx = 0 then
+                    ProjId := SrcId
+                  else
+                    ProjId := TgtId;
+                  Row := nil;
+                  if IdMap.TryGetValue(ProjId, Row) then
+                  begin
+                    var RelObj := TJSONObject.Create;
+                    RelObj.AddPair('relation_id', TJSONNumber.Create(SubQry.FieldByName('relation_id').AsInteger));
+                    RelObj.AddPair('relation_type', SubQry.FieldByName('relation_type').AsString);
+                    RelObj.AddPair('source_doc_id', TJSONNumber.Create(SrcId));
+                    RelObj.AddPair('source_title', SubQry.FieldByName('source_title').AsString);
+                    RelObj.AddPair('target_doc_id', TJSONNumber.Create(TgtId));
+                    RelObj.AddPair('target_title', SubQry.FieldByName('target_title').AsString);
+                    (Row.GetValue('relations') as TJSONArray).Add(RelObj);
+                  end;
                 end;
                 SubQry.Next;
               end;
@@ -1177,7 +1224,9 @@ begin
   Qry := AContext.CreateQuery(
     'SELECT dr.id AS relation_id, dr.relation_type, ' +
     '  dr.source_doc_id, ds.title AS source_title, ' +
-    '  dr.target_doc_id, dt.title AS target_title ' +
+    '  dr.target_doc_id, dt.title AS target_title, ' +
+    '  ds.project_id AS source_project_id, dt.project_id AS target_project_id, ' +
+              'ds.status AS source_status, dt.status AS target_status ' +
     'FROM doc_relations dr ' +
     'JOIN documents ds ON ds.id = dr.source_doc_id ' +
     'JOIN documents dt ON dt.id = dr.target_doc_id ' +
@@ -1187,6 +1236,18 @@ begin
     Qry.Open;
     while not Qry.Eof do
     begin
+      // Bug#17686: hide relations whose other end lives in a project the
+      // caller cannot read (titles would leak across the ACL boundary).
+      if not (RelationEndVisible(AContext,
+                Qry.FieldByName('source_project_id').AsInteger,
+                Qry.FieldByName('source_status').AsString) and
+              RelationEndVisible(AContext,
+                Qry.FieldByName('target_project_id').AsInteger,
+                Qry.FieldByName('target_status').AsString)) then
+      begin
+        Qry.Next;
+        Continue;
+      end;
       Row := TJSONObject.Create;
       // GH#12: without relation_id in the output, relations created in earlier
       // sessions can never be removed (mx_remove_relation requires the id).
@@ -1387,8 +1448,10 @@ begin
 
         Qry.Close;
         Qry.SQL.Text :=
-          'SELECT dr.source_doc_id, dr.target_doc_id, dr.relation_type, ' +
-          'ds.title AS source_title, dt.title AS target_title ' +
+          'SELECT dr.id AS relation_id, dr.source_doc_id, dr.target_doc_id, dr.relation_type, ' +
+          'ds.title AS source_title, dt.title AS target_title, ' +
+          'ds.project_id AS source_project_id, dt.project_id AS target_project_id, ' +
+              'ds.status AS source_status, dt.status AS target_status ' +
           'FROM doc_relations dr ' +
           'JOIN documents ds ON ds.id = dr.source_doc_id ' +
           'JOIN documents dt ON dt.id = dr.target_doc_id ' +
@@ -1397,22 +1460,41 @@ begin
         Qry.Open;
         while not Qry.Eof do
         begin
-          Row := nil;
-          DocId := Qry.FieldByName('source_doc_id').AsInteger;
-          if not IdMap.TryGetValue(DocId, Row) then
+          // Bug#17686: same ACL rule as mx_detail - both ends must be readable
+          if not (RelationEndVisible(AContext,
+                    Qry.FieldByName('source_project_id').AsInteger,
+                    Qry.FieldByName('source_status').AsString) and
+                  RelationEndVisible(AContext,
+                    Qry.FieldByName('target_project_id').AsInteger,
+                    Qry.FieldByName('target_status').AsString)) then
           begin
-            DocId := Qry.FieldByName('target_doc_id').AsInteger;
-            IdMap.TryGetValue(DocId, Row);
+            Qry.Next;
+            Continue;
           end;
-          if Row <> nil then
+          // Bug#17684: a relation belongs to BOTH ends. When source and target
+          // are in the same batch, each row gets its own copy (same as mx_detail).
+          var SrcId: Integer := Qry.FieldByName('source_doc_id').AsInteger;
+          var TgtId: Integer := Qry.FieldByName('target_doc_id').AsInteger;
+          for var EndIdx: Integer := 0 to 1 do
           begin
-            RelObj := TJSONObject.Create;
-            RelObj.AddPair('relation_type', Qry.FieldByName('relation_type').AsString);
-            RelObj.AddPair('source_doc_id', TJSONNumber.Create(Qry.FieldByName('source_doc_id').AsInteger));
-            RelObj.AddPair('source_title', Qry.FieldByName('source_title').AsString);
-            RelObj.AddPair('target_doc_id', TJSONNumber.Create(Qry.FieldByName('target_doc_id').AsInteger));
-            RelObj.AddPair('target_title', Qry.FieldByName('target_title').AsString);
-            (Row.GetValue('relations') as TJSONArray).Add(RelObj);
+            if (EndIdx = 1) and (TgtId = SrcId) then
+              Break;
+            if EndIdx = 0 then
+              DocId := SrcId
+            else
+              DocId := TgtId;
+            Row := nil;
+            if IdMap.TryGetValue(DocId, Row) then
+            begin
+              RelObj := TJSONObject.Create;
+              RelObj.AddPair('relation_id', TJSONNumber.Create(Qry.FieldByName('relation_id').AsInteger));
+              RelObj.AddPair('relation_type', Qry.FieldByName('relation_type').AsString);
+              RelObj.AddPair('source_doc_id', TJSONNumber.Create(Qry.FieldByName('source_doc_id').AsInteger));
+              RelObj.AddPair('source_title', Qry.FieldByName('source_title').AsString);
+              RelObj.AddPair('target_doc_id', TJSONNumber.Create(Qry.FieldByName('target_doc_id').AsInteger));
+              RelObj.AddPair('target_title', Qry.FieldByName('target_title').AsString);
+              (Row.GetValue('relations') as TJSONArray).Add(RelObj);
+            end;
           end;
           Qry.Next;
         end;

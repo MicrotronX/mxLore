@@ -430,7 +430,7 @@ begin
       try
         Qry := AContext.CreateQuery(
           'SELECT ap.doc_id, d.title, d.doc_type, ap.score, ap.reason, ' +
-          '  d.summary_l2 ' +
+          '  d.summary_l2, d.project_id AS doc_project_id ' +
           'FROM access_patterns ap ' +
           'JOIN documents d ON d.id = ap.doc_id ' +
           'WHERE ap.project_id = :pid AND d.status <> ''deleted'' ' +
@@ -441,6 +441,14 @@ begin
           var Prefetch := TJSONArray.Create;
           while not Qry.Eof do
           begin
+            // Bug#17686: linked ADRs may live in another project - skip
+            // candidates the caller cannot read.
+            if not AContext.AccessControl.CheckProject(
+                     Qry.FieldByName('doc_project_id').AsInteger, alReadOnly) then
+            begin
+              Qry.Next;
+              Continue;
+            end;
             Row := TJSONObject.Create;
             Row.AddPair('doc_id',
               TJSONNumber.Create(Qry.FieldByName('doc_id').AsInteger));

@@ -407,6 +407,26 @@ begin
     raise EMxError.Create('RATE_LIMITED',
       'Max 10 messages per minute per session');
 
+  // ref_doc_id must point to an existing, readable document (deleted/inactive
+  // project/no read access all read as "not found" - no existence leak).
+  if RefDocId > 0 then
+  begin
+    Qry := AContext.CreateQuery(
+      'SELECT d.project_id FROM documents d ' +
+      'JOIN projects p ON d.project_id = p.id ' +
+      'WHERE d.id = :doc_id AND d.status <> ''deleted'' AND p.is_active = TRUE');
+    try
+      Qry.ParamByName('doc_id').AsInteger := RefDocId;
+      Qry.Open;
+      if Qry.IsEmpty or not AContext.AccessControl.CheckProject(
+           Qry.FieldByName('project_id').AsInteger, alReadOnly) then
+        raise EMxValidation.Create('ref_doc_id ' + IntToStr(RefDocId) +
+          ' does not reference an existing document');
+    finally
+      Qry.Free;
+    end;
+  end;
+
   // Insert message
   Qry := AContext.CreateQuery(
     'INSERT INTO agent_messages ' +
@@ -648,7 +668,9 @@ begin
 
   SetLength(Ids, MsgIds.Count);
   for I := 0 to MsgIds.Count - 1 do
-    Ids[I] := MsgIds.Items[I].GetValue<Integer>;
+    if not TryStrToInt(MsgIds.Items[I].Value, Ids[I]) then
+      raise EMxValidation.Create('message_ids must contain integers only, got "' +
+        MsgIds.Items[I].Value + '"');
 
   // FR#3836: Logic layer builds the IN-clause + query; MCP-tool path enforces
   // target_project_id ownership via Opts.ProjectId > 0.
