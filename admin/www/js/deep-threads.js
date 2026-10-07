@@ -1,6 +1,6 @@
 /* ============================================================
-   deep-threads.js — Admin-UI alert for FR#2936/Plan#3266 M2.6
-   Surfaces review-notes whose depth (sql/047) is at/above
+   deep-threads.js — Admin-UI alert for deep review threads
+   Surfaces review-notes whose depth is at/above
    warn-threshold 5. Renders compact alert below the navbar
    when threads exist, dismissable per session.
    Endpoint: GET /admin/api/notes/deep-threads
@@ -131,7 +131,7 @@
       hideAlert();
     });
 
-    // Click delegation: open doc detail directly (FR#3353 Phase C).
+    // Click delegation: open doc detail directly.
     // Fallbacks: project dashboard → projects-list.
     body.addEventListener('click', function (ev) {
       var link = ev.target.closest('a[data-doc-id]');
@@ -152,7 +152,7 @@
   function fetchAndRender() {
     if (isDismissed()) return Promise.resolve();
     if (typeof Api === 'undefined' || typeof Api.getDeepThreads !== 'function') return Promise.resolve();
-    // FR#3360 lockdown: /api/notes/deep-threads is admin-only.
+    // lockdown: /api/notes/deep-threads is admin-only.
     // Fail-closed: if AclHelper is missing, skip too (Session 281 polish).
     if (!window.AclHelper || !AclHelper.isAdmin()) return Promise.resolve();
     return Api.getDeepThreads()

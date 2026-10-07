@@ -1,5 +1,5 @@
 /* ============================================================
-   self-update.js — Admin-UI banner for FR#2242 Self-Update v1
+   self-update.js — Admin-UI banner for Self-Update v1
    Self-contained: works on index.html (authenticated SPA) and
    connect.html (public landing). Exports window.mxSelfUpdate.
    ============================================================ */
@@ -11,7 +11,7 @@
   var POLL_TIMEOUT_MS = 3000;
   var SUCCESS_AUTOHIDE_MS = 10000;
 
-  // FR#2815 Fix C: build-number diffing. lastKnownBuild is updated on every
+  // build-number diffing. lastKnownBuild is updated on every
   // successful status response so onInstallClick can snapshot targetBuild
   // BEFORE the install fires. The poll loop then detects success by seeing
   // state=idle with build_current != targetBuild (server restarted with a
@@ -158,7 +158,7 @@
       hideBanner(b);
       return;
     }
-    // FR#2815 Fix C: remember build_current so onInstallClick has a fresh
+    // remember build_current so onInstallClick has a fresh
     // snapshot available without an extra fetch.
     if (data.build_current != null) {
       lastKnownBuild = data.build_current;
@@ -184,7 +184,7 @@
   }
 
   function checkStatus(force) {
-    // FR#3360 lockdown: self-update is admin-only. Skip the fetch for
+    // lockdown: self-update is admin-only. Skip the fetch for
     // non-admins so the console stays clean and we don't spam 403s.
     // Fail-closed: if AclHelper is missing, skip too (Session 281 polish).
     if (!window.AclHelper || !AclHelper.isAdmin()) return Promise.resolve();
@@ -209,7 +209,7 @@
             hideBanner();
             return;
           }
-          // FR#2815 Fix C (PRIMARY success path): if we had a targetBuild
+          // PRIMARY success path: if we had a targetBuild
           // snapshot from before the install and the server now reports a
           // different build_current, the restart happened and the new binary
           // is live — regardless of whether the poll ever caught the down
@@ -267,7 +267,7 @@
     var b = ensureBanner();
     renderUpdating(b, 'Downloading build...');
 
-    // FR#2815 Fix C: snapshot the build running right now so the poll loop
+    // snapshot the build running right now so the poll loop
     // can detect success as soon as it sees a different build_current.
     // lastKnownBuild was populated by the most recent handleStatusResponse
     // (either on page-load or from the update_available banner render).

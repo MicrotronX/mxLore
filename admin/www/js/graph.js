@@ -1,7 +1,7 @@
 /* ============================================================
    graph.js — mxLore Knowledge Graph page (Admin UI)
    Force-directed D3 graph over /api/graph?project={slug}.
-   Adapted from prototype doc #7678 (SPEC #7677).
+   Adapted from the prototype.
 
    Public entry: GraphPage.loadGraphPage()  (called by App.navigateTo)
    All DOM lives under #page-graph; all styles in css/graph.css.
@@ -10,7 +10,7 @@
 var GraphPage = (function () {
   'use strict';
 
-  // doc_type -> color + human label. Mirrors prototype #7678; the three
+  // doc_type -> color + human label. Mirrors the prototype; the three
   // types missing there (note/todo/workflow_log) get matching tones.
   var TYPES = {
     lesson:          { color: '#3ee08a', label: 'Lesson' },

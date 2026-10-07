@@ -1490,7 +1490,7 @@ select.form-input {
   background: #fffbeb;
 }
 
-/* FR#3294 / SPEC#3583 — Intelligence Banner (multi-line variant) */
+/* Intelligence Banner (multi-line variant) */
 .intel-banner {
   display: block;
   flex-direction: column;
@@ -1538,7 +1538,7 @@ select.form-input {
 }
 .intel-banner__dismiss:hover { opacity: 1; }
 
-/* FR#3600 — Doc-Detail sticky header + toolbar + tabs.
+/* Doc-Detail sticky header + toolbar + tabs.
    Navbar is z-index:100 (style.css:113), so sticky must sit below navbar
    visually (top offset) AND stack above content but below navbar. */
 .doc-detail-sticky {
@@ -1556,7 +1556,7 @@ select.form-input {
   padding-bottom: var(--gap-sm);
 }
 
-/* FR#3472 A+C / SPEC#3583 — Review-thread hierarchy */
+/* Review-thread hierarchy */
 .thread-list {
   display: flex;
   flex-direction: column;
@@ -1595,7 +1595,7 @@ select.form-input {
   padding-right: var(--gap-sm);
 }
 
-/* Project-Detail Reviews-Tab rows (FR#3472 C) */
+/* Project-Detail Reviews-Tab rows */
 .reviews-list {
   display: flex;
   flex-direction: column;
@@ -2857,7 +2857,7 @@ select.form-input {
   }
 }
 
-/* ===== Self-Update Banner (FR#2242) ===== */
+/* ===== Self-Update Banner ===== */
 #mx-selfupdate-banner {
   position: fixed;
   top: 0;
@@ -2905,7 +2905,7 @@ select.form-input {
 }
 body.mx-su-banner-visible { padding-top: 50px; }
 
-/* ===== Deep-Thread Alert (FR#2936/Plan#3266 M2.6) ===== */
+/* ===== Deep-Thread Alert ===== */
 #mx-deep-threads-alert {
   display: none;
   background: #fef3c7;
@@ -2956,7 +2956,7 @@ body.mx-su-banner-visible { padding-top: 50px; }
 .mx-dt-more { list-style: none; color: #92400e; font-style: italic; }
 
 /* ==========================================================================
-   FR#3353 Phase A — Member-assignment row as security-posture dashboard
+   Member-assignment row as security-posture dashboard
    4-level ACL hierarchy, binary status icons, key-expiry traffic light.
    Light-theme optimized (matches :root palette at top of this file).
    ========================================================================== */
@@ -3062,7 +3062,7 @@ body.mx-su-banner-visible { padding-top: 50px; }
   font-size: 1.1rem;
 }
 
-/* FR#3353 Gap#2 — inline-edit ACL select in member row */
+/* inline-edit ACL select in member row */
 .col-acl { min-width: 140px; }
 .acl-select {
   appearance: none;
@@ -3108,7 +3108,7 @@ body.mx-su-banner-visible { padding-top: 50px; }
 }
 
 /* ==========================================================================
-   FR#3353 Phase B — Project-Detail structure: compact strips + tabsheets
+   Project-Detail structure: compact strips + tabsheets
    ========================================================================== */
 
 /* Stats strip — inline, dense, replaces bulky 3-card bar */
@@ -3298,7 +3298,7 @@ body.mx-su-banner-visible { padding-top: 50px; }
 }
 
 /* ==========================================================================
-   FR#3353 Gap#6 — Add Member inline panel (collapsible action zone)
+   Add Member inline panel (collapsible action zone)
    ========================================================================== */
 
 .detail-card__header {
@@ -3402,7 +3402,7 @@ body.mx-su-banner-visible { padding-top: 50px; }
 }
 
 /* ==========================================================================
-   FR#3353 Phase C — Docs tab: chips + filter + list
+   Docs tab: chips + filter + list
    ========================================================================== */
 
 .pd-doctypes-chips {
@@ -3508,7 +3508,7 @@ body.mx-su-banner-visible { padding-top: 50px; }
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
 }
-/* FR#3472 B — dedicated #Doc-ID input (narrow, numeric) */
+/* dedicated #Doc-ID input (narrow, numeric) */
 .pd-docs-filter__id {
   width: 90px;
   padding: 6px 10px;
@@ -3526,7 +3526,7 @@ body.mx-su-banner-visible { padding-top: 50px; }
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
 }
 
-/* FR#3610 — Runtime Config INI editor (3-tier rendering) */
+/* Runtime Config INI editor (3-tier rendering) */
 .runtime-config {
   display: flex;
   flex-direction: column;
@@ -3686,7 +3686,7 @@ body.mx-su-banner-visible { padding-top: 50px; }
 }
 
 /* ==========================================================================
-   FR#3353 Phase C — Document Detail page
+   Document Detail page
    ========================================================================== */
 
 #page-doc-detail { max-width: 960px; }
@@ -3958,7 +3958,7 @@ body.mx-su-banner-visible { padding-top: 50px; }
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
 }
 
-/* Relations table: delete button column (FR#3353 Phase C) */
+/* Relations table: delete button column */
 .rel-delete-btn {
   width: 28px; height: 28px;
   display: inline-flex;

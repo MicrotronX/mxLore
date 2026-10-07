@@ -648,7 +648,7 @@
           <option value="superseded">superseded</option>
           <option value="deleted">deleted</option>
         </select>
-        <!-- FR#3472 B — dedicated #Doc-ID lookup field -->
+        <!-- dedicated #Doc-ID lookup field -->
         <input id="pd-docs-id" type="text" inputmode="numeric" maxlength="8"
                class="pd-docs-filter__id" placeholder="# Doc-ID"
                title="Exact doc-id lookup (ignores other filters)"
@@ -677,7 +677,7 @@
       </div>
     </div>
 
-    <!-- Tab: Reviews (FR#3472 C / SPEC#3583) -->
+    <!-- Tab: Reviews -->
     <div class="pd-tab-panel" data-panel="reviews" role="tabpanel" hidden>
       <div class="detail-card">
         <div class="detail-card__header">
@@ -711,9 +711,9 @@
     </div>
   </div>
 
-  <!-- ===== Doc Detail Page (FR#3353 Phase C + FR#3600 Tab-Layout) ===== -->
+  <!-- ===== Doc Detail Page (Tab-Layout) ===== -->
   <div id="page-doc-detail" class="page">
-    <!-- Sticky header + action-toolbar (FR#3600) -->
+    <!-- Sticky header + action-toolbar -->
     <div class="doc-detail-sticky">
       <div class="doc-detail-header">
         <button id="btn-back-doc" class="page-back-btn"
@@ -789,7 +789,7 @@
       </div>
 
       <!-- Change-reason lives in sticky header so it's visible in edit-mode
-           regardless of which tab the user is viewing (FR#3600). -->
+           regardless of which tab the user is viewing. -->
       <div id="doc-detail-edit-reason" class="doc-detail__edit-reason" hidden>
         <label for="doc-detail-reason-input">Change reason (optional):</label>
         <input type="text" id="doc-detail-reason-input" placeholder="e.g. 'fix typo', 'add M4 task'" maxlength="200">
@@ -853,7 +853,7 @@
       </div>
     </div>
 
-    <!-- Tab: Reviews (FR#3472 A) -->
+    <!-- Tab: Reviews -->
     <div class="pd-tab-panel" data-panel="reviews" role="tabpanel" hidden>
       <div class="detail-card" id="doc-detail-thread-card">
         <div class="detail-card__header">
@@ -1049,7 +1049,7 @@
       <p class="page-header__sub">Skills, Lessons, Knowledge Graph &amp; Recall — self-improving AI memory</p>
     </div>
 
-    <!-- FR#3294 / SPEC#3583 — Semantic Search status banner -->
+    <!-- Semantic Search status banner -->
     <div id="intel-banner" class="alert" style="margin-bottom:var(--gap-md);display:none"></div>
 
     <div id="skills-alert" class="alert" style="margin-bottom:var(--gap-md)"></div>
@@ -1301,7 +1301,7 @@
 
   </div>
 
-  <!-- ===== Settings Page (v2.4.0 / FR#3296 tabbed) ===== -->
+  <!-- ===== Settings Page (v2.4.0 tabbed) ===== -->
   <div id="page-settings" class="page">
     <div class="page-header" style="margin-bottom: var(--gap-lg)">
       <h2 class="page-header__title">
@@ -1340,7 +1340,7 @@
       </button>
     </div>
 
-    <!-- Tab: Self-Update (FR#2242) -->
+    <!-- Tab: Self-Update -->
     <div class="pd-tab-panel is-active" data-panel="self-update" role="tabpanel">
       <div class="card" style="padding: var(--gap-lg); max-width: 720px">
         <h3 style="margin-bottom: var(--gap-md)">
@@ -1427,7 +1427,7 @@
       </form>
     </div>
 
-    <!-- Tab: Runtime Config (FR#3610 — editable INI settings with 3-tier safety) -->
+    <!-- Tab: Runtime Config (editable INI settings with 3-tier safety) -->
     <div class="pd-tab-panel" data-panel="runtime" role="tabpanel" hidden>
       <div class="alert alert--warning visible" style="display:block; max-width: 880px">
         <strong>🔒 Security boundary:</strong>
@@ -1442,7 +1442,7 @@
       </div>
     </div>
 
-    <!-- Tab: Syslog (FR#3296 Phase B — placeholder until backend endpoint ships) -->
+    <!-- Tab: Syslog (placeholder until backend endpoint ships) -->
     <div class="pd-tab-panel" data-panel="syslog" role="tabpanel" hidden>
       <div class="card" style="padding: var(--gap-lg); max-width: 720px">
         <h3 style="margin-bottom: var(--gap-md)">
@@ -1452,7 +1452,7 @@
           Coming soon — server log viewer with level filter (info / warn / error)
           and tail mode. Requires a dedicated backend endpoint
           (<code>GET /api/logs?lines=N&amp;levels=...</code>) reading from
-          <code>logs/mxLoreMCP.log</code>. Planned as Phase B of FR#3296.
+          <code>logs/mxLoreMCP.log</code>.
         </p>
         <small class="form-hint" style="display:block; margin-top: var(--gap-sm)">
           Until this ships, use the structured call-log via <code>mx_briefing</code>

@@ -1,13 +1,13 @@
 /* ============================================================
-   acl-helper.js  —  Admin-UI ACL gate (Plan#4007 M3 / T08)
+   acl-helper.js — Admin-UI ACL gate
    Centralizes per-project access-level checks mirrored from the
    backend /auth/login + /auth/check responses:
      developer.is_admin       : boolean
      developer.access_levels  : { "<project_id>": "<level>" }
    Levels: 'read' | 'comment' | 'read-write' (+ legacy 'write')
-   Admin hard-bypass (OQ8): is_admin=true returns true for all
+   Admin hard-bypass: is_admin=true returns true for all
    canView/canComment/canEdit regardless of access_levels map.
-   Global access-keys: canAdmin() requires is_admin (OQ1).
+   Global access-keys: canAdmin requires is_admin.
    Defensive by default: all can*() return false when state unset.
    ============================================================ */
 var AclHelper = (function () {
@@ -16,7 +16,7 @@ var AclHelper = (function () {
   var _levels  = Object.create(null);  // map<string, string>
 
   // Canonical level strings (keep 'write' for legacy rows until sql migration
-  // drops it — ADR#3264 4-level whitelist). 'none' / null / undefined = deny.
+  // drops it — 4-level whitelist). 'none' / null / undefined = deny.
   var EDIT_LEVELS    = { 'read-write': 1, 'write': 1 };
   var COMMENT_LEVELS = { 'comment': 1, 'read-write': 1, 'write': 1 };
   // View = any non-null level (read/comment/read-write/write)
@@ -85,7 +85,7 @@ var AclHelper = (function () {
   }
 
   function canAdmin(/* projectId */) {
-    // Only global admin may change ACL (OQ1 — no per-project admin role)
+    // Only global admin may change ACL (no per-project admin role)
     return _isAdmin === true;
   }
 

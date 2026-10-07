@@ -230,7 +230,7 @@ const Api = (function () {
     });
   }
 
-  // FR#3353 Phase A Gap#2 — single-pair project-access upsert/delete
+  // single-pair project-access upsert/delete
   function setProjectAccess(projId, developerId, accessLevel) {
     return request('PUT', '/projects/' + projId + '/access', {
       developer_id: developerId,
@@ -238,7 +238,7 @@ const Api = (function () {
     });
   }
 
-  // FR#3353 Phase C — filterable document list per project
+  // filterable document list per project
   function listProjectDocs(projId, opts) {
     opts = opts || {};
     var qs = [];
@@ -253,52 +253,52 @@ const Api = (function () {
     return request('GET', path);
   }
 
-  // FR#3353 Phase C — full document detail (view-only)
+  // full document detail (view-only)
   function getDoc(docId) {
     return request('GET', '/docs/' + docId);
   }
 
-  // FR#3353 Phase C — soft-delete document
+  // soft-delete document
   function deleteDoc(docId) {
     return request('DELETE', '/docs/' + docId);
   }
 
-  // FR#3353 Phase C — delete single relation row
+  // delete single relation row
   function deleteRelation(relId) {
     return request('DELETE', '/relations/' + relId);
   }
 
-  // FR#3353 Phase C — admin-side document edit
+  // admin-side document edit
   function updateDocAdmin(docId, changes) {
     return request('PUT', '/docs/' + docId, changes);
   }
 
-  // FR#3353 Phase C — delete project-relation
+  // delete project-relation
   function deleteProjectRelation(relId) {
     return request('DELETE', '/project-relations/' + relId);
   }
 
-  // --- Notes (FR#2936/Plan#3266 M2.6) ---
+  // --- Notes ---
   function getDeepThreads() {
     return request('GET', '/notes/deep-threads');
   }
 
-  // --- Intelligence status (FR#3294 / SPEC#3583) ---
+  // --- Intelligence status ---
   function getIntelligenceStatus() {
     return request('GET', '/intelligence/status');
   }
 
-  // --- Doc review thread (FR#3472 A / SPEC#3583) ---
+  // --- Doc review thread ---
   function getDocThread(docId) {
     return request('GET', '/docs/' + encodeURIComponent(docId) + '/thread');
   }
 
-  // --- Project reviews list (FR#3472 C / SPEC#3583) ---
+  // --- Project reviews list ---
   function getProjectReviews(projId) {
     return request('GET', '/projects/' + encodeURIComponent(projId) + '/reviews');
   }
 
-  // --- INI editor (FR#3610 runtime config) ---
+  // --- INI editor (runtime config) ---
   function getIni() {
     return request('GET', '/ini');
   }
@@ -357,15 +357,15 @@ const Api = (function () {
     getDeveloperProjects: getDeveloperProjects,
     updateDeveloperProjects: updateDeveloperProjects,
 
-    // --- Notes (FR#2936/Plan#3266 M2.6) ---
+    // --- Notes ---
     getDeepThreads: getDeepThreads,
 
-    // --- FR#3294 Intelligence / FR#3472 Thread-Viewer (SPEC#3583) ---
+    // --- Intelligence Thread-Viewer ---
     getIntelligenceStatus: getIntelligenceStatus,
     getDocThread: getDocThread,
     getProjectReviews: getProjectReviews,
 
-    // --- FR#3610 Runtime Config (INI editor) ---
+    // --- Runtime Config (INI editor) ---
     getIni: getIni,
     setIniValue: setIniValue,
 

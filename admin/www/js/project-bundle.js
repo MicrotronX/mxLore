@@ -1,5 +1,5 @@
 /* ============================================================
-   project-bundle.js — FR#3896 Project Export/Import
+   project-bundle.js — Project Export/Import
    Admin-UI module: multi-select + encrypted .mxbundle export,
                     wizard-based import with preview + conflict-res.
    Depends on: api.js (Api.getCsrfToken), app.js (escHtml helper).
@@ -99,7 +99,7 @@
     var tbody = document.getElementById('proj-table-body');
     if (!tbody) return;
 
-    // FR#3360 lockdown: Export/Import/Merge are admin-only (backend gates
+    // lockdown: Export/Import/Merge are admin-only (backend gates
     // POST /export, POST /import, POST /projects/merge). Don't render the
     // selection bar or Import button for non-admin devs.
     if (window.AclHelper && !AclHelper.isAdmin()) return;
@@ -352,7 +352,7 @@
         (drop !== '0' ? ('Dropped ' + drop + ' cross-bundle relation(s).') : ''));
       closeExportModal();
     } catch (e) {
-      // WF-2026-04-24-001 Task-Bonus - log raw error for devtools before the
+      // log raw error for devtools before the
       // UX-friendly alert (retained because no dedicated alert target exists
       // in this modal at this point).
       console.error('[bundle] Export failed:', e);
@@ -482,7 +482,7 @@
         if (res.status === 401) {
           txt = 'Wrong key or passphrase — bundle cannot be decrypted.';
         } else if (res.status === 403) {
-          // WF-2026-04-24-001 Task-Bonus - Import is admin-only server-side.
+          // Import is admin-only server-side.
           txt = 'Import is admin-only — log in as admin.';
         } else {
           txt = 'Preview failed (' + res.status + '): ' + (err.error || 'unknown');
@@ -507,7 +507,7 @@
           lastImportPreview._localDevs = (devData.developers || devData || []);
         }
       } catch (e) {
-        // WF-2026-04-24-001 Task-Bonus - non-fatal (mapping-UI degrades to
+        // non-fatal (mapping-UI degrades to
         // number input) but surface the cause for devtools.
         console.warn('[bundle] Dev-list fetch failed — mapping-UI may be degraded:', e);
       }
@@ -523,7 +523,7 @@
           }
         }
       } catch (e) {
-        // WF-2026-04-24-001 Task-Bonus - non-fatal; "Map all to me" just
+        // non-fatal; "Map all to me" just
         // won't show the current admin's name. Surface for devtools.
         console.warn('[bundle] auth/check fetch failed — "Map all to me" visualization degraded:', e);
       }

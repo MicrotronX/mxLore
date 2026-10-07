@@ -38,9 +38,8 @@ try {
 
   // Auto-Track: NO_WORKFLOW or JUST_COMPLETED signal when stack is empty
   if (stack.length === 0) {
+    // events_log is append-ordered (newest at end). Sort by ts desc; on a ts tie the higher index (later append) wins.
     const events = state.events_log || [];
-    // Fix: events_log may be reverse-chrono (newest at [0]) or chrono (newest at end).
-    // Sort defensively by ts desc so we always get the truly most-recent event.
     const sortedDesc = events.map((e, i) => ({ e, i }))
       .sort((a, b) => (new Date(b.e.ts || 0) - new Date(a.e.ts || 0)) || (b.i - a.i))
       .map(x => x.e);

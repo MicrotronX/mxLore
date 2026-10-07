@@ -1,5 +1,5 @@
 /* ============================================================
-   intelligence.js — FR#3294 / SPEC#3583
+   intelligence.js
    Banner above the Intelligence page when Semantic Search is
    inactive (or embeddings-empty). Reason-specific text + CTA.
    Endpoint: GET /admin/api/intelligence/status
@@ -19,7 +19,7 @@
       title: 'Semantic Search unavailable — MariaDB VECTOR column missing.',
       body:  'Your MariaDB installation does not expose the <code>documents.embedding</code> ' +
              'VECTOR column. Upgrade MariaDB to 11.6+ and restart the server so ' +
-             'sql/043 auto-migrate can add the column.',
+             'the automatic schema migration can add the column.',
       cta:   null
     },
     no_api_key: {
@@ -137,7 +137,7 @@
 
   function fetchAndRender() {
     if (typeof Api === 'undefined' || typeof Api.getIntelligenceStatus !== 'function') return Promise.resolve();
-    // FR#3360 lockdown: /api/intelligence/status is admin-only.
+    // lockdown: /api/intelligence/status is admin-only.
     // Fail-closed: if AclHelper is missing, skip too (Session 281 polish).
     if (!window.AclHelper || !AclHelper.isAdmin()) return Promise.resolve();
     return Api.getIntelligenceStatus()
