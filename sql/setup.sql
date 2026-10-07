@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS `developers` (
   `email` varchar(255) DEFAULT NULL,
   `role` varchar(50) DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `accept_agent_messages` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
@@ -88,6 +89,13 @@ CREATE TABLE IF NOT EXISTS `client_keys` (
   `last_used_at` datetime DEFAULT NULL,
   `last_used_ip` varchar(45) DEFAULT NULL,
   `expires_at` datetime DEFAULT NULL,
+  `revoked_at` datetime DEFAULT NULL,
+  `revoked_by` int(11) DEFAULT NULL,
+  `revoked_reason` varchar(255) DEFAULT NULL,
+  `revoke_ip` varchar(45) DEFAULT NULL,
+  `revoke_user_agent` varchar(255) DEFAULT NULL,
+  `revoke_actor_type` varchar(20) DEFAULT NULL,
+  `last_warned_stage` varchar(8) DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
   `key_kind` varchar(16) NOT NULL DEFAULT 'unbound',
   `device_id` varchar(64) DEFAULT NULL,
@@ -96,11 +104,15 @@ CREATE TABLE IF NOT EXISTS `client_keys` (
   `last_seen_device_id` varchar(64) DEFAULT NULL,
   `last_seen_proxy_version` varchar(32) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `active_prefix` varchar(12) AS (IF(`revoked_at` IS NULL, `key_prefix`, NULL)) VIRTUAL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_key_hash` (`key_hash`),
+  UNIQUE KEY `uq_active_key_prefix` (`active_prefix`),
   KEY `fk_client_keys_developer` (`developer_id`),
   KEY `idx_client_keys_prefix` (`key_prefix`),
-  CONSTRAINT `fk_client_keys_developer` FOREIGN KEY (`developer_id`) REFERENCES `developers` (`id`)
+  KEY `fk_client_keys_revoked_by` (`revoked_by`),
+  CONSTRAINT `fk_client_keys_developer` FOREIGN KEY (`developer_id`) REFERENCES `developers` (`id`),
+  CONSTRAINT `fk_client_keys_revoked_by` FOREIGN KEY (`revoked_by`) REFERENCES `developers` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `developer_project_access` (
@@ -336,6 +348,7 @@ CREATE TABLE IF NOT EXISTS `tool_call_log` (
   `latency_ms` int(11) NOT NULL DEFAULT 0,
   `is_error` tinyint(1) NOT NULL DEFAULT 0,
   `error_code` varchar(30) DEFAULT NULL,
+  `auth_reason` varchar(32) DEFAULT NULL COMMENT 'RFC7807 reason-code (e.g. expired, revoked, db_check_degraded)',
   `created_at` datetime(3) DEFAULT current_timestamp(3),
   PRIMARY KEY (`id`),
   KEY `idx_tcl_tool` (`tool_name`),

@@ -252,7 +252,8 @@ var
   {$IFDEF MSWINDOWS}
   SI: TStartupInfo;
   PI: TProcessInformation;
-  ExitCode: DWORD;
+  ExitCode, WaitRes: DWORD;
+  ErrText: string;
   {$ENDIF}
 begin
   Result := '';
@@ -269,26 +270,50 @@ begin
   // Backup directory
   BackupDir := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + 'backups';
   ForceDirectories(BackupDir);
-  Result := TPath.Combine(BackupDir,
-    'mxai_knowledge_' + FormatDateTime('yyyy-mm-dd_hhnnss', Now) + '.sql');
+  // Per-run unique suffix so concurrent backups do not share temp files
+  var RunId := TGUID.NewGuid.ToString.Replace('{', '').Replace('}', '');
+  var Stamp := FormatDateTime('yyyy-mm-dd_hhnnss', Now);
+  Result := TPath.Combine(BackupDir, 'mxai_knowledge_' + Stamp + '.sql');
+  // Two backups in the same second must not write the same dump file
+  if FileExists(Result) then
+    Result := TPath.Combine(BackupDir, 'mxai_knowledge_' + Stamp + '_' + Copy(RunId, 1, 8) + '.sql');
+
+  // Option files are line-based: a CR/LF in the password would break the cnf
+  if (Pos(#13, AConfig.DBPassword) > 0) or (Pos(#10, AConfig.DBPassword) > 0) then
+    raise Exception.Create('Backup aborted: DB password contains a line break (CR/LF), ' +
+      'which cannot be written to the mysqldump option file');
 
   // Write temp credentials file (avoids password in process list)
-  var CredFile := TPath.Combine(BackupDir, '.backup_creds.cnf');
+  var CredFile := TPath.Combine(BackupDir, '.backup_creds_' + RunId + '.cnf');
   var Creds := TStringList.Create;
   try
     Creds.Add('[mysqldump]');
-    Creds.Add('password=' + AConfig.DBPassword);
-    Creds.SaveToFile(CredFile, TEncoding.ANSI);
+    // Option-file quoting: escape backslash first, then double quote
+    Creds.Add('password="' + StringReplace(StringReplace(AConfig.DBPassword,
+      '\', '\\', [rfReplaceAll]), '"', '\"', [rfReplaceAll]) + '"');
+    try
+      Creds.SaveToFile(CredFile, TEncoding.ANSI);
+    except
+      // A partially written file still holds the password
+      if FileExists(CredFile) then
+        System.SysUtils.DeleteFile(CredFile);
+      raise;
+    end;
   finally
     Creds.Free;
   end;
 
+  // Temp error log (mysqldump --log-error), read on failure
+  var ErrFile := TPath.Combine(BackupDir, '.backup_err_' + RunId + '.log');
+  if FileExists(ErrFile) then
+    System.SysUtils.DeleteFile(ErrFile);
+
   try
     // Build command line (no password on CLI)
     CmdLine := Format('"%s" --defaults-extra-file="%s" --host=%s --port=%d --user=%s ' +
-      '--single-transaction --routines --triggers --result-file="%s" %s',
+      '--single-transaction --routines --triggers --log-error="%s" --result-file="%s" %s',
       [DumpExe, CredFile, AConfig.DBHost, AConfig.DBPort, AConfig.DBUsername,
-       Result, AConfig.DBDatabase]);
+       ErrFile, Result, AConfig.DBDatabase]);
 
     ALogger.Log(mlInfo, 'Backup starting: ' + Result);
 
@@ -304,18 +329,63 @@ begin
       CREATE_NO_WINDOW, nil, nil, SI, PI) then
       raise Exception.Create('CreateProcess error ' + IntToStr(GetLastError));
 
-    WaitForSingleObject(PI.hProcess, 60000); // max 60 sec
-    GetExitCodeProcess(PI.hProcess, ExitCode);
-    CloseHandle(PI.hProcess);
-    CloseHandle(PI.hThread);
+    try
+      WaitRes := WaitForSingleObject(PI.hProcess, 600000); // max 10 min
+      if WaitRes <> WAIT_OBJECT_0 then
+      begin
+        // Capture the wait error before later API calls reset it
+        var WaitErr: Cardinal := GetLastError;
+        // Kill the dump before the finally removes the credentials file
+        TerminateProcess(PI.hProcess, 1);
+        if WaitForSingleObject(PI.hProcess, 5000) <> WAIT_OBJECT_0 then
+          ALogger.Log(mlWarning, 'mysqldump did not exit after terminate; ' +
+            'partial dump and credentials file may remain: ' + Result + ', ' + CredFile);
+        if FileExists(Result) and not System.SysUtils.DeleteFile(Result) then
+          ALogger.Log(mlWarning, 'Could not delete partial backup file: ' + Result);
+        if WaitRes = WAIT_TIMEOUT then
+          raise Exception.Create('mysqldump timeout after 600 sec (process terminated)')
+        else
+          raise Exception.Create('mysqldump wait error ' + IntToStr(WaitErr));
+      end;
+      if not GetExitCodeProcess(PI.hProcess, ExitCode) then
+      begin
+        var ExitErr: Cardinal := GetLastError;
+        // Remove the dump: its completeness cannot be confirmed
+        if FileExists(Result) and not System.SysUtils.DeleteFile(Result) then
+          ALogger.Log(mlWarning, 'Could not delete partial backup file: ' + Result);
+        raise Exception.Create('GetExitCodeProcess error ' + IntToStr(ExitErr));
+      end;
+    finally
+      CloseHandle(PI.hProcess);
+      CloseHandle(PI.hThread);
+    end;
 
     if ExitCode <> 0 then
-      raise Exception.Create('mysqldump exit code ' + IntToStr(ExitCode));
+    begin
+      ErrText := '';
+      if FileExists(ErrFile) then
+      try
+        ErrText := Trim(TFile.ReadAllText(ErrFile));
+      except
+        ErrText := '';
+      end;
+      if Length(ErrText) > 500 then
+        ErrText := Copy(ErrText, 1, 500) + '...';
+      // Remove the partial dump so it is not mistaken for a valid backup
+      if FileExists(Result) and not System.SysUtils.DeleteFile(Result) then
+        ALogger.Log(mlWarning, 'Could not delete partial backup file: ' + Result);
+      if ErrText <> '' then
+        raise Exception.Create('mysqldump exit code ' + IntToStr(ExitCode) + ': ' + ErrText)
+      else
+        raise Exception.Create('mysqldump exit code ' + IntToStr(ExitCode));
+    end;
     {$ENDIF}
   finally
-    // Always delete temp credentials file
-    if FileExists(CredFile) then
-      System.SysUtils.DeleteFile(CredFile);
+    // Always delete temp credentials file and error log
+    if FileExists(CredFile) and not System.SysUtils.DeleteFile(CredFile) then
+      ALogger.Log(mlWarning, 'Could not delete backup credentials file: ' + CredFile);
+    if FileExists(ErrFile) then
+      System.SysUtils.DeleteFile(ErrFile);
   end;
 
   ALogger.Log(mlInfo, 'Backup completed: ' + Result);
