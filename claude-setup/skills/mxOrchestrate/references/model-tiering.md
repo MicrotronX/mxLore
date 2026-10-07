@@ -7,7 +7,7 @@ Main loop on premium model (Fable/Opus) → every subagent spawn (Agent-Tool, te
 | Tier | `model` | Task profile |
 |------|---------|--------------|
 | haiku | `haiku` | mechanical: state-file rewrites, file copy/sync, log tails, doc-body assembly from given content, simple greps |
-| sonnet | `sonnet` | **DEFAULT** for subagents: mxOrchestrate HEAVY modes (init/resume/status/suggest), MCP CRUD flows, mxBugChecker/mxDesignChecker standard scope, Explore/codebase-search, standard implementation steps. MINI modes spawn nothing (see SKILL.md → Weight routing) — the cheapest spawn is no spawn |
+| sonnet | `sonnet` | **DEFAULT** for subagents: mxOrchestrate HEAVY modes (init/resume/status/suggest), MCP CRUD flows, Explore/codebase-search, standard implementation steps (checkers fork themselves via Skill-Tool, no caller spawn). MINI modes spawn nothing (see SKILL.md → Weight routing) — the cheapest spawn is no spawn |
 | inherit | omit param | top-tier reasoning genuinely required: architecture decisions, security-critical analysis, cross-cutting refactors, ambiguous specs |
 
 - ⚡ Orchestration *intelligence* (skill routing, escalation judgment, interpreting results) lives in the MAIN loop (premium model) — the /mxOrchestrate subagent executes a fully specified procedure (state CRUD, fixed decision trees), so `sonnet` suffices. Ambiguity safety net: diverged state / code-vs-doc conflict → STOP + ?user regardless of model.

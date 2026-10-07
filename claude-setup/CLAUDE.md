@@ -17,7 +17,7 @@ last_save_deltas≥15→mxSave aktive Compact-Frage. ≥10→Tipp-Zeile. ≥1→
 ## Context
 3+files→Agent(Explore) !sequential reads. codebase-search→subagent !main-ctx
 subagent return: max20, 1line each `file:line—finding` !raw-code
-mxDesignChecker/mxBugChecker/mxHealth→Agent !main-ctx
+mxDesignChecker/mxBugChecker/mxHealth→Skill-Tool (fork themselves, context: fork) !Agent-wrap !main-ctx
 grep-first→read(offset/limit) !>200lines !speculative
 !repeat-user !explain-intent →just-do-it. results>explanations
 ⚡ !Bash for MCP-calls. !`claude --print`. !`claude -p`. ALWAYS MCP-tools direct (mx_search, mx_detail, mx_update_doc etc.)

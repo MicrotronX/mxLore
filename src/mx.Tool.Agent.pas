@@ -194,7 +194,7 @@ begin
   PayloadLen := Length(Payload);
   if PayloadLen > PAYLOAD_HARD_LIMIT then
     raise EMxValidation.CreateFmt(
-      'Payload too large (%d > %d chars hard limit). Split or summarise.',
+      'Payload too large (%d > %d chars hard limit). Put the detail in mx_create_doc and send its id as ref_doc_id.',
       [PayloadLen, PAYLOAD_HARD_LIMIT]);
 
   // Resolve sender project from session context. M3.1: lower floor to alReadOnly

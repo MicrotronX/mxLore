@@ -2,6 +2,9 @@
 name: mxDesignChecker
 description: Use when the user says "/designcheck", "/mxDesignChecker", "review the design", "check the spec", "review this ADR", "audit architecture", "second opinion on this code", or otherwise requests design/spec/ADR review or code-vs-design audit. Verified-knowledge design reviewer — every finding requires concrete proof from spec or code. Loads specs/designs from the mxLore Knowledge-DB via MCP and persists findings via Skill Evolution. NO automatic corrections — all fixes require user confirmation.
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash
+context: fork
+agent: general-purpose
+background: false
 ---
 
 ## Output Format ⚡
@@ -12,7 +15,7 @@ Read ~/.claude/skills/_shared/reasoning-leak-rule.md.
 
 # /mxDesignChecker — Design & Code Review (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
-> **Context:** ALWAYS as subagent(Agent-Tool) !main-context. Result: max 20 lines, findings only. Called from brainstorming(Design) and executing-plans(Code).
+> **Context:** runs forked (frontmatter `context: fork`) — the harness gives it its own context; the caller gets only the report. Called via the Agent tool instead → same rules. !main-context. Result: max 20 lines, findings only. Called from brainstorming(Design) and executing-plans(Code).
 > ⚡ **Spawn WITHOUT the `name` param.** A named agent is a mailbox teammate: its report is not delivered as the call's result, the caller sees only an `idle_notification` — indistinguishable from a dead agent, and it reads like a passed check. Measured all-else-equal; length is not the factor. `name` is legitimate ONLY for an agent you deliberately want to keep talking to, and then the caller must fetch the result itself via `SendMessage` — silence from a named agent means nothing. Answer missing? Grep the transcript (`…/subagents/agent-a*<name-or-id>*.jsonl`, last `assistant` entry) instead of re-running.
 
 Software architect+senior dev. Review design docs and code for risks/bugs. **Second opinion** — thorough, critical, constructive.
@@ -37,6 +40,7 @@ This skill fires on:
 4. CRITICAL→mandatory double-read
 
 ## Mode Detection
+- Flags (--review-pending/--adversarial) are stripped before matching; only --review-pending → Pending-Review-only.
 - Slug/DB-Ref(SPEC-xxx, PLAN-xxx, doc_id=N)→load from DB→Spec-Review(3) or Design-Check(1)
 - Local `SPEC-*.md`→Spec-Review(3) | `*-design.md`→Design-Check(1)
 - Source file(.pas/.php/.js/.ts/.html)→Code-Check(2)
@@ -61,7 +65,7 @@ Read code→search related design(MCP: mx_search doc_type='spec'/'plan' | local:
 Read spec completely→apply spec-review.md rules→check technical feasibility
 
 ## Adversarial Verify (optional, on request or `--adversarial`)
-Each finding above INFO → 1 independent refuter-agent (parallel, prompt: 'Try to refute this finding with code proof'). Refuted → discard; partially refuted → downgrade severity. Output notes refuted-count. Costs ~1 agent/finding — use for release-gates or low-confidence runs.
+Each finding above INFO → 1 independent refuter-agent (parallel, prompt: 'Try to refute this finding with code proof'). Refuted → discard; partially refuted → downgrade severity. Output notes refuted-count. Costs ~1 agent/finding — use for release-gates or low-confidence runs. Forked/no Agent tool → refute inline (second read pass per finding trying to disprove it), mark report `adversarial: inline`.
 
 ### Gate-check (before report, findings > 0 only)
 ⚡ `Read ~/.claude/skills/_shared/skill-metrics-gate.md` (SSoT). One `mx_skill_metrics(skill='mxDesignChecker', project=<slug>)` call HERE — end of Analysis, before Phase 3 builds the report table. Calling it later (inside Phase 3b, after the table is already rendered) cannot annotate a table that has already been printed. Mark gated-rule findings for the Phase 3 table: append `⚠ low-precision rule` to their row.
@@ -110,8 +114,8 @@ After recording: `**Skill Evolution:** N findings persisted. Feedback: mx_skill_
 
 ## Phase 4: Corrections + Verdicts
 ⚡ !automatic corrections — ALL require user confirmation
-1. CRITICAL→?user whether to apply fix+show concrete fix
-2. WARNING→list suggestions, user decides
+1. CRITICAL→?user whether to apply fix+show concrete fix. Forked run → put the fix in the report; the caller asks the user (a fork cannot ask).
+2. WARNING→list suggestions, user decides. Forked run → put the suggestions in the report; the caller asks the user (a fork cannot ask).
 3. INFO→report only
 ∅Findings→`/mxDesignChecker: No issues in <N> categories. Design/code clean.`
 MCP: check active workflow→mention step completion
@@ -125,11 +129,12 @@ The user's call on each finding→immediately `mx_skill_feedback(finding_uid='..
 - ⚡ !route "won't fix" into `false_positive` — that turns `precision` into an effort ratio
 - ⚡ !invent a verdict the user did not state. Undecided→stays `pending` and gets reported, !silently dismissed
 - Caller (main context/mxOrchestrate) applying fixes outside the checker→MUST also record the verdict
+- Forked run → verdicts stay pending; report ends with one line `uids: #1=<finding_uid>, #2=…` so the caller can record mx_skill_feedback.
 
 ### Pending-Review (optional, with `--review-pending` argument)
-1. `mx_skill_findings_list(project='<slug>', skill='mxDesignChecker', status='pending')` → load all open findings
+1. `mx_skill_findings_list(project='<slug>', skill='mxDesignChecker', status='pending', limit=10)` → load open findings, page
 2. For each finding: check file:line whether the issue still exists
-3. ⚡ Present finding + evidence, user picks the verdict. Re-adjudication is a PROPOSAL — !write a reaction on the checker's own findings without the user's word
+3. ⚡ Present finding + evidence, user picks the verdict. Re-adjudication is a PROPOSAL — !write a reaction on the checker's own findings without the user's word. Forked run → output proposal table (finding_uid | still-exists? file:line | proposed verdict), write NO mx_skill_feedback; caller asks user + records.
 4. "Code changed" is no verdict by itself: defect was fixed→`confirmed` | defect stopped mattering→`dismissed`
 
 ## Rules

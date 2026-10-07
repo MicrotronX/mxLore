@@ -165,7 +165,7 @@ Before tagging any finding above INFO, answer in the finding body (Root Cause or
 - "SQL string could be injected" — but the query is built from a hardcoded const, not user input.
 
 ## Adversarial Verify (optional, on request or `--adversarial`)
-Each finding above INFO → 1 independent refuter-agent (parallel, prompt: 'Try to refute this finding with code proof'). Refuted → discard; partially refuted → downgrade severity. Output notes refuted-count. Costs ~1 agent/finding — use for release-gates or low-confidence runs.
+Each finding above INFO → 1 independent refuter-agent (parallel, prompt: 'Try to refute this finding with code proof'). Refuted → discard; partially refuted → downgrade severity. Output notes refuted-count. Costs ~1 agent/finding — use for release-gates or low-confidence runs. Forked/no Agent tool → refute inline (second read pass per finding trying to disprove it), mark report `adversarial: inline`.
 
 ## Language Semantics ⚡
 

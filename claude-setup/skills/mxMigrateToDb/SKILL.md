@@ -116,7 +116,7 @@ Migration completed:
 
 3. **Verification:** Call `mx_briefing(project='<slug>')` and show the current document overview.
 
-4. **Health check:** Run `/mxHealth` as subagent — checks import quality (missing relations, bad summaries, wrong statuses).
+4. **Health check:** Run `/mxHealth` (Skill tool; forks itself) — checks import quality (missing relations, bad summaries, wrong statuses).
 
 5. **Output notes:**
    - "Local index files (index.md) are no longer needed — the DB is the source of truth."
