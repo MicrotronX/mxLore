@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS `developers` (
   `email` varchar(255) DEFAULT NULL,
   `role` varchar(50) DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `ui_login_enabled` tinyint(1) NOT NULL DEFAULT 1,
   `accept_agent_messages` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
@@ -186,15 +187,19 @@ CREATE TABLE IF NOT EXISTS `invite_links` (
   `raw_api_key_obfuscated` varchar(256) DEFAULT NULL,
   `confirmed_at` datetime DEFAULT NULL,
   `created_by` int(11) NOT NULL,
-  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `created_at` datetime DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
-  UNIQUE KEY `idx_invite_token` (`token`),
+  UNIQUE KEY `uq_invite_token` (`token`),
   KEY `idx_invite_expires` (`expires_at`),
-  KEY `fk_invite_developer` (`developer_id`),
-  KEY `fk_invite_key` (`client_key_id`),
-  CONSTRAINT `fk_invite_developer` FOREIGN KEY (`developer_id`) REFERENCES `developers` (`id`),
-  CONSTRAINT `fk_invite_key` FOREIGN KEY (`client_key_id`) REFERENCES `client_keys` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  KEY `idx_invite_developer` (`developer_id`),
+  KEY `fk_invite_client_key` (`client_key_id`),
+  KEY `fk_invite_created_by` (`created_by`),
+  KEY `fk_invite_revoked_by` (`revoked_by`),
+  CONSTRAINT `fk_invite_developer` FOREIGN KEY (`developer_id`) REFERENCES `developers` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_invite_client_key` FOREIGN KEY (`client_key_id`) REFERENCES `client_keys` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_invite_created_by` FOREIGN KEY (`created_by`) REFERENCES `developers` (`id`),
+  CONSTRAINT `fk_invite_revoked_by` FOREIGN KEY (`revoked_by`) REFERENCES `developers` (`id`) ON DELETE SET NULL
+)ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
 -- Documents (core knowledge store)
@@ -218,6 +223,8 @@ CREATE TABLE IF NOT EXISTS `documents` (
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `created_by` varchar(100) DEFAULT NULL,
+  `created_by_developer_id` int(11) DEFAULT NULL,
+  `created_by_client_key_id` int(11) DEFAULT NULL,
   `access_count` int(11) NOT NULL DEFAULT 0,
   `confidence` decimal(3,2) NOT NULL DEFAULT 0.50,
   `lesson_data` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'Structured lesson metadata (JSON). Only for doc_type=lesson.' CHECK (json_valid(`lesson_data`)),
@@ -225,15 +232,22 @@ CREATE TABLE IF NOT EXISTS `documents` (
   `success_count` int(11) NOT NULL DEFAULT 0 COMMENT 'Times this lesson was applied successfully',
   `embedding` VECTOR(1536) DEFAULT NULL,
   `embedding_stale` TINYINT(1) NOT NULL DEFAULT 1,
+  `root_parent_doc_id` int(11) DEFAULT NULL,
+  `depth` smallint(6) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_doc` (`project_id`,`doc_type`,`slug`),
   KEY `idx_project_type` (`project_id`,`doc_type`,`status`),
   KEY `idx_relevance` (`relevance_score`),
   KEY `idx_documents_lesson_scope` (`doc_type`,`status`) COMMENT 'Optimizes lesson queries in mx_recall',
   KEY `idx_embedding_stale` (`embedding_stale`, `doc_type`),
+  KEY `idx_documents_root_parent` (`root_parent_doc_id`),
+  KEY `idx_doc_created_by_dev` (`created_by_developer_id`),
+  KEY `idx_doc_created_by_key` (`created_by_client_key_id`),
   FULLTEXT KEY `ft_documents` (`title`,`summary_l2`,`content`),
-  CONSTRAINT `fk_doc_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  CONSTRAINT `fk_doc_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`),
+  CONSTRAINT `fk_doc_created_by_dev` FOREIGN KEY (`created_by_developer_id`) REFERENCES `developers` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_doc_created_by_key` FOREIGN KEY (`created_by_client_key_id`) REFERENCES `client_keys` (`id`) ON DELETE SET NULL
+)ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Embedding stale triggers (auto-set on content/title changes)
 DELIMITER //
@@ -284,12 +298,18 @@ CREATE TABLE IF NOT EXISTS `doc_revisions` (
   `content` mediumtext DEFAULT NULL,
   `summary_l2` text DEFAULT NULL,
   `changed_by` varchar(100) DEFAULT NULL,
+  `changed_by_developer_id` int(11) DEFAULT NULL,
+  `changed_by_client_key_id` int(11) DEFAULT NULL,
   `changed_at` datetime NOT NULL DEFAULT current_timestamp(),
   `change_reason` varchar(500) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_revision` (`doc_id`,`revision`),
-  CONSTRAINT `fk_rev_doc` FOREIGN KEY (`doc_id`) REFERENCES `documents` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  KEY `idx_rev_changed_by_dev` (`changed_by_developer_id`),
+  KEY `idx_rev_changed_by_key` (`changed_by_client_key_id`),
+  CONSTRAINT `fk_rev_doc` FOREIGN KEY (`doc_id`) REFERENCES `documents` (`id`),
+  CONSTRAINT `fk_rev_changed_by_dev` FOREIGN KEY (`changed_by_developer_id`) REFERENCES `developers` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_rev_changed_by_key` FOREIGN KEY (`changed_by_client_key_id`) REFERENCES `client_keys` (`id`) ON DELETE SET NULL
+)ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
 -- Sessions & Access Tracking
