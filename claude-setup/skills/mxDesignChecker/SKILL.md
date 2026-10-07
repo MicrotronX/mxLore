@@ -15,7 +15,7 @@ Read ~/.claude/skills/_shared/reasoning-leak-rule.md.
 
 # /mxDesignChecker — Design & Code Review (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
-> **Context:** runs forked (frontmatter `context: fork`) — the harness gives it its own context; the caller gets only the report. Called via the Agent tool instead → same rules. !main-context. Result: max 20 lines, findings only. Called from brainstorming(Design) and executing-plans(Code).
+> **Context:** runs forked (frontmatter `context: fork`) — the harness gives it its own context; the caller gets only the report. Called via the Agent tool instead → same rules. !main-context. Result: hard max 20 lines incl. header + uids line, findings only; >20→cut INFO rows first, then Searched/Unverified detail. Called from brainstorming(Design) and executing-plans(Code).
 > ⚡ **Spawn WITHOUT the `name` param.** A named agent is a mailbox teammate: its report is not delivered as the call's result, the caller sees only an `idle_notification` — indistinguishable from a dead agent, and it reads like a passed check. Measured all-else-equal; length is not the factor. `name` is legitimate ONLY for an agent you deliberately want to keep talking to, and then the caller must fetch the result itself via `SendMessage` — silence from a named agent means nothing. Answer missing? Grep the transcript (`…/subagents/agent-a*<name-or-id>*.jsonl`, last `assistant` entry) instead of re-running.
 
 Software architect+senior dev. Review design docs and code for risks/bugs. **Second opinion** — thorough, critical, constructive.
@@ -40,16 +40,17 @@ This skill fires on:
 4. CRITICAL→mandatory double-read
 
 ## Mode Detection
-- Flags (--review-pending/--adversarial) are stripped before matching; only --review-pending → Pending-Review-only.
+- Flags (--review-pending/--adversarial) are stripped before matching; only --review-pending → Pending-Review-only: Phases 2, 3 and 3b are skipped.
 - Slug/DB-Ref(SPEC-xxx, PLAN-xxx, doc_id=N)→load from DB→Spec-Review(3) or Design-Check(1)
 - Local `SPEC-*.md`→Spec-Review(3) | `*-design.md`→Design-Check(1)
 - Source file(.pas/.php/.js/.ts/.html)→Code-Check(2)
-- ∅Argument→search newest design doc(DB or docs/plans/)→Mode 1
+- ∅Argument→build the VCS file index exactly as `~/.claude/skills/mxBugChecker/SKILL.md` Phase 1 step 2 (tool-probe detection, deeper root wins, index scoped to `.`, `|| echo none`, per-file diff size-gated <200000 bytes, `D`=deleted !diff, skipped files named in header, !unbounded diff). ALL rules of that step apply, incl. naming the VCS used and the ∅VCS limitation. Changes = non-empty `git status --porcelain -- .` / `svn status .` output (!='none'); `git log` = context only, never counts as a change; changed-file list comes from the status output. Changes→Code-Check(2) on the changed files | ∅changes→newest design doc(DB or docs/plans/)→Mode 1 | ∅VCS→same Mode 1 fallback, but ∅VCS is a LIMITATION, !clean pass → header says `VCS: none — no change comparison`
+- ⚡ Report header names the chosen mode + reason (`**Mode:** 2 — 3 changed files in git index` | `**Mode:** 1 — no changes, newest design doc` | `**Mode:** 1 — VCS: none, newest design doc`)
 
 ## Phase 1: Load context
 1. CLAUDE.md→project type+slug. Keywords: Delphi/VCL/FMX→`references/delphi-rules.md` | PHP/HTML/JS/TS→`references/web-rules.md` | Always: `references/general-rules.md` | Mode 3: +`references/spec-review.md`. ⚡ **Canonical source is `references/` only.** A `rules/` folder may still exist for backward-compat on older installs, but it is STALE — never read from it, never write to it, and surface a warning if found during Phase 1.
 2. docs/status.md→header+recent changes
-3. **Load document:** ⚡ MCP tools deferred? → load first per `~/.claude/skills/_shared/mcp-tools-load.md`, then `mx_ping()` and state its result in the report (tool-missing ≠ server-down — a checker that mistakes the two persists nothing and looks green). MCP(Slug)→`mx_search(project, doc_type='spec,plan,decision', query='<slug>', status='active', include_content=false, limit=5)` then `mx_detail(doc_id, max_content_tokens=0)` for the full body. ⚡ **`max_content_tokens=0` is REQUIRED** — the 600-token default silently truncates and causes false "not found" / "section missing" findings. Local fallback → Read file directly.
+3. **Load document:** ⚡ MCP tools deferred? → load first per `~/.claude/skills/_shared/mcp-tools-load.md` in ONE `select:` = shared base list (mx_ping, mx_search, mx_detail, mx_create_doc, mx_update_doc, mx_skill_feedback) + mx_skill_metrics, mx_skill_manage, mx_skill_findings_list, then `mx_ping()` and state its result in the report (tool-missing ≠ server-down — a checker that mistakes the two persists nothing and looks green). MCP(Slug)→`mx_search(project, doc_type='spec,plan,decision', query='<slug>', status='active', include_content=false, limit=5)` then `mx_detail(doc_id, max_content_tokens=0)` for the full body. ⚡ **`max_content_tokens=0` is REQUIRED** — the 600-token default silently truncates and causes false "not found" / "section missing" findings. Local fallback → Read file directly.
 4. ⚡ **MCP down → continue with CLAUDE.md + status.md + local files only; never abort Phase 1.**
 
 ## Phase 2: Analysis (max 5 categories from rules files)
@@ -74,7 +75,7 @@ Each finding above INFO → 1 independent refuter-agent (parallel, prompt: 'Try 
 
 ```markdown
 ## /mxDesignChecker Report — <Name>
-**Type:** <from CLAUDE.md> | **Source:** <DB(doc_id=X)|local(path)>
+**Mode:** <1|2|3 — reason> | **Type:** <from CLAUDE.md> | **Source:** <DB(doc_id=X)|local(path)> | **VCS:** <git|svn root|none — no change comparison> | **not diffed:** <skipped files, ∅ if none>
 **Rules:** general.md, <tech>.md | **Categories:** <3-5> | **Locations read:** <N>
 
 ### Findings
@@ -118,7 +119,7 @@ After recording: `**Skill Evolution:** N findings persisted. Feedback: mx_skill_
 2. WARNING→list suggestions, user decides. Forked run → put the suggestions in the report; the caller asks the user (a fork cannot ask).
 3. INFO→report only
 ∅Findings→`/mxDesignChecker: No issues in <N> categories. Design/code clean.`
-MCP: check active workflow→mention step completion
+MCP: `mx_search(project=<slug>, doc_type='workflow_log', status='active', include_content=false, limit=3)`→mention matching step in report. Forked run only reports, !updates the workflow.
 
 ### Record Verdicts (⚡ MANDATORY — no finding leaves the run undecided)
 Read ~/.claude/skills/_shared/skill-verdicts.md — SSoT for what the three reactions mean.
@@ -132,7 +133,7 @@ The user's call on each finding→immediately `mx_skill_feedback(finding_uid='..
 - Forked run → verdicts stay pending; report ends with one line `uids: #1=<finding_uid>, #2=…` so the caller can record mx_skill_feedback.
 
 ### Pending-Review (optional, with `--review-pending` argument)
-1. `mx_skill_findings_list(project='<slug>', skill='mxDesignChecker', status='pending', limit=10)` → load open findings, page
+1. `mx_skill_findings_list(project='<slug>', skill='mxDesignChecker', status='pending', limit=200)` → ONE call loads open findings (!page param). 200 rows back→mark report `truncated`
 2. For each finding: check file:line whether the issue still exists
 3. ⚡ Present finding + evidence, user picks the verdict. Re-adjudication is a PROPOSAL — !write a reaction on the checker's own findings without the user's word. Forked run → output proposal table (finding_uid | still-exists? file:line | proposed verdict), write NO mx_skill_feedback; caller asks user + records.
 4. "Code changed" is no verdict by itself: defect was fixed→`confirmed` | defect stopped mattering→`dismissed`

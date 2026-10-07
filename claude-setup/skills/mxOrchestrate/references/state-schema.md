@@ -36,7 +36,7 @@ plain `date` are local time; stamping those with a `Z` mislabels them.
 
 **Why this is load-bearing:** the tracker-gap guard passes `last_save` straight into
 `mx_session_delta(since=…)`. The server reads the `Z` as UTC and converts into the DB's
-local time (`ISO8601ToDate(s, False)`, `mx.Tool.Session.pas`). A local timestamp labelled
+local time (`MxParseSince`, `mx.Errors.pas`; a value without zone is taken as server-local). A local timestamp labelled
 `Z` thus lands `UTC_OFFSET` hours in the **future**: the cutoff outruns every real change,
 `total_changes` returns `0`, and the guard reports "nothing unsaved" while writes sit in
 MCP. Reproduced live at UTC+2 — `since=13:02Z` → server echo `15:02:00` → `total_changes=0`;

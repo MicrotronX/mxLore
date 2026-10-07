@@ -36,7 +36,9 @@ entirely from output).
 
 ## P3: Cross-Reference Consistency (DB)
 
-- **Trigger:** Always; uses `mx_search(include_details=true)` relation data.
+- **Trigger:** Always; `mx_batch_detail(doc_ids=[...], level='full')` over the
+  sampled ids (relation data). !`mx_search(include_details=true)` — loads
+  relations only for <= 5 results. Report coverage: `P3 covered N docs`.
 - **Checks:** Each relation's target exists and is not deleted; A->B implies
   B->A bidirectional.
 - **Severity:** `ERROR` for relation pointing at deleted doc | `WARNING` for
@@ -125,8 +127,8 @@ entirely from output).
 - **Checks:** All non-archived/non-deleted docs (excluding `session_note`,
   `workflow_log`) with `token_estimate < 50`.
 - **Severity:** `WARNING`.
-- **Persistence:** Phase 3b note + Phase 4 bugreport. Phase 5 auto-fix
-  removes P9 stubs (B6.5).
+- **Persistence:** Phase 3b note + Phase 4 bugreport. Phase 5 lists P9 ids
+  report-only; caller decides. !delete !modify.
 
 ## P10: Auto-Relations (Cross-Reference Scan)
 
@@ -137,19 +139,22 @@ entirely from output).
   `"based on"->assumes`, `"replaces"->supersedes`, `"leads to"->leads_to`,
   `"caused by"->caused_by`, `"depends on"->depends_on`,
   `"rejected in favor of"->rejected_in_favor_of`, default -> `references`.
-  Duplicate-check before `mx_add_relation`. Follow the relation-type
+  Skip candidates whose relation already exists. Follow the relation-type
   conventions already established in the target project — do NOT resolve a
   doc_id cited in this skill against the reader's DB; IDs here are not portable.
 - **Severity:** `INFO`.
-- **Persistence:** None (INFO); creates relations directly.
+- **Persistence:** None (INFO). Report candidates `source -> target (type)`
+  only. ⚡ !`mx_add_relation` (no relation or document writes; only Phase 3b/4 persistence; runs unattended under
+  `/loop`); the caller creates relations.
 
 ## P11: CLAUDE.md Duplicate Check (local)
 
 - **Trigger:** Always.
 - **Checks:** Compare global `~/.claude/CLAUDE.md` sections vs project
   `CLAUDE.md`. Typical duplicates: Security, Encoding, Context-Management,
-  Shell, Skill-Routing, Delphi/PHP-Mindset. Project CLAUDE.md > 100 lines ->
-  `WARNING` (target: <= 100 lines project-specific). No auto-fix; report only.
+  Shell, Skill-Routing, Delphi/PHP-Mindset. !line-count gate — weight is
+  measured in bytes + longest line (`LC_ALL=C`), budget per P7. No auto-fix;
+  report only.
 - **Severity:** `WARNING`.
 - **Persistence:** Phase 3b note + Phase 4 bugreport.
 

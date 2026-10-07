@@ -30,10 +30,10 @@ This skill fires on:
 ## Phase 1: Load Inventory
 Execute in parallel:
 1. `mx_briefing(project)` — Overview
-2. `mx_search(project, doc_type='plan')` + `spec` + `decision` + `workflow_log`
+2. `mx_search(project, doc_type=<one type>, include_content=false, limit=50)` — ONE call per doc_type (plan, spec, decision, workflow_log, + types P4/P9 need). ⚡ server clamps limit to 50 + has no offset → call returning 50 rows = `truncated` (mark in report). Coverage `N/total` per type (total from briefing counts)
 3. Glob local: `docs/reference/*.md`
 4. Read CLAUDE.md + docs/status.md
-5. Count: DB-Docs total, local reference files, CLAUDE.md line count
+5. Count: DB-Docs total, local reference files, CLAUDE.md bytes (`wc -c`) + longest line (`LC_ALL=C awk`, budget per P7)
 
 ## Phase 2: 15 Checks
 
@@ -94,8 +94,8 @@ For each remaining finding with severity ERROR or WARNING:
 **Project routing:** Store findings in the target project, NOT blanket in the mx-infrastructure project.
 - Skill/Setup/Tool findings (affect mx* infrastructure)→`project='mxLore'`
 - Project-specific findings (stubs, local docs, missing relations)→`project=<target-project>`
-`mx_create_doc(project=<see routing>, doc_type='bugreport', title='mxHealth: N Findings...', tags=["mxhealth-auto"], status='reported')`
-Deduplication: mx_search before creating. ∅ERROR/WARNING→no report.
+`mx_create_doc(project=<see routing>, doc_type='bugreport', title='mxHealth: findings <project-slug>', tags=["mxhealth-auto"], status='reported')` — stable title, counts→content !title
+Deduplication: mx_search(project, query='mxHealth: findings <slug>', tag='mxhealth-auto', doc_type='bugreport', status='reported') before creating → hit→mx_update_doc !new doc. ∅ERROR/WARNING→no report.
 ⚡ Gated-rule findings (Phase 3b gate, `_shared/skill-metrics-gate.md`) are excluded — all findings gated→no bugreport at all.
 
 ⚡ Tags param contract (Phase 3b + Phase 4): `Read ~/.claude/skills/_shared/mcp-tags-array.md.`
@@ -105,26 +105,26 @@ Deduplication: mx_search before creating. ∅ERROR/WARNING→no report.
 - ∅MCP→skip (already captured in bugreport)
 - ⚡ **Record the verdict too.** Read `~/.claude/skills/_shared/skill-verdicts.md` (SSoT). Recording a finding without ever recording the user's call leaves it `pending` forever, and `precision` for that rule stays `0/0` — the server renders that as `0.0`, indistinguishable from "always wrong". Fixed→`confirmed` | user declines→`dismissed` | user says the check misread→`false_positive` | user never ruled→`pending` (report it, !dismiss it). Forked run → record pending only; report ends with `uids: …` line for the caller.
 
-## Phase 5: Auto-Fix (P9)
-P9 findings→removed (B6.5). ∅P9→skip.
+## Phase 5: P9 Stub List (report-only)
+List P9 doc_ids (`doc_id | doc_type | title | token_estimate`) → caller decides. !delete !archive !modify. ∅P9→skip.
 
 ## Loop Mode (--loop or /loop context)
 - Compact output: only `mxHealth: X ERROR Y WARNING Z INFO` + findings one-liners
 - !report header !inventory table !summary block
 - !prompts, !interactive steps
-- Auto-Fix(P9) run silently, report only on changes
-- Bugreport only on ERROR (WARNING→skip in loop)
+- Bugreport only on ERROR (WARNING→skip in loop), dedup by stable title (!run-varying numbers/counts/dates in title)
+- ⚡ Phase 3b WARNING notes are NOT created in loop runs (only ERROR bugreports). WARNING findings are STILL recorded via `mx_skill_manage record_finding` (no notes) so their context_hash enters the known-hash set and they are not reprinted each iteration.
 - ∅findings→single line: `mxHealth OK — 0 problems`
 
-⚡ **Delta semantics:** each iteration fires P1-P15 fresh; finding is "new" if `context_hash` (`<check>:<document-slug>`) was not persisted via `mx_skill_manage(action='record_finding', ...)` in a prior iteration. Matching hash → suppress output line.
+⚡ **Delta semantics:** forked run = no memory of prior iterations → read step first: `mx_skill_findings_list(skill='mxHealth', project=<slug>, limit=200)` (single call, ALL statuses — pending+confirmed+dismissed+false_positive; !page param; 200 rows back→mark run `truncated`) → collect known `context_hash` set. Each iteration fires P1-P15 fresh; finding is "new" if its `context_hash` (`<check>:<document-slug>`) is NOT in that set. Matching hash → suppress output line.
 ⚡ **INFO findings in loop mode:** suppress entirely from output (Phase 4 persists only ERROR+WARNING, so INFOs would re-print every iteration).
 
 ## Rules
-- Read-only + bug notes + summary fix. !modify document contents
+- Read-only + bug notes (Phase 3b/4) + P9 list report-only. !modify document contents
 - MCP error→ERROR in report, !abort
 - >20 docs/type→sampling(max 10 via mx_batch_detail). P1 on all(from mx_search). ⚡ !individual mx_detail calls→always mx_batch_detail(doc_ids=[...], level='full')
 - IP protection: metadata+structure only. UTF-8 without BOM. !assumptions→facts only
 - ⚡ **VARCHAR clamps for persisted findings:** `Read ~/.claude/skills/_shared/mcp-clamp-limits.md.` `rule_id` max 100 chars (pN-kebab-case slugs are short, safe), `file_path` max 500 chars, `details` is TEXT (unclamped but keep focused).
 - ⚡ **Severity mapping** (report → MCP): `ERROR` → `error`, `WARNING` → `warning`, `INFO` → `info`. Canonical lowercase on the wire.
 - ⚡ **Self-check recursion guard:** if mxHealth runs on a project slug named `mxHealth` (none exists), skip Phase 3b/4 persistence. Self-review findings are reported inline only.
-- ⚡ **Mirror sync:** `Read ~/.claude/skills/_shared/mirror-sync.md.`
+- ⚡ **Mirror sync:** only when editing this skill's files: `Read ~/.claude/skills/_shared/mirror-sync.md.`
