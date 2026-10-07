@@ -205,8 +205,12 @@ begin
   TokenBudget := AParams.GetValue<Integer>('token_budget', 1500);
   FilterDocType := AParams.GetValue<string>('doc_type', '');
   FilterStatus := AParams.GetValue<string>('status', '');
-  Since := AParams.GetValue<string>('since', '');
+  Since := Trim(AParams.GetValue<string>('since', ''));
   HasSince := Since <> '';
+  // Parse once and bind as TDateTime (server local, the base of updated_at).
+  var SinceDT: TDateTime := 0;
+  if HasSince then
+    SinceDT := MxParseSince(Since);
 
   if ProjectSlug = '' then
     raise EMxValidation.Create('Parameter "project" is required');
@@ -341,7 +345,7 @@ begin
   try
     Qry.ParamByName('proj_id').AsInteger := ProjectId;
     if HasSince then
-      Qry.ParamByName('since').AsWideString :=Since;
+      Qry.ParamByName('since').AsDateTime := SinceDT;
     Qry.Open;
     Stats := TJSONObject.Create;
     try
@@ -371,7 +375,7 @@ begin
   try
     Qry.ParamByName('proj_id').AsInteger := ProjectId;
     if HasSince then
-      Qry.ParamByName('since').AsWideString :=Since;
+      Qry.ParamByName('since').AsDateTime := SinceDT;
     Qry.Open;
     Recent := TJSONArray.Create;
     try
@@ -546,7 +550,7 @@ function HandleSearch(const AParams: TJSONObject;
   AContext: IMxDbContext): TJSONObject;
 var
   Qry, SubQry: TFDQuery;
-  Query, Scope, ProjectSlug, DocType, Tag, StatusFilter, SinceStr, NormSinceStr, RowProjSlug, IdList, SQL: string;
+  Query, Scope, ProjectSlug, DocType, Tag, StatusFilter, SinceStr, RowProjSlug, IdList, SQL: string;
   SinceDT: TDateTime;
   DocParts: TArray<string>;
   TokenBudget, ProjId, I, MaxLimit: Integer;
@@ -582,20 +586,7 @@ begin
   SinceStr := Trim(AParams.GetValue<string>('since', ''));
   SinceDT := 0;
   if SinceStr <> '' then
-  begin
-    // Accept date-only form (YYYY-MM-DD) by normalizing to midnight, because
-    // Delphi's ISO8601ToDate requires a 'T'-datetime component. Parse once
-    // and bind as TDateTime (AsDateTime), mirroring HandleSessionDelta.
-    if Length(SinceStr) = 10 then
-      NormSinceStr := SinceStr + 'T00:00:00'
-    else
-      NormSinceStr := SinceStr;
-    try
-      SinceDT := ISO8601ToDate(NormSinceStr, False);
-    except
-      raise EMxValidation.Create('Invalid "since" timestamp (expected ISO 8601)');
-    end;
-  end;
+    SinceDT := MxParseSince(SinceStr);
 
   Query := Trim(Query);
   // B6.2: query is now optional when using doc_type/tag/status/since filters.
@@ -1125,7 +1116,8 @@ begin
     // names. NULL-tolerant LEFT JOINs — legacy docs and bypass writers stay NULL.
     '  dev.name AS author_developer, ck.name AS author_machine, ' +
     // content_changed_at: last real body revision, NOT every touch (Bug#11815 Defekt 2).
-    // updated_at is bumped by any UPDATE incl. access_count-on-read, so it is unusable
+    // updated_at is bumped by tag/status/metadata UPDATEs too (access_count-on-read
+    // preserves it via updated_at = updated_at), so it is unusable
     // as a staleness proxy. doc_revisions is only written on body change (Write.pas:1087).
     '  COALESCE((SELECT MAX(dr2.changed_at) FROM doc_revisions dr2 WHERE dr2.doc_id = d.id), d.created_at) AS content_changed_at, ' +
     '  DATEDIFF(NOW(), COALESCE((SELECT MAX(dr2.changed_at) FROM doc_revisions dr2 WHERE dr2.doc_id = d.id), d.created_at)) AS days_since_content_change, ' +

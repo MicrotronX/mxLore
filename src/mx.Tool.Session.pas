@@ -56,7 +56,11 @@ begin
     raise EMxValidation.Create('Parameter "project" is required');
   IncludeBriefing := AParams.GetValue<Boolean>('include_briefing', True);
   IncludeNotes := AParams.GetValue<Boolean>('include_notes', False);
-  Since := AParams.GetValue<string>('since', '');
+  Since := Trim(AParams.GetValue<string>('since', ''));
+  // Parse once and bind as TDateTime (server local, the base of updated_at).
+  var SinceDT: TDateTime := 0;
+  if Since <> '' then
+    SinceDT := MxParseSince(Since);
   var SetupVersion := AParams.GetValue<string>('setup_version', '');
 
   // Generate UUID (without braces)
@@ -169,7 +173,7 @@ begin
           'AND d.updated_at > :since ORDER BY d.updated_at DESC LIMIT 20';
         Qry := AContext.CreateQuery(SQL);
         Qry.ParamByName('proj_id').AsInteger := ProjectId;
-        Qry.ParamByName('since').AsWideString :=Since;
+        Qry.ParamByName('since').AsDateTime := SinceDT;
       end
       else
       begin
@@ -206,7 +210,7 @@ begin
           'AND updated_at <= :since');
         try
           Qry.ParamByName('proj_id').AsInteger := ProjectId;
-          Qry.ParamByName('since').AsWideString :=Since;
+          Qry.ParamByName('since').AsDateTime := SinceDT;
           Qry.Open;
           Data.AddPair('unchanged_count',
             TJSONNumber.Create(Qry.FieldByName('cnt').AsInteger));
@@ -298,7 +302,7 @@ begin
       try
         Qry.ParamByName('proj_id').AsInteger := ProjectId;
         if Since <> '' then
-          Qry.ParamByName('since').AsWideString :=Since;
+          Qry.ParamByName('since').AsDateTime := SinceDT;
         Qry.Open;
         Notes := TJSONArray.Create;
         while not Qry.Eof do
@@ -634,7 +638,7 @@ begin
   if ProjectSlug = '' then
     raise EMxValidation.Create('Parameter "project" is required');
   SessionId := AParams.GetValue<Integer>('session_id', 0);
-  SinceStr := AParams.GetValue<string>('since', '');
+  SinceStr := Trim(AParams.GetValue<string>('since', ''));
   MaxLimit := AParams.GetValue<Integer>('limit', 50);
   if MaxLimit < 1 then MaxLimit := 1;
   if MaxLimit > 200 then MaxLimit := 200;
@@ -663,12 +667,8 @@ begin
   // 1. Explicit since param wins
   if SinceStr <> '' then
   begin
-    try
-      Cutoff := ISO8601ToDate(SinceStr, False);
-      HasCutoff := True;
-    except
-      raise EMxValidation.Create('Invalid "since" timestamp (expected ISO 8601)');
-    end;
+    Cutoff := MxParseSince(SinceStr);
+    HasCutoff := True;
   end;
 
   // 2. session_id given: use its started_at — but only if it belongs to the

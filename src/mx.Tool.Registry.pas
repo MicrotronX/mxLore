@@ -270,7 +270,7 @@ begin
     .Param('token_budget', mptInteger, False, 'Max tokens (def 1500)')
     .Param('doc_type', mptString, False, 'Filter by type')
     .Param('status', mptString, False, 'Filter by status')
-    .Param('since', mptString, False, 'ISO timestamp — filter to changes after')
+    .Param('since', mptString, False, 'ISO timestamp — filter to changes after (Z/offset converted; no zone or YYYY-MM-DD = server-local)')
     .Param('session_id', mptInteger, False, 'Session ID');
 
   ARegistry
@@ -282,7 +282,7 @@ begin
     .Param('doc_type', mptString, False, 'Filter by type (comma-sep): ' + AllowedDocTypesList)  // GH#17 SSoT
     .Param('tag', mptString, False, 'Filter by tag')
     .Param('status', mptString, False, 'Filter by status (e.g. active, archived)')
-    .Param('since', mptString, False, 'ISO 8601 cutoff — only docs with updated_at >= since (Bug#3033)')
+    .Param('since', mptString, False, 'ISO 8601 cutoff — only docs with updated_at >= since (Z/offset converted; no zone or YYYY-MM-DD = server-local)')
     .Param('token_budget', mptInteger, False, 'Max tokens (def 1500)')
     .Param('include_content', mptBoolean, False, 'Include content if <=3 results')
     .Param('include_details', mptBoolean, False, 'Include content+relations if <=5 results')
@@ -415,7 +415,7 @@ begin
     .Param('project', mptString, True, 'Project slug')
     .Param('include_briefing', mptBoolean, False, 'Include doc_type_counts+recent+workflows (def true)')
     .Param('include_notes', mptBoolean, False, 'Include notes/bugreports/feature_requests with tags (def false)')
-    .Param('since', mptString, False, 'ISO timestamp — only return changes after this time, adds unchanged_count. Response carries server_now_utc + server_now_local: all other timestamps are DB-local without zone')
+    .Param('since', mptString, False, 'ISO timestamp — only return changes after this time, adds unchanged_count (Z/offset converted; no zone or YYYY-MM-DD = server-local). Response carries server_now_utc + server_now_local: all other timestamps are DB-local without zone')
     .Param('setup_version', mptString, False, 'Client setup version from ~/.claude/setup-version.json (Spec#1302)');
 
   // mx_session_save removed (B6.3) — session end handled by mxSave skill
@@ -425,7 +425,7 @@ begin
     .Desc('Docs changed since session boundary (metadata only — no summary/content)')
     .Param('project', mptString, True, 'Project slug')
     .Param('session_id', mptInteger, False, 'Caller session ID — uses its started_at as cutoff')
-    .Param('since', mptString, False, 'Explicit ISO 8601 cutoff (overrides session_id)')
+    .Param('since', mptString, False, 'Explicit ISO 8601 cutoff (overrides session_id; Z/offset converted; no zone or YYYY-MM-DD = server-local)')
     .Param('limit', mptInteger, False, 'Max rows 1-200 (def 50)');
 
   ARegistry

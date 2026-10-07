@@ -3,7 +3,7 @@ unit mx.Errors;
 interface
 
 uses
-  System.SysUtils, System.JSON, FireDAC.Stan.Error;
+  System.SysUtils, System.JSON, System.DateUtils, FireDAC.Stan.Error;
 
 type
   EMxError = class(Exception)
@@ -59,6 +59,12 @@ function MxRfc7807Response(const AReason, ATitle, ADetail: string;
   AStatus: Integer; const ASuggestedAction: string = '';
   const ADecisionBasis: string = '';
   const AInstance: string = ''): TJSONObject;
+
+// Parses a `since` tool parameter into server-local TDateTime (the base of
+// updated_at). Accepts ISO 8601 with Z/offset (converted to local), without
+// zone (taken as local), 'YYYY-MM-DD' (local midnight) and a space instead
+// of 'T'. Invalid input raises EMxValidation.
+function MxParseSince(const AValue: string): TDateTime;
 
 implementation
 
@@ -190,6 +196,22 @@ begin
   Ext.AddPair('suggested_action', SuggestedAction);
   Ext.AddPair('decision_basis',   ADecisionBasis);
   Result.AddPair('mxlore', Ext);
+end;
+
+function MxParseSince(const AValue: string): TDateTime;
+var
+  S: string;
+begin
+  S := Trim(AValue);
+  if Length(S) = 10 then
+    S := S + 'T00:00:00'
+  else if (Length(S) > 10) and (S[11] = ' ') then
+    S[11] := 'T';
+  try
+    Result := ISO8601ToDate(S, [ioNoTZIsLocal]);
+  except
+    raise EMxValidation.Create('Invalid "since" timestamp (expected ISO 8601)');
+  end;
 end;
 
 end.

@@ -869,7 +869,7 @@ begin
     try
       Qry := AContext.CreateQuery(
         'UPDATE documents SET lesson_data = JSON_SET(COALESCE(lesson_data, ''{}''), ' +
-        '  ''$.last_confirmed_at'', :now) ' +
+        '  ''$.last_confirmed_at'', :now), updated_at = updated_at ' +
         'WHERE FIND_IN_SET(CAST(id AS CHAR), ' +
         '  (SELECT triggered_lesson_ids FROM recall_log WHERE id = :rid)) > 0 ' +
         'AND doc_type = ''lesson''');
