@@ -75,6 +75,7 @@ SRC="$TMP_DIR/mxLore-skills-${REPO_REF}"
 # — this script only owns files on disk, same split as the rest of hooks/.
 RETIRED_HOOKS=(
   "agent_inbox_check.sh"  # retired 2026-09-07, replaced by mxMCPProxy >= 1.0.9 session-inbox delivery
+  "orchestrate-step-check.js"  # retired 2026-10-07, Stop-hook stdout never reaches the model
 )
 
 mkdir -p "$CLAUDE_HOME/skills" "$CLAUDE_HOME/hooks" "$CLAUDE_HOME/reference"

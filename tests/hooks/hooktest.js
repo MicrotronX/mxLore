@@ -197,33 +197,27 @@ a = flag({ agent_id: 'a1', agent_type: 'x' }, '{corrupt');
 t('flag: corrupt state untouched', rawOf(a.d) === '{corrupt' && a.r.code === 0, a.r);
 t('flag: no state silent', run(SF, mkcwd(), { agent_id: 'a1', agent_type: 'x' }).code === 0, 0);
 
-// ---------- step-check (Stop) ----------
-const SC = 'orchestrate-step-check.js';
-t('step-check no state silent', run(SC, mkcwd(), {}).out === '', 0);
-t('step-check corrupt silent', (x => x.out === '' && x.code === 0)(run(SC, mkcwd('{corrupt'), {})), 0);
-d = mkcwd(dirty);
-t('step-check active WF prints', run(SC, d, {}).out.includes('Step-Check'), 0);
-t('step-check same step silent', run(SC, d, {}).out === '', 0);
-t('step-check parked WF silent', run(SC, mkcwd({ ...dirty, workflow_stack: [{ ...WF, status: 'parked' }] }), {}).out === '', 0);
-
 // ---------- robustness: odd cwd, big state ----------
 d = mkcwd(dirty, {}, 'hk spaces äö-');
 t('cwd with spaces + umlauts: status', run(ST, d, { prompt: 'x' }).out.includes('WF-X'), 0);
 t('cwd with spaces + umlauts: precompact', run(PC, d, {}, ['--manual']).out.includes('"block"'), 0);
 t('cwd with spaces + umlauts: reconcile', !!(run(RC, d, { source: 'clear' }), stateOf(d).context_cleared_at), 0);
 const big = { ...full, events_log: Array.from({ length: 3000 }, (_, i) => ({ ts: new Date(1767225600000 + i * 60000).toISOString(), type: 'x', detail: 'd'.repeat(80), synced: false })) };
-for (const [hook, payload, args] of [[ST, { prompt: 'x' }, []], [RC, { source: 'clear' }, []], [PC, {}, ['--manual']], [SF, { agent_id: 'a', agent_type: 'x' }, []], [SC, {}, []]]) {
+for (const [hook, payload, args] of [[ST, { prompt: 'x' }, []], [RC, { source: 'clear' }, []], [PC, {}, ['--manual']], [SF, { agent_id: 'a', agent_type: 'x' }, []]]) {
   const t0 = Date.now(); r = run(hook, mkcwd(big), payload, args);
   t('big state (3000 events) ' + hook + ' < 1500ms', r.code === 0 && Date.now() - t0 < 1500, { ms: Date.now() - t0 });
 }
-for (const hook of [ST, RC, PC, SF, SC]) t('stderr stays empty: ' + hook, run(hook, mkcwd(dirty), {}).err === '', 0);
+for (const hook of [ST, RC, PC, SF]) t('stderr stays empty: ' + hook, run(hook, mkcwd(dirty), {}).err === '', 0);
 
 // ---------- installed registration matches the shipped docs (canonical dir only) ----------
 if (CANONICAL) {
   const home = path.join(os.homedir(), '.claude');
   const settings = JSON.parse(fs.readFileSync(path.join(home, 'settings.json'), 'utf8'));
   const cmds = [];
-  for (const [ev, entries] of Object.entries(settings.hooks || {})) for (const e of entries) for (const h of e.hooks || []) cmds.push({ ev, matcher: e.matcher, command: h.command });
+  for (const [ev, entries] of Object.entries(settings.hooks || {})) for (const e of entries) for (const h of e.hooks || []) cmds.push({ ev, matcher: e.matcher, command: h.command, timeout: h.timeout });
+  // timeout unit is seconds: a ms-sized value (>= 1000) means a hung hook blocks for minutes
+  for (const cm of cmds) t('timeout in seconds (< 1000): ' + cm.command, cm.timeout === undefined || cm.timeout < 1000, cm);
+  t('retired step-check not registered', !cmds.some(x => /orchestrate-step-check/.test(x.command)), cmds);
   for (const cm of cmds) {
     const m = /~\/\.claude\/hooks\/([\w.-]+)/.exec(cm.command);
     if (m) t('registered hook file exists: ' + m[1], fs.existsSync(path.join(H, m[1])), cm);

@@ -2,6 +2,7 @@
 name: mxHelp
 description: Use when the user says "/mxHelp", "/mxHelp <name>", or asks which mx-skill does what. Lists all installed mx*-skills grouped by category, or explains one skill in detail. Pure reader — no side effects.
 allowed-tools: Glob, Grep, Read
+model: sonnet
 ---
 
 # /mxHelp — mx-Skill Discoverability (AI-Steno: !=forbidden →=use ⚡=critical)

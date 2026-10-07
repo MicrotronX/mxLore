@@ -22,7 +22,7 @@ argument-hint: "<api-key> | --update | --update-rules | --update-proxy | --with-
 
 ## Prerequisites
 - **Required CLI tools:** `curl`, `unzip`, `claude` (Claude Code CLI). Git-Bash on Windows includes curl+unzip.
-- **Node.js** — Recommended. Required for 11 of 12 hook registrations (Orchestrate, Recall-Gate, Knowledge-Gate, Recall-Outcome, env-guard). Without Node.js the session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/
+- **Node.js** — Recommended. Required for 10 of 11 hook registrations (Orchestrate, Recall-Gate, Knowledge-Gate, Recall-Outcome, env-guard). Without Node.js the session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/
 
 ## First Installation (with API key)
 
@@ -127,21 +127,23 @@ The first three keep the Delphi IDE's revision backups (`Unit1.pas.~235~`, `__re
 | Hook file | Retired | Reason |
 |---|---|---|
 | `agent_inbox_check.sh` | 2026-09-07 | Replaced by mxMCPProxy >= 1.0.9 session-inbox delivery (`CLAUDE_CODE_MESSAGING_SOCKET`) — the client-side file-buffer watcher is dead. |
+| `orchestrate-step-check.js` | 2026-10-07 | Stop hook: plain stdout with exit 0 never reaches the model, so the step prompt was dead text on every turn. The active step is already shown per prompt by `orchestrate-status.js`. |
 
-On every `--update` run (and on a fresh install, where it is a no-op): for each entry in this list, remove any `settings.json` hook entry (in ANY event block — `SessionStart`, `UserPromptSubmit`, etc.) whose `command` references that file, then delete `~/.claude/hooks/<file>` if present.
+On every `--update` run (and on a fresh install, where it is a no-op): for each entry in this list, remove any `settings.json` hook entry (in ANY event block — `SessionStart`, `UserPromptSubmit`, etc.) whose `command` references that file, then delete `~/.claude/hooks/<file>` if present. Remove only that `{type, command, …}` object; if its group's `hooks` array is then empty, remove the group; if the event array is then empty, remove the event key. Never touch other entries.
 
 **5b. Hooks** — Check each hook block. If entry missing, add it. If present, do not duplicate.
+⚡ **Timeout unit = seconds.** Values come from `references/hooks-table.md` (30 for the two SessionStart hooks, 10 for the rest; PreCompact none). On `--update`, an existing entry of a hook this bundle ships whose `timeout` is >= 1000 (old millisecond values: 2000 = 33 min) → set it to the table value. Touch only the `timeout` field of bundle hooks, nothing else.
 
 ⚡ **Node.js check BEFORE hook installation:**
 ```bash
 node --version 2>/dev/null
 ```
 If `node` not found: show warning:
-> "Node.js not found. 11 of 12 hook registrations (Orchestrate, Recall-Gate, Knowledge-Gate, Recall-Outcome, env-guard) will not work without Node.js. Session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/"
+> "Node.js not found. 10 of 11 hook registrations (Orchestrate, Recall-Gate, Knowledge-Gate, Recall-Outcome, env-guard) will not work without Node.js. Session runs with limited functionality (no state tracking, no Recall-Gate). Installation: https://nodejs.org/"
 → Only install Bash hooks, skip JS hooks (including PreCompact, see below).
 
 Hooks table (Event → hooks → Requires) — see `references/hooks-table.md` for details.
-⚡ Load-bearing: without Node.js, 11 of 12 hook registrations degrade (see references file).
+⚡ Load-bearing: without Node.js, 10 of 11 hook registrations degrade (see references file).
 
 **5b-StatusLine** — Add `statusLine` block at top level of settings.json (NOT inside `hooks`):
 ```json
@@ -193,8 +195,8 @@ Optional: /mxSetup --with-superpowers installs the superpowers bridge plugin
 ```
 
 ### Final verification checklist
-- `grep agent_inbox_check ~/.claude/settings.json` → must be empty.
-- `~/.claude/hooks/agent_inbox_check.sh` → must not exist.
+- For every file in the 5b-Retired table: `grep <file> ~/.claude/settings.json` → must be empty, and `~/.claude/hooks/<file>` → must not exist.
+- `grep '"timeout": [0-9]\{4,\}' ~/.claude/settings.json` → must be empty for bundle hooks (seconds, not ms).
 - `~/.claude/agent_inbox/` → must not exist once the proxy is >= 1.0.9.
 - `claude mcp list` → exactly one entry for the mxLore server (the proxy); a claude.ai connector next to it is a WARN, not a pass.
 

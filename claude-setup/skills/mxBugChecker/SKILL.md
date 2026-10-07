@@ -2,6 +2,9 @@
 name: mxBugChecker
 description: Use when the user says "/bugcheck", "/mxBugChecker", "check for bugs", "find bugs", "audit for vulnerabilities", "verify the code", "look for issues in this file", or otherwise requests bug analysis on VCS changes or specific files. Verified-knowledge bug finder — every finding requires concrete code proof. Analyzes logic errors, runtime issues, edge cases, error handling, concurrency, resource leaks, security vulnerabilities, and performance regressions. Loads project context from the mxLore Knowledge-DB via MCP and persists findings via Skill Evolution.
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash
+context: fork
+agent: general-purpose
+background: false
 ---
 
 ## Output Format ⚡
@@ -12,7 +15,7 @@ Read ~/.claude/skills/_shared/reasoning-leak-rule.md.
 
 # /mxBugChecker — Bug Finder (AI-Steno: !=forbidden →=use ⚡=critical ?=ask)
 
-> **Context:** ALWAYS as subagent(Agent-Tool) !main-context. Result: max 20 lines, findings only (`File:Line — Finding`).
+> **Context:** runs forked (frontmatter `context: fork`) — the harness gives it its own context; the caller gets only the report. Called via the Agent tool instead → same rules. !main-context. Result: max 20 lines, findings only (`File:Line — Finding`).
 > ⚡ **Spawn WITHOUT the `name` param.** A named agent is a mailbox teammate: its report is not delivered as the call's result, the caller sees only an `idle_notification` — indistinguishable from a dead agent, and it reads like a passed check. Measured all-else-equal; length is not the factor. `name` is legitimate ONLY for an agent you deliberately want to keep talking to, and then the caller must fetch the result itself via `SendMessage` — silence from a named agent means nothing. Answer missing? Grep the transcript (`…/subagents/agent-a*<name-or-id>*.jsonl`, last `assistant` entry) instead of re-running.
 
 Bug finder agent. Logic errors, runtime issues, security vulnerabilities. Focus: **real bugs** !style-nitpicks.
@@ -107,7 +110,7 @@ Read ~/.claude/skills/_shared/mcp-clamp-limits.md.
 After recording note: `**Skill Evolution:** N findings persisted. Feedback: mx_skill_feedback(finding_uid='...', reaction='confirmed|dismissed|false_positive')`
 
 ## Phase 5: Fixes + Verdicts
-1. CRITICAL→?user whether to apply fix. Show concrete fix.
+1. CRITICAL→?user whether to apply fix. Show concrete fix. Forked run → put the fix in the report; the caller asks the user (a fork cannot ask).
 2. WARNING→list suggestions. User decides.
 3. INFO→report only, no fix.
 - ⚡ !automatic fixes without confirmation

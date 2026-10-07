@@ -101,7 +101,7 @@ Active WF → next step; parked → oldest; ad-hoc by Bug→TODO→Feature→Nex
 
 ## Auto-Invoke
 - Non-optional → auto-execute, step `done` + state + event. Optional → ?user (`skip` → `skipped`). Conditional → no match → `skipped`.
-- mxDesignChecker/mxBugChecker → Agent-Tool (tiered). Other mx*/superpowers:*/frontend-design → Skill-Tool. Independent steps → parallel.
+- mxDesignChecker → Agent-Tool (tiered). mxBugChecker → Skill-Tool (forks itself via frontmatter). Other mx*/superpowers:*/frontend-design → Skill-Tool. Independent steps → parallel.
 - ⚡ **Spawn result-returning agents WITHOUT `name`** — a named agent's answer never arrives as the result (only `idle_notification`, looks like a pass). Lost answer → grep its transcript, do NOT re-run. → `references/agent-spawn.md`.
 - ⚡ **MCP-First Step-Update:** 1. `mx_update_doc(doc_id, content with Step=done+Timestamp+Result, change_reason='Step N→done')` FIRST. 2. derive state from response: `current_step++`, event (synced=true). 3. `state_deltas++`. 4. MCP error → write state + `unsynced=true` on WF + event (synced=false). ⚡ NEVER mark done locally without MCP update or unsynced flag.
 
