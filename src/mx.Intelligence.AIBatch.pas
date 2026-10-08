@@ -80,7 +80,7 @@ type
 implementation
 
 uses
-  mx.Tool.Write;
+  mx.Data.Params;
 
 const
   AI_BATCH_PROMPT =
@@ -802,7 +802,7 @@ begin
             InsQry.ParamByName('proj_id').AsInteger := ProjectIds[I];
             InsQry.ParamByName('slug').AsWideString :=DedupeSlug;
             InsQry.ParamByName('title').AsWideString :=NoteTitle;
-            InsQry.ParamByName('content').AsWideString :=NoteContent;
+            BindLargeText(InsQry.ParamByName('content'), NoteContent);
             InsQry.ExecSQL;
           finally
             InsQry.Free;
@@ -926,7 +926,7 @@ begin
           InsQry.ParamByName('slug').AsWideString :=
             Format('contradiction-%d-%d', [DocId, TargetDocId]);
           InsQry.ParamByName('title').AsWideString :=NoteTitle;
-          InsQry.ParamByName('content').AsWideString :=NoteContent;
+          BindLargeText(InsQry.ParamByName('content'), NoteContent);
           InsQry.ExecSQL;
         finally
           InsQry.Free;
@@ -1306,7 +1306,7 @@ procedure TMxAIBatchRunner.RunSkillPrecisionJob;
           InsQry.ParamByName('proj_id').AsInteger := AProjectId;
           InsQry.ParamByName('slug').AsWideString :=NoteSlug;
           InsQry.ParamByName('title').AsWideString :=NoteTitle;
-          InsQry.ParamByName('content').AsWideString :=NoteContent;
+          BindLargeText(InsQry.ParamByName('content'), NoteContent);
           InsQry.ExecSQL;
         finally
           InsQry.Free;

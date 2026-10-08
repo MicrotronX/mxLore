@@ -28,7 +28,7 @@ implementation
 
 uses
   System.DateUtils, System.SyncObjs, System.Generics.Collections,
-  mx.Tool.Write;
+  mx.Tool.Write, mx.Data.Params;
 
 const
   BODY_SOFT_LIMIT = 2000;

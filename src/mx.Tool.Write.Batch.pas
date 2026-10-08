@@ -16,7 +16,7 @@ function HandleBatchUpdate(const AParams: TJSONObject;
 implementation
 
 uses
-  mx.Tool.Write,
+  mx.Tool.Write, mx.Data.Params,
   mx.Logic.AccessControl;
 
 // ---------------------------------------------------------------------------
@@ -161,7 +161,7 @@ begin
                 BindLargeText(Qry.ParamByName('content'), Content);
                 // Bug#2738: clamp to VARCHAR(500) — direct input path can exceed
                 Qry.ParamByName('summary_l1').AsWideString :=ClampSummary(Summary1);
-                Qry.ParamByName('summary_l2').AsWideString :=Summary2;
+                BindLargeText(Qry.ParamByName('summary_l2'), Summary2);
                 Qry.ParamByName('status').AsWideString :=Status;
                 // FR#2936/Plan#3266 M2.5 prereq — author-FK for Edit-Window match.
                 // Spec#13053: + machine identity (client key).
@@ -209,7 +209,7 @@ begin
           try
             Qry.ParamByName('doc_id').AsInteger := DocId;
             BindLargeText(Qry.ParamByName('content'), Content);
-            Qry.ParamByName('summary_l2').AsWideString :=Summary2;
+            BindLargeText(Qry.ParamByName('summary_l2'), Summary2);
             Qry.ParamByName('changed_by').AsWideString :=CreatedBy;
             BindAuthId(Qry.ParamByName('dev_id'), AContext.AccessControl.GetDeveloperId);
             BindAuthId(Qry.ParamByName('key_id'), AContext.AccessControl.GetClientKeyId);
@@ -398,7 +398,7 @@ begin
               // Bug#2738: clamp to VARCHAR(500) — direct input path can exceed
               Qry.ParamByName('summary_l1').AsWideString :=ClampSummary(Summary1);
             if Summary2 <> '' then
-              Qry.ParamByName('summary_l2').AsWideString :=Summary2;
+              BindLargeText(Qry.ParamByName('summary_l2'), Summary2);
             if Status <> '' then
               Qry.ParamByName('status').AsWideString :=Status;
             Qry.ExecSQL;
@@ -431,7 +431,7 @@ begin
               Qry.ParamByName('doc_id').AsInteger := DocId;
               Qry.ParamByName('rev').AsInteger := NextRevision;
               BindLargeText(Qry.ParamByName('content'), Content);
-              Qry.ParamByName('summary_l2').AsWideString :=Summary2;
+              BindLargeText(Qry.ParamByName('summary_l2'), Summary2);
               Qry.ParamByName('changed_by').AsWideString :=ChangedBy;
               BindAuthId(Qry.ParamByName('dev_id'), AContext.AccessControl.GetDeveloperId);
               BindAuthId(Qry.ParamByName('key_id'), AContext.AccessControl.GetClientKeyId);

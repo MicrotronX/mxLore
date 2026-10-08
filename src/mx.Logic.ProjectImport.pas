@@ -150,7 +150,7 @@ uses
   System.DateUtils, System.NetEncoding, System.Zip, System.IOUtils,
   System.Hash, System.StrUtils,
   Data.DB, FireDAC.Comp.Client,
-  mx.Crypto;
+  mx.Crypto, mx.Data.Params;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -553,9 +553,9 @@ begin
     Qry.ParamByName('name').AsWideString := JsonStr(ARow, 'name', '');
     Qry.ParamByName('path').AsString := JsonStr(ARow, 'path', '');
     Qry.ParamByName('svn_url').AsString := JsonStr(ARow, 'svn_url', '');
-    Qry.ParamByName('briefing').AsWideString := JsonStr(ARow, 'briefing', '');
-    Qry.ParamByName('dna').AsWideString := JsonStr(ARow, 'dna', '');
-    Qry.ParamByName('rules').AsWideString := JsonStr(ARow, 'project_rules', '');
+    BindLargeText(Qry.ParamByName('briefing'), JsonStr(ARow, 'briefing', ''));
+    BindLargeText(Qry.ParamByName('dna'), JsonStr(ARow, 'dna', ''));
+    BindLargeText(Qry.ParamByName('rules'), JsonStr(ARow, 'project_rules', ''));
     if JsonBool(ARow, 'is_active', True) then
       Qry.ParamByName('is_active').AsInteger := 1
     else
@@ -587,9 +587,9 @@ begin
     Qry.ParamByName('name').AsWideString := JsonStr(ARow, 'name', '');
     Qry.ParamByName('path').AsString := JsonStr(ARow, 'path', '');
     Qry.ParamByName('svn_url').AsString := JsonStr(ARow, 'svn_url', '');
-    Qry.ParamByName('briefing').AsWideString := JsonStr(ARow, 'briefing', '');
-    Qry.ParamByName('dna').AsWideString := JsonStr(ARow, 'dna', '');
-    Qry.ParamByName('rules').AsWideString := JsonStr(ARow, 'project_rules', '');
+    BindLargeText(Qry.ParamByName('briefing'), JsonStr(ARow, 'briefing', ''));
+    BindLargeText(Qry.ParamByName('dna'), JsonStr(ARow, 'dna', ''));
+    BindLargeText(Qry.ParamByName('rules'), JsonStr(ARow, 'project_rules', ''));
     Qry.ExecSQL;
   finally
     Qry.Free;
@@ -623,8 +623,8 @@ begin
     Qry.ParamByName('title').AsWideString := JsonStr(ARow, 'title', '');
     Qry.ParamByName('status').AsString := JsonStr(ARow, 'status', 'active');
     Qry.ParamByName('s1').AsWideString := JsonStr(ARow, 'summary_l1', '');
-    Qry.ParamByName('s2').AsWideString := JsonStr(ARow, 'summary_l2', '');
-    Qry.ParamByName('content').AsWideString := JsonStr(ARow, 'content', '');
+    BindLargeText(Qry.ParamByName('s2'), JsonStr(ARow, 'summary_l2', ''));
+    BindLargeText(Qry.ParamByName('content'), JsonStr(ARow, 'content', ''));
     // metadata + lesson_data carry CHECK(json_valid(...)) — empty string is
     // not valid JSON, must be NULL. FireDAC needs explicit DataType before
     // Clear/Value:=Null, otherwise "-335 Datentyp unbekannt" is raised.
@@ -632,7 +632,7 @@ begin
     if MetaStr = '' then
       Qry.ParamByName('metadata').Clear
     else
-      Qry.ParamByName('metadata').AsWideString := MetaStr;
+      BindLargeText(Qry.ParamByName('metadata'), MetaStr);
     Qry.ParamByName('rel').AsFloat := JsonFloat(ARow, 'relevance_score', 50.0);
     Qry.ParamByName('tokens').AsInteger := JsonInt(ARow, 'token_estimate', 0);
     Qry.ParamByName('created_by').AsString := JsonStr(ARow, 'created_by', 'import');
@@ -684,8 +684,8 @@ begin
     Qry.ParamByName('title').AsWideString := JsonStr(ARow, 'title', '');
     Qry.ParamByName('status').AsString := JsonStr(ARow, 'status', 'active');
     Qry.ParamByName('s1').AsWideString := JsonStr(ARow, 'summary_l1', '');
-    Qry.ParamByName('s2').AsWideString := JsonStr(ARow, 'summary_l2', '');
-    Qry.ParamByName('content').AsWideString := JsonStr(ARow, 'content', '');
+    BindLargeText(Qry.ParamByName('s2'), JsonStr(ARow, 'summary_l2', ''));
+    BindLargeText(Qry.ParamByName('content'), JsonStr(ARow, 'content', ''));
     // CHECK(json_valid(metadata)) — empty string is not valid JSON → NULL.
     // Explicit DataType required before .Clear (FireDAC -335 otherwise).
     var MetaStr: string := JsonStr(ARow, 'metadata', '');
@@ -693,7 +693,7 @@ begin
     if MetaStr = '' then
       Qry.ParamByName('metadata').Clear
     else
-      Qry.ParamByName('metadata').AsWideString := MetaStr;
+      BindLargeText(Qry.ParamByName('metadata'), MetaStr);
     Qry.ExecSQL;
     AUpdated := True;
   finally
@@ -1049,7 +1049,7 @@ begin
           Qry.ParamByName('pid').AsInteger := LocalPid;
           Qry.ParamByName('slug').AsString := 'import-audit-' + AuditNow + '-' + IntToStr(LocalPid);
           Qry.ParamByName('title').AsWideString := AuditTitle;
-          Qry.ParamByName('content').AsWideString := AuditContent;
+          BindLargeText(Qry.ParamByName('content'), AuditContent);
           Qry.ParamByName('by').AsString := 'project-import';
           Qry.ExecSQL;
         finally

@@ -7,7 +7,7 @@ uses
   System.StrUtils,
   Data.DB,
   FireDAC.Comp.Client, FireDAC.Stan.Error, FireDAC.Stan.Param,
-  mx.Types, mx.Errors, mx.Data.Pool, mx.Logic.AccessControl;
+  mx.Types, mx.Errors, mx.Data.Pool, mx.Data.Params, mx.Logic.AccessControl;
 
 function GenerateSlug(const ATitle: string): string;
 function ExtractFirstSentence(const AText: string): string;
@@ -25,14 +25,6 @@ function ClampSummary(const S: string): string;       // docs.summary_l1 VARCHAR
 function ClampTitle(const S: string): string;         // docs.title VARCHAR(255), Bug#2889
 function ClampSlug(const S: string): string;          // docs.slug VARCHAR(100), Bug#2889
 function ClampChangeReason(const S: string): string;  // doc_revisions.change_reason VARCHAR(500), Bug#2889
-
-// Bind a large text value (typically a doc body) to a TFDParam so that
-// FireDAC accepts strings beyond the default 32767-byte parameter limit.
-// FireDAC's default Param.Size is 32767 (FConnDefParams.MaxStringSize) and
-// setting DataType := ftWideMemo alone does NOT lift it — Size must be set
-// explicitly as well. We allocate at least 1 MB to absorb future growth
-// without forcing reparameterisation each call.
-procedure BindLargeText(AParam: TFDParam; const AValue: string);
 
 // Spec#13053 auth-attribution: bind an authenticated identity id
 // (developer_id or client_key_id) — NULL when the caller context carries
@@ -57,28 +49,6 @@ uses
 const
   // documents.slug is VARCHAR(100) — see sql/setup.sql
   cMaxSlugLength = 100;
-  // Minimum allocation for large-text params. Most doc bodies are a few KB,
-  // but specs/plans/lessons can grow above 100 KB. 1 MB ceiling keeps memory
-  // bounded for normal docs while leaving headroom for large ones.
-  cLargeTextMinSize = 1024 * 1024;
-
-procedure BindLargeText(AParam: TFDParam; const AValue: string);
-var
-  RequiredSize: Integer;
-begin
-  AParam.DataType := ftWideMemo;
-  RequiredSize := Length(AValue) + 1024;
-  if RequiredSize < cLargeTextMinSize then
-    RequiredSize := cLargeTextMinSize;
-  AParam.Size := RequiredSize;
-  // Bug#3345 fix (Session 267): .AsString on ftWideMemo unexpectedly routed
-  // through AnsiString(ACP=cp1252 on German Windows), dropping U+2192/U+2713
-  // /U+26A0 etc. to '?'. .AsWideString binds via Param.Value as WideString
-  // end-to-end — verified lossless for all BMP codepoints. The HEX probe on
-  // doc#3492 showed literal 0x3F bytes stored; after the fix the same body
-  // stores 0xE2 0x86 0x92 for '→'.
-  AParam.AsWideString := AValue;
-end;
 
 procedure BindAuthId(AParam: TFDParam; AId: Integer);
 begin
@@ -672,7 +642,7 @@ begin
           BindLargeText(Qry.ParamByName('content'), Content);
           // Bug#2738: clamp to VARCHAR(500) — direct input path can exceed
           Qry.ParamByName('summary_l1').AsWideString := ClampSummary(Summary1);
-          Qry.ParamByName('summary_l2').AsWideString := Summary2;
+          BindLargeText(Qry.ParamByName('summary_l2'), Summary2);
           Qry.ParamByName('status').AsWideString :=Status;
           // FR#2936/Plan#3266 M2.5 prereq — author-FK for Edit-Window match.
           // Falls back to NULL when called outside an authenticated context
@@ -729,7 +699,7 @@ begin
     try
       Qry.ParamByName('doc_id').AsInteger := DocId;
       BindLargeText(Qry.ParamByName('content'), Content);
-      Qry.ParamByName('summary_l2').AsWideString := Summary2;
+      BindLargeText(Qry.ParamByName('summary_l2'), Summary2);
       Qry.ParamByName('changed_by').AsWideString := CreatedBy;
       BindAuthId(Qry.ParamByName('dev_id'), AContext.AccessControl.GetDeveloperId);
       BindAuthId(Qry.ParamByName('key_id'), AContext.AccessControl.GetClientKeyId);
@@ -1262,7 +1232,7 @@ begin
         // Bug#2738: clamp to VARCHAR(500) — direct input path can exceed
         Qry.ParamByName('summary_l1').AsWideString := ClampSummary(Summary1);
       if Summary2 <> '' then
-        Qry.ParamByName('summary_l2').AsWideString := Summary2;
+        BindLargeText(Qry.ParamByName('summary_l2'), Summary2);
       if NewProject <> '' then
         Qry.ParamByName('project_id').AsInteger := NewProjectId;
       Qry.ExecSQL;
@@ -1296,7 +1266,7 @@ begin
         Qry.ParamByName('doc_id').AsInteger := DocId;
         Qry.ParamByName('rev').AsInteger := NextRevision;
         BindLargeText(Qry.ParamByName('content'), Content);
-        Qry.ParamByName('summary_l2').AsWideString := Summary2;
+        BindLargeText(Qry.ParamByName('summary_l2'), Summary2);
         Qry.ParamByName('changed_by').AsWideString := ChangedBy;
         BindAuthId(Qry.ParamByName('dev_id'), AContext.AccessControl.GetDeveloperId);
         BindAuthId(Qry.ParamByName('key_id'), AContext.AccessControl.GetClientKeyId);

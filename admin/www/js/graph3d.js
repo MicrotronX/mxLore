@@ -1171,7 +1171,7 @@ var Graph3D = (function () {
     // ways back to the overview. Pointer-events stay off (purely informational).
     var back = document.createElement('div');
     back.className = 'g3d-back';
-    back.innerHTML = '<kbd>Esc</kbd> · klick ins Leere <span>→ zurück</span>';
+    back.innerHTML = '<kbd>Esc</kbd> · click empty space <span>→ back</span>';
     container.appendChild(back);
 
     S.hud = hud; S.tip = tip; S.empty = empty; S.back = back;

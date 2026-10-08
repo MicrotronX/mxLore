@@ -19,6 +19,7 @@ uses
   mx.Config         in 'mx.Config.pas',
   mx.Log            in 'mx.Log.pas',
   mx.Data.Pool      in 'mx.Data.Pool.pas',
+  mx.Data.Params    in 'mx.Data.Params.pas',
   mx.Data.Context   in 'mx.Data.Context.pas',
   mx.Auth           in 'mx.Auth.pas',
   mx.Crypto          in 'mx.Crypto.pas',

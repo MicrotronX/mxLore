@@ -16,7 +16,7 @@ implementation
 
 uses
   System.RegularExpressions, System.StrUtils,
-  mx.Tool.Write;
+  mx.Tool.Write, mx.Data.Params;
 
 // ---------------------------------------------------------------------------
 // Helper: Parse status from markdown content
@@ -270,7 +270,7 @@ begin
             BindLargeText(Qry.ParamByName('content'), Content);
             // Bug#2738: clamp to VARCHAR(500) — migration path can exceed
             Qry.ParamByName('summary_l1').AsWideString :=ClampSummary(Summary1);
-            Qry.ParamByName('summary_l2').AsWideString :=Summary2;
+            BindLargeText(Qry.ParamByName('summary_l2'), Summary2);
             Qry.ParamByName('status').AsWideString :=DocStatus;
             // FR#2936/Plan#3266 M2.5 prereq — record the dev who initiated migration.
             // Spec#13053: + machine identity (client key).
@@ -302,7 +302,7 @@ begin
           try
             Qry.ParamByName('doc_id').AsInteger := DocId;
             BindLargeText(Qry.ParamByName('content'), Content);
-            Qry.ParamByName('summary_l2').AsWideString :=Summary2;
+            BindLargeText(Qry.ParamByName('summary_l2'), Summary2);
             BindAuthId(Qry.ParamByName('dev_id'), AContext.AccessControl.GetDeveloperId);
             BindAuthId(Qry.ParamByName('key_id'), AContext.AccessControl.GetClientKeyId);
             Qry.ExecSQL;

@@ -111,6 +111,10 @@ const Api = (function () {
     return request('DELETE', '/keys/' + keyId + (hard ? '?hard=true' : ''));
   }
 
+  function rotateKey(keyId) {
+    return request('POST', '/keys/' + keyId + '/rotate');
+  }
+
   function updateKey(keyId, permissions) {
     return request('PUT', '/keys/' + keyId, { permissions: permissions });
   }
@@ -322,6 +326,7 @@ const Api = (function () {
     getKeys: getKeys,
     createKey: createKey,
     deleteKey: deleteKey,
+    rotateKey: rotateKey,
     updateKey: updateKey,
     updateKeyKind: updateKeyKind,
     getEnvironments: getEnvironments,

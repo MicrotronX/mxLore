@@ -54,7 +54,7 @@ begin
   Qry := Ctx.CreateQuery(
     'SELECT id, name, key_prefix, permissions, is_active, created_at, expires_at, ' +
     'last_used_at, last_used_ip, key_kind, device_id, bound_at, bound_host, ' +
-    'last_seen_proxy_version ' +
+    'last_seen_proxy_version, revoked_at, revoke_actor_type ' +
     'FROM client_keys WHERE developer_id = :dev_id ORDER BY COALESCE(last_used_at, ''1970-01-01'') DESC, created_at DESC');
   try
     Qry.ParamByName('dev_id').AsInteger := ADevId;
@@ -70,6 +70,10 @@ begin
         Obj.AddPair('key_prefix', Qry.FieldByName('key_prefix').AsString);
       Obj.AddPair('permissions', Qry.FieldByName('permissions').AsString);
       Obj.AddPair('is_active', TJSONBool.Create(Qry.FieldByName('is_active').AsBoolean));
+      if not Qry.FieldByName('revoked_at').IsNull then
+        Obj.AddPair('revoked_at', MxDateStr(Qry.FieldByName('revoked_at')));
+      if not Qry.FieldByName('revoke_actor_type').IsNull then
+        Obj.AddPair('revoke_actor_type', Qry.FieldByName('revoke_actor_type').AsString);
       Obj.AddPair('created_at', MxDateStr(Qry.FieldByName('created_at')));
       if not Qry.FieldByName('expires_at').IsNull then
         Obj.AddPair('expires_at', MxDateStr(Qry.FieldByName('expires_at')))

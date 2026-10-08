@@ -112,6 +112,9 @@ type
 
 implementation
 
+uses
+  mx.Data.Params;
+
 { --- Helpers --- }
 
 class function TMxSkillEvolutionData.SeverityToStr(
@@ -200,7 +203,7 @@ begin
       Qry.ParamByName('lnum').Clear;
     end;
     if AFinding.Details <> '' then
-      Qry.ParamByName('details').AsWideString :=AFinding.Details
+      BindLargeText(Qry.ParamByName('details'), AFinding.Details)
     else begin
       Qry.ParamByName('details').DataType := ftString;
       Qry.ParamByName('details').Clear;

@@ -467,6 +467,14 @@ var App = (function () {
   }
 
   // --- Keys ---
+  var lastKeys = [];
+  var showInactiveKeys = false;
+
+  function toggleInactiveKeys() {
+    showInactiveKeys = !showInactiveKeys;
+    loadKeys(currentDeveloper);
+  }
+
   async function loadKeys(developerId) {
     var tbody = $('#keys-table-body');
     tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:16px"><span class="spinner"></span></td></tr>';
@@ -474,13 +482,14 @@ var App = (function () {
     try {
       var data = await Api.getKeys(developerId);
       var keys = data.keys || [];
+      lastKeys = keys;
 
       if (keys.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No API keys</div></td></tr>';
         return;
       }
 
-      tbody.innerHTML = keys.map(function (k) {
+      var keyRow = function (k) {
         var roleClass = k.permissions === 'admin' ? 'admin' : (k.permissions === 'readwrite' ? 'write' : 'read');
         var statusClass = k.is_active ? 'active' : 'inactive';
         var roleSelect = '<select class="form-input" style="width:auto;min-width:100px;padding:2px 22px 2px 6px;font-size:0.78rem" onchange="App.changeKeyRole(' + k.id + ',this.value)">' +
@@ -500,7 +509,8 @@ var App = (function () {
           '</select>';
         var actions = '';
         if (k.is_active)
-          actions += '<button class="btn btn--small btn--danger" onclick="App.deactivateKey(' + k.id + ')">Deactivate</button> ';
+          actions += '<button class="btn btn--small" onclick="App.rotateKey(' + k.id + ')" title="Replace with a new key">Rotate</button> ' +
+            '<button class="btn btn--small btn--danger" onclick="App.deactivateKey(' + k.id + ')">Deactivate</button> ';
         actions += '<button class="btn btn--small btn--danger" onclick="App.hardDeleteKey(' + k.id + ')" title="Delete permanently">Delete</button>';
         return '<tr>' +
           '<td class="mono">' + escHtml(k.name) + '</td>' +
@@ -509,15 +519,43 @@ var App = (function () {
           '<td>' + kindSelect + '</td>' +
           '<td class="text-secondary mono" style="font-size:0.78rem">' + formatDate(k.last_used_at) + '</td>' +
           '<td class="text-secondary mono" style="font-size:0.78rem">' + escHtml(k.last_used_ip || '\u2014') + '</td>' +
-          '<td><span class="badge badge--' + statusClass + '">' + (k.is_active ? 'Active' : 'Inactive') + '</span></td>' +
+          '<td>' + keyStatusBadge(k) + '</td>' +
           '<td>' + actions + '</td>' +
         '</tr>';
-      }).join('');
+      };
+      var activeKeys = keys.filter(function (k) { return k.is_active; });
+      var inactiveKeys = keys.filter(function (k) { return !k.is_active; });
+      var html = activeKeys.length
+        ? activeKeys.map(keyRow).join('')
+        : '<tr><td colspan="8"><div class="empty-state">No active API keys</div></td></tr>';
+      if (inactiveKeys.length) {
+        html += '<tr class="keys-section-row"><td colspan="8" style="padding:10px 8px 6px;border-top:2px solid var(--border, #ddd)">' +
+          '<button type="button" class="btn btn--small" onclick="App.toggleInactiveKeys()">' +
+          (showInactiveKeys ? '&#9662;' : '&#9656;') + ' Deactivated &amp; rotated (' + inactiveKeys.length + ')</button></td></tr>';
+        if (showInactiveKeys)
+          html += inactiveKeys.map(function (k) { return keyRow(k).replace('<tr>', '<tr style="opacity:0.7">'); }).join('');
+      }
+      tbody.innerHTML = html;
     } catch (err) { /* handled by session check */ }
+  }
+
+  function keyStatusBadge(k) {
+    if (k.is_active) return '<span class="badge badge--active">Active</span>';
+    if (k.revoke_actor_type === 'rotation')
+      return '<span class="badge badge--inactive" title="Replaced by a rotated key' + (k.revoked_at ? ' on ' + escHtml(formatDate(k.revoked_at)) : '') + '">Rotated</span>';
+    return '<span class="badge badge--inactive">Inactive</span>';
+  }
+
+  function setKeyModalTitle(text) {
+    var t = $('#modal-new-key .modal__title');
+    if (t && t.lastChild && t.lastChild.nodeType === 3) t.lastChild.textContent = ' ' + text;
   }
 
   function initCreateKey() {
     $('#btn-new-key').addEventListener('click', function () {
+      setKeyModalTitle('New API key');
+      var staleDev = $('#new-key-kind option[value="device"]');
+      if (staleDev) staleDev.remove();
       $('#modal-new-key').classList.add('visible');
       $('#new-key-name').value = '';
       $('#new-key-permissions').value = 'readwrite';
@@ -576,7 +614,7 @@ var App = (function () {
     $('#btn-copy-key').addEventListener('click', function () {
       var key = $('#key-reveal-value').textContent;
       navigator.clipboard.writeText(key).then(function () {
-        $('#btn-copy-key').textContent = 'Kopiert!';
+        $('#btn-copy-key').textContent = 'Copied!';
         setTimeout(function () { $('#btn-copy-key').textContent = 'Copy'; }, 2000);
       });
     });
@@ -607,6 +645,38 @@ var App = (function () {
   function deactivateKey(keyId) {
     if (!confirm('Deactivate this API key?')) return;
     Api.deleteKey(keyId).then(function () {
+      loadKeys(currentDeveloper);
+    }).catch(function (err) {
+      showAlert('detail-alert', 'error', 'Error: ' + err.message);
+    });
+  }
+
+  function rotateKey(keyId) {
+    if (!confirm('Rotate this API key? A new key is issued and the current key stops working immediately.')) return;
+    Api.rotateKey(keyId).then(function (data) {
+      var old = lastKeys.filter(function (k) { return k.id === keyId; })[0] || {};
+      setKeyModalTitle('Rotated API key');
+      $('#new-key-name').value = data.name || old.name || '';
+      $('#new-key-permissions').value = old.permissions || 'readwrite';
+      $('#new-key-expires').value = '';
+      var kindSel = $('#new-key-kind');
+      if (old.key_kind === 'device' && !kindSel.querySelector('option[value="device"]')) {
+        var devOpt = document.createElement('option');
+        devOpt.value = 'device';
+        devOpt.textContent = 'device (binding kept)';
+        kindSel.appendChild(devOpt);
+      }
+      kindSel.value = old.key_kind || 'unbound';
+      $('#new-key-name').disabled = true;
+      $('#new-key-permissions').disabled = true;
+      $('#new-key-expires').disabled = true;
+      $('#new-key-kind').disabled = true;
+      $('#new-key-expires-hint').textContent = 'Expiration set by the server default.';
+      var genBtn = $('#btn-generate-key');
+      if (genBtn) { genBtn.disabled = true; genBtn.style.display = 'none'; }
+      $('#key-reveal-value').textContent = data.key;
+      $('#key-reveal').classList.add('visible');
+      $('#modal-new-key').classList.add('visible');
       loadKeys(currentDeveloper);
     }).catch(function (err) {
       showAlert('detail-alert', 'error', 'Error: ' + err.message);
@@ -1584,7 +1654,7 @@ var App = (function () {
       creators.sort();
       var filterSel = $('#proj-filter-dev');
       if (filterSel) {
-        filterSel.innerHTML = '<option value="">Alle Developer</option>' +
+        filterSel.innerHTML = '<option value="">All developers</option>' +
           creators.map(function (c) {
             return '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>';
           }).join('');
@@ -1790,10 +1860,10 @@ var App = (function () {
         if (err.message === 'merge_conflict') {
           // Try to parse conflict details from error
           var conflictsEl = $('#proj-merge-conflicts');
-          conflictsEl.textContent = 'Merge blockiert: Es gibt Dokument-Konflikte (gleicher doc_type+slug). Bitte Konflikte zuerst loesen.';
+          conflictsEl.textContent = 'Merge blocked: there are document conflicts (same doc_type+slug). Resolve the conflicts first.';
           conflictsEl.style.display = 'flex';
         } else {
-          showAlert('proj-list-alert', 'error', 'Merge fehlgeschlagen: ' + err.message);
+          showAlert('proj-list-alert', 'error', 'Merge failed: ' + err.message);
         }
       }
     });
@@ -1984,7 +2054,7 @@ var App = (function () {
       html += '<div class="card-stats-row">' +
         '<div class="card-stat"><span class="card-stat__value">' + (summary.total_entries || 0) + '</span><span class="card-stat__label">Entries</span></div>' +
         '<div class="card-stat"><span class="card-stat__value">' + (summary.unique_sessions || 0) + '</span><span class="card-stat__label">Sessions</span></div>' +
-        '<div class="card-stat"><span class="card-stat__value">' + (summary.days_span || 0) + '</span><span class="card-stat__label">Tage</span></div>' +
+        '<div class="card-stat"><span class="card-stat__value">' + (summary.days_span || 0) + '</span><span class="card-stat__label">Days</span></div>' +
       '</div>';
 
       // Tool breakdown inline
@@ -2165,7 +2235,7 @@ var App = (function () {
       } else {
         var serverVersion = data.setup_version || null;
         html += '<div class="data-table-wrap"><table class="data-table"><thead><tr>' +
-          '<th>Projekt</th><th>Developer</th><th>Key</th><th>Setup</th><th>Gestartet</th><th>Heartbeat</th>' +
+          '<th>Project</th><th>Developer</th><th>Key</th><th>Setup</th><th>Started</th><th>Heartbeat</th>' +
         '</tr></thead><tbody>';
         sessions.forEach(function (s) {
           var ver = s.setup_version || null;
@@ -2205,11 +2275,11 @@ var App = (function () {
     }
     if (isNaN(d.getTime())) return dateStr;
     var diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
-    if (diffSec < 0)       return 'in der Zukunft';
-    if (diffSec < 60)      return 'gerade eben';
-    if (diffSec < 3600)    return Math.floor(diffSec / 60)    + ' Min';
-    if (diffSec < 86400)   return Math.floor(diffSec / 3600)  + ' Std';
-    return Math.floor(diffSec / 86400) + ' Tage';
+    if (diffSec < 0)       return 'in the future';
+    if (diffSec < 60)      return 'just now';
+    if (diffSec < 3600)    return Math.floor(diffSec / 60)    + ' min';
+    if (diffSec < 86400)   return Math.floor(diffSec / 3600)  + ' h';
+    return Math.floor(diffSec / 86400) + ' days';
   }
 
   // ---- Card 5: Recall Metriken ----
@@ -2636,10 +2706,10 @@ var App = (function () {
       grid.innerHTML =
         '<div class="skills-empty" style="grid-column: span 3">' +
           '<div class="skills-empty__icon"><i data-lucide="brain"></i></div>' +
-          '<div class="skills-empty__title">Noch keine Skill-Daten</div>' +
+          '<div class="skills-empty__title">No skill data yet</div>' +
           '<div class="skills-empty__text">' +
-            'Fuehre /mxBugChecker, /mxDesignChecker oder /mxHealth aus ' +
-            'um die ersten Findings zu generieren.' +
+            'Run /mxBugChecker, /mxDesignChecker or /mxHealth ' +
+            'to generate the first findings.' +
           '</div>' +
         '</div>';
       return;
@@ -2735,7 +2805,7 @@ var App = (function () {
       var fpCount = findings.filter(function (f) { return f.reaction === 'false_positive'; }).length;
       filterBar.innerHTML =
         '<button class="findings-filter-btn active" data-filter="pending" onclick="App.setFindingsFilter(\'pending\')">Pending (' + pendingCount + ')</button>' +
-        '<button class="findings-filter-btn" data-filter="all" onclick="App.setFindingsFilter(\'all\')">Alle (' + findings.length + ')</button>' +
+        '<button class="findings-filter-btn" data-filter="all" onclick="App.setFindingsFilter(\'all\')">All (' + findings.length + ')</button>' +
         '<button class="findings-filter-btn" data-filter="confirmed" onclick="App.setFindingsFilter(\'confirmed\')">Confirmed (' + confirmedCount + ')</button>' +
         '<button class="findings-filter-btn" data-filter="dismissed" onclick="App.setFindingsFilter(\'dismissed\')">Dismissed (' + dismissedCount + ')</button>' +
         '<button class="findings-filter-btn" data-filter="false_positive" onclick="App.setFindingsFilter(\'false_positive\')">FP (' + fpCount + ')</button>' +
@@ -2885,7 +2955,7 @@ var App = (function () {
     var body = $('#skills-ai-batch-body');
     if (!body) return;
     if (!aiBatch || !aiBatch.jobs || aiBatch.jobs.length === 0) {
-      body.innerHTML = '<div class="empty-state">Noch keine AI-Batch Runs</div>';
+      body.innerHTML = '<div class="empty-state">No AI batch runs yet</div>';
       return;
     }
     var totalCalls = aiBatch.total_calls || 0;
@@ -3102,7 +3172,7 @@ var App = (function () {
       if (creatorSel) {
         var currentCreator = proj.created_by_developer_id || 0;
         if (_dashIsAdmin) {
-          creatorSel.innerHTML = '<option value="">— unbekannt —</option>' +
+          creatorSel.innerHTML = '<option value="">— unknown —</option>' +
             allDevs.map(function (d) {
               return '<option value="' + d.id + '"' +
                 (d.id === currentCreator ? ' selected' : '') + '>' +
@@ -4152,6 +4222,8 @@ var App = (function () {
     confirmRestoreDoc: confirmRestoreDoc,
     deleteEnvironment: deleteEnvironment,
     hardDeleteKey: hardDeleteKey,
+    rotateKey: rotateKey,
+    toggleInactiveKeys: toggleInactiveKeys,
     changeKeyRole: changeKeyRole,
     changeKeyKind: changeKeyKind,
     loadGlobalPage: loadGlobalPage,

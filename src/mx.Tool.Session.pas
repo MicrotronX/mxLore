@@ -17,6 +17,9 @@ function HandleSessionDelta(const AParams: TJSONObject;
 
 implementation
 
+uses
+  mx.Data.Params;
+
 // ---------------------------------------------------------------------------
 // mx_session_start — Start a new session for a project
 // ---------------------------------------------------------------------------
@@ -536,7 +539,7 @@ begin
       'UPDATE sessions SET ended_at = NOW(), summary = :summary ' +
       'WHERE id = :sid AND ended_at IS NULL');
     try
-      Qry.ParamByName('summary').AsWideString :=Summary;
+      BindLargeText(Qry.ParamByName('summary'), Summary);
       Qry.ParamByName('sid').AsInteger := SessionId;
       Qry.ExecSQL;
     finally

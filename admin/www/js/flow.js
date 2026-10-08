@@ -7,15 +7,16 @@ const FlowPage = (function () {
   'use strict';
 
   var TYPES = [
-    { k: 'doc', n: 'Doc-Verweise' },
-    { k: 'msg', n: 'Agent-Nachrichten' },
-    { k: 'kn', n: 'Geteiltes Wissen' },
-    { k: 'man', n: 'Manuelle Relation' }
+    { k: 'doc', n: 'Doc references' },
+    { k: 'msg', n: 'Agent messages' },
+    { k: 'kn', n: 'Shared knowledge' },
+    { k: 'man', n: 'Manual relation' }
   ];
   var TOP_FLOW = 15;
   var TOP_BUNDLE = 40;
   var PARTICLE_CAP = 400;
   var OTHER_ID = -1;
+  var GROUP_LABELS = { 'Wissen': 'Knowledge', 'Sonstige': 'Misc' };
 
   var root, stage, side, data = null, byId = {};
   var view = 'flow', on = new Set(TYPES.map(function (t) { return t.k; }));
@@ -38,7 +39,7 @@ const FlowPage = (function () {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
-  function slug(id) { return id === OTHER_ID ? 'Andere' : (byId[id] ? byId[id].slug : String(id)); }
+  function slug(id) { return id === OTHER_ID ? 'Other' : (byId[id] ? byId[id].slug : String(id)); }
 
   // ---- timers: stop when leaving the page ----
   function stopTimers() { timers.forEach(function (t) { t.stop(); }); timers = []; }
@@ -99,7 +100,7 @@ const FlowPage = (function () {
     var W = Math.min(Math.max(760, stage.clientWidth - 40), 1200);
     var links = visLinks();
     if (sel != null) links = links.filter(function (l) { return l.s === sel || l.t === sel; });
-    if (!links.length) { stage.innerHTML = '<p class="fl-hint">Keine Verbindungen für diese Auswahl.</p>'; return; }
+    if (!links.length) { stage.innerHTML = '<p class="fl-hint">No connections for this selection.</p>'; return; }
 
     var keep = new Set(showAll || sel != null ? links.flatMap(function (l) { return [l.s, l.t]; }) : topIds(links, TOP_FLOW));
     var fold = function (id) { return keep.has(id) ? id : OTHER_ID; };
@@ -131,8 +132,8 @@ const FlowPage = (function () {
     var g0 = sk({ nodes: nodes, links: Object.values(agg).map(function (d) { return Object.assign({}, d); }) });
 
     var svg = d3.select(stage).append('svg').attr('width', W).attr('height', H)
-      .attr('role', 'img').attr('aria-label', 'Fluss: wer verweist, über welche Art, auf wen');
-    [['Wer verweist', 230], ['Über welche Art', W / 2], ['Auf wen', W - 230]].forEach(function (h) {
+      .attr('role', 'img').attr('aria-label', 'Flow: who references, by which kind, to whom');
+    [['Who references', 230], ['By which kind', W / 2], ['To whom', W - 230]].forEach(function (h) {
       svg.append('text').attr('class', 'fl-colhead').attr('x', h[1]).attr('y', 14).attr('text-anchor', 'middle').text(h[0]);
     });
     var lk = svg.append('g').attr('fill', 'none').selectAll('path').data(g0.links).join('path')
@@ -157,7 +158,7 @@ const FlowPage = (function () {
   // ---- bundle view ----
   function drawBundle() {
     var links = visLinks();
-    if (!links.length) { stage.innerHTML = '<p class="fl-hint">Keine Verbindungen für diese Auswahl.</p>'; return; }
+    if (!links.length) { stage.innerHTML = '<p class="fl-hint">No connections for this selection.</p>'; return; }
     var keep = new Set(showAll ? links.flatMap(function (l) { return [l.s, l.t]; }) : topIds(links, TOP_BUNDLE));
     links = links.filter(function (l) { return keep.has(l.s) && keep.has(l.t); });
     var groups = {};
@@ -174,7 +175,7 @@ const FlowPage = (function () {
     var leaf = {};
     h.leaves().forEach(function (l) { leaf[l.data.id] = l; });
     var svg = d3.select(stage).append('svg').attr('width', S + 160).attr('height', S)
-      .attr('role', 'img').attr('aria-label', 'Bündel: Verbindungen zwischen Projekten, nach Gruppe geordnet');
+      .attr('role', 'img').attr('aria-label', 'Bundle: connections between projects, ordered by group');
     var gr = svg.append('g').attr('transform', 'translate(' + (S + 160) / 2 + ',' + S / 2 + ')');
     var line = d3.lineRadial().curve(d3.curveBundle.beta(.88)).radius(function (d) { return d.y; }).angle(function (d) { return d.x; });
     var paths = gr.append('g').attr('fill', 'none').selectAll('path').data(links).join('path')
@@ -190,7 +191,7 @@ const FlowPage = (function () {
       if (ls.length < 2 && g.data.name !== 'Wissen') return;
       var am = (a0 + a1) / 2;
       gr.append('text').attr('class', 'fl-grp').attr('text-anchor', 'middle').attr('dy', '.35em')
-        .attr('transform', 'translate(' + Math.sin(am) * (R + 222) + ',' + (-Math.cos(am) * (R + 222)) + ')').text(g.data.name);
+        .attr('transform', 'translate(' + Math.sin(am) * (R + 222) + ',' + (-Math.cos(am) * (R + 222)) + ')').text(GROUP_LABELS[g.data.name] || g.data.name);
     });
     var deg = degrees(links);
     var nd = gr.append('g').selectAll('g').data(h.leaves()).join('g')
@@ -225,12 +226,12 @@ const FlowPage = (function () {
     var links = visLinks();
     if (sel == null) {
       var d = degrees(links), top = Object.keys(d).map(Number).sort(function (a, b) { return d[b] - d[a]; }).slice(0, 25);
-      side.innerHTML = '<h2>Alle Projekte</h2><div class="fl-meta">' + data.projects.length + ' Projekte, ' +
-        d3.sum(links, function (l) { return l.n; }) + ' Verbindungen' +
-        (showAll ? ' · <button class="fl-back" data-act="fold">nur Top zeigen</button>' : '') + '</div>' +
+      side.innerHTML = '<h2>All projects</h2><div class="fl-meta">' + data.projects.length + ' projects, ' +
+        d3.sum(links, function (l) { return l.n; }) + ' connections' +
+        (showAll ? ' · <button class="fl-back" data-act="fold">show top only</button>' : '') + '</div>' +
         top.map(function (id) { return '<div class="fl-row" tabindex="0" data-pid="' + id + '"><span>' + esc(slug(id)) + '</span><span>' + d[id] + '</span></div>'; }).join('') +
-        (data.null_count ? '<p class="fl-hint">' + data.null_count + ' Doc-Zugriffe ohne Sitzung sind keinem Projekt zuzuordnen und fehlen bei „Geteiltes Wissen“.</p>' : '') +
-        '<p class="fl-hint">Projekt anklicken für seine Partner.</p>';
+        (data.null_count ? '<p class="fl-hint">' + data.null_count + ' doc reads without a session cannot be assigned to a project and are missing from "Shared knowledge".</p>' : '') +
+        '<p class="fl-hint">Click a project to see its partners.</p>';
     } else {
       var by = {};
       links.filter(function (l) { return l.s === sel || l.t === sel; }).forEach(function (l) {
@@ -241,17 +242,17 @@ const FlowPage = (function () {
       var rows = Object.keys(by).map(Number).sort(function (a, b) { return by[b].n - by[a].n; });
       var p = byId[sel] || {};
       side.innerHTML = '<h2>' + esc(p.name || slug(sel)) + '</h2><div class="fl-meta">' + esc(p.slug || '') +
-        ' · ' + (p.docs || 0) + ' Docs · ' + rows.length + ' Partner</div>' +
+        ' · ' + (p.docs || 0) + ' Docs · ' + rows.length + ' partners</div>' +
         rows.map(function (o) {
           return '<div class="fl-row" tabindex="0" data-partner="' + o + '"><span>' + esc(slug(o)) + '</span><span>' + by[o].n + '</span><div class="fl-seg">' + segHtml(by[o].t) + '</div></div><div class="fl-items" data-for="' + o + '"></div>';
         }).join('') +
-        '<p><button class="fl-back" data-act="clear">Zurück zur Übersicht</button></p>';
+        '<p><button class="fl-back" data-act="clear">Back to overview</button></p>';
       side._by = by;
     }
   }
   async function loadDetail(partner, box) {
     if (box.childElementCount) { box.innerHTML = ''; return; }
-    box.innerHTML = '<div class="fl-hint">lädt…</div>';
+    box.innerHTML = '<div class="fl-hint">loading…</div>';
     var edges = side._by[partner].edges, out = [], failed = 0;
     for (var i = 0; i < edges.length; i++) {
       var e = edges[i];
@@ -265,7 +266,7 @@ const FlowPage = (function () {
       }
     }
     if (failed && !out.length) {
-      box.innerHTML = '<div class="fl-hint">Details konnten nicht geladen werden. Zeile erneut anklicken.</div>';
+      box.innerHTML = '<div class="fl-hint">Details could not be loaded. Click the row again.</div>';
       return;
     }
     out.sort(function (a, b) { return (b.ts || '').localeCompare(a.ts || ''); });
@@ -277,10 +278,10 @@ const FlowPage = (function () {
       }
       var title = it.doc_id ? '<a data-doc="' + it.doc_id + '">' + esc(label || ('#' + it.doc_id)) + '</a>' : esc(label);
       var extra = it._type === 'doc' && it.target_title ? ' → <a data-doc="' + it.target_doc_id + '">' + esc(it.target_title) + '</a>'
-        : it._type === 'kn' && it.read_count ? ' · ' + it.read_count + '× gelesen' : '';
+        : it._type === 'kn' && it.read_count ? ' · ' + it.read_count + '× read' : '';
       return '<div class="fl-item" style="border-color:var(--f-' + it._type + ')">' + it._dir + ' ' + title + extra +
         '<div class="fl-when">' + esc(typeName(it._type)) + (it.info && it._type !== 'kn' && label !== it.info ? ' · ' + esc(it.info) : '') + ' · ' + esc(it.ts || '') + '</div></div>';
-    }).join('') || '<div class="fl-hint">Keine Einträge.</div>';
+    }).join('') || '<div class="fl-hint">No entries.</div>';
   }
   function onSideClick(ev) {
     var a = ev.target.closest('[data-doc]');
@@ -312,15 +313,15 @@ const FlowPage = (function () {
     var lbl = root.querySelector('.fl-month');
     if (!months.length) { lbl.textContent = ''; return; }
     var m = months[monthIdx].split('-');
-    var txt = new Date(Number(m[0]), Number(m[1]) - 1, 1).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
-    lbl.textContent = monthIdx === months.length - 1 ? 'bis ' + txt : txt;
+    var txt = new Date(Number(m[0]), Number(m[1]) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    lbl.textContent = monthIdx === months.length - 1 ? 'through ' + txt : txt;
   }
   function togglePlay() {
     var btn = root.querySelector('.fl-play');
-    if (playTimer) { clearInterval(playTimer); playTimer = null; btn.textContent = 'Abspielen'; return; }
+    if (playTimer) { clearInterval(playTimer); playTimer = null; btn.textContent = 'Play'; return; }
     monthIdx = 0; btn.textContent = 'Pause'; step();
     playTimer = setInterval(function () {
-      if (!isActive() || monthIdx >= months.length - 1) { clearInterval(playTimer); playTimer = null; btn.textContent = 'Abspielen'; return; }
+      if (!isActive() || monthIdx >= months.length - 1) { clearInterval(playTimer); playTimer = null; btn.textContent = 'Play'; return; }
       monthIdx++; step();
     }, reduced ? 400 : 1100);
     function step() { root.querySelector('.fl-range').value = monthIdx; showMonth(); render(); }
@@ -329,15 +330,15 @@ const FlowPage = (function () {
   // ---- shell ----
   function build() {
     root.innerHTML =
-      '<div class="fl-head"><div><h1>Wer hängt mit wem zusammen</h1><p class="fl-sub">Verbindungen zwischen allen Projekten, nach Art und Zeit.</p></div>' +
-      '<nav class="fl-tabs" aria-label="Ansicht"><button data-view="flow">Fluss</button><button data-view="bundle">Bündel</button></nav></div>' +
+      '<div class="fl-head"><div><h1>Who is connected to whom</h1><p class="fl-sub">Connections between all projects, by kind and time.</p></div>' +
+      '<nav class="fl-tabs" aria-label="View"><button data-view="flow">Flow</button><button data-view="bundle">Bundle</button></nav></div>' +
       '<div class="fl-bar">' + TYPES.map(function (t) {
         return '<button class="fl-chip" data-type="' + t.k + '" aria-pressed="true"><i style="background:var(--f-' + t.k + ')"></i>' + t.n + '</button>';
       }).join('') +
-      '<button class="fl-chip fl-opt" data-opt="balance" aria-pressed="' + balance + '">Ausgleichen</button>' +
-      '<button class="fl-chip fl-opt" data-opt="motion" aria-pressed="' + motion + '">Strom</button>' +
+      '<button class="fl-chip fl-opt" data-opt="balance" aria-pressed="' + balance + '">Balance</button>' +
+      '<button class="fl-chip fl-opt" data-opt="motion" aria-pressed="' + motion + '">Motion</button>' +
       '<span class="fl-note"></span></div>' +
-      '<div class="fl-time"><button class="fl-play">Abspielen</button><input class="fl-range" type="range" min="0" value="0" aria-label="Monat"><span class="fl-month"></span></div>' +
+      '<div class="fl-time"><button class="fl-play">Play</button><input class="fl-range" type="range" min="0" value="0" aria-label="Month"><span class="fl-month"></span></div>' +
       '<div class="fl-main"><div class="fl-stage"></div><aside class="fl-side"></aside></div>';
     stage = root.querySelector('.fl-stage');
     side = root.querySelector('.fl-side');
@@ -380,15 +381,15 @@ const FlowPage = (function () {
     var timeRow = root.querySelector('.fl-time');
     timeRow.style.display = view === 'flow' ? 'none' : '';
     if (view === 'flow' && months.length && monthIdx !== months.length - 1) {
-      if (playTimer) { clearInterval(playTimer); playTimer = null; root.querySelector('.fl-play').textContent = 'Abspielen'; }
+      if (playTimer) { clearInterval(playTimer); playTimer = null; root.querySelector('.fl-play').textContent = 'Play'; }
       monthIdx = months.length - 1;
       root.querySelector('.fl-range').value = monthIdx;
       showMonth();
     }
     root.querySelectorAll('.fl-tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.view === view); });
     root.querySelector('.fl-note').textContent = view === 'flow'
-      ? (showAll || sel != null ? '' : 'Top ' + TOP_FLOW + ', Rest unter „Andere“ (anklicken zum Aufklappen)')
-      : (showAll ? '' : 'Top ' + TOP_BUNDLE + ' nach Vernetzung');
+      ? (showAll || sel != null ? '' : 'Top ' + TOP_FLOW + ', rest under "Other" (click to expand)')
+      : (showAll ? '' : 'Top ' + TOP_BUNDLE + ' by connectivity');
     stage.innerHTML = '';
     if (view === 'flow') drawFlow(); else drawBundle();
     renderSide();
@@ -404,14 +405,14 @@ const FlowPage = (function () {
       root.classList.add('active');
     }
     if (!wired) { wired = true; build(); }
-    stage.innerHTML = '<p class="fl-hint">lädt…</p>';
+    stage.innerHTML = '<p class="fl-hint">loading…</p>';
     try {
       var res = await fetch('api/graph/flow', { credentials: 'same-origin' });
       if (res.status === 401 && window.App && App.showLogin) { App.showLogin('Session expired. Please sign in again.'); return; }
       if (!res.ok) throw new Error('HTTP ' + res.status);
       data = await res.json();
     } catch (err) {
-      stage.innerHTML = '<p class="fl-hint">Verbindungen konnten nicht geladen werden (' + esc(err.message) + '). Seite neu laden.</p>';
+      stage.innerHTML = '<p class="fl-hint">Connections could not be loaded (' + esc(err.message) + '). Reload the page.</p>';
       return;
     }
     byId = {};
