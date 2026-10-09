@@ -62,6 +62,8 @@ type
 
     // claude.exe subprocess
     procedure StartClaudeExeThread;
+    function GetPendingAICount: Integer;
+    procedure TryStartClaudeExePeriodic;
 
     class function JobTypeToStr(AJobType: TMxAIJobType): string; static;
   public
@@ -89,14 +91,16 @@ const
     '(1 sentence max 150 chars) and summary_l2 (2-3 sentences max 500 chars) ' +
     'from content_preview, then mx_update_doc(doc_id=X, summary_l1=..., summary_l2=...). ' +
     'For each tagging item: generate 3-7 lowercase tags, then ' +
-    'mx_add_tags(doc_id=X, tags=''["tag1","tag2"]''). ' +
+    'mx_add_tags(doc_id=X, tags=["tag1","tag2"]) with tags as a JSON array. ' +
     'LOGGING: After EACH processed doc, call mx_ai_batch_log(job_type=''summary'' or ''tagging'', ' +
-    'doc_id=X, project_id=Y, field_name=''summary_l1'' or ''tags'', status=''success'' or ''error''). ' +
-    'Process max 20 items per run. No questions, no confirmations, just execute. ' +
-    'When done: mx_search(project=''mxLore'', doc_type=''note'', query=''AI-Batch Last Run'', limit=1). ' +
-    'If found: mx_update_doc(doc_id=FOUND_ID, content=''AI-Batch Last Run: X summaries Y tags generated at TIMESTAMP'', change_reason=''batch run''). ' +
-    'If not found: mx_create_note(project=''mxLore'', title=''AI-Batch Last Run'', ' +
-    'content=''AI-Batch Last Run: X summaries Y tags generated at TIMESTAMP'', tags=''["ai-batch-status"]'').';
+    'doc_id=<item doc_id>, project_id=<item project_id>, field_name=''summary_l1'' or ''tags'', ' +
+    'status=''success'' or ''error'', error_msg=<reason if error>). ' +
+    'Process max 50 items per run. No questions, no confirmations, just execute. ' +
+    'When done, write ONE status line STATUS = ''AI-Batch Last Run: X summaries, Y tags, Z errors at YYYY-MM-DD HH:MM UTC'' ' +
+    '(replace the whole content, never append). Use status_note_doc_id from the mx_ai_batch_pending result: ' +
+    'if it is > 0 call mx_update_doc(doc_id=<status_note_doc_id>, content=STATUS, change_reason=''batch run rewrite''); ' +
+    'if it is 0 call mx_create_doc(project=''mxLore'', doc_type=''note'', title=''AI-Batch Last Run'', ' +
+    'content=STATUS, tags=["ai-batch-status"], status=''active''). Do not search for the note and do not use mx_create_note.';
 
 { TMxAIBatchRunner }
 
@@ -130,10 +134,13 @@ begin
   FBatchThread.Free;
   FEmbeddingClient.Free;
 
-  // Wait for claude.exe thread if still running (max 30s)
+  // Wait for claude.exe thread; the shutdown event makes it terminate
+  // claude.exe at once, so this join is short
   if Assigned(FAIThread) and not FAIThread.Finished then
   begin
     FLogger.Log(mlInfo, 'AI Batch: waiting for claude.exe to finish...');
+    if Assigned(FShutdownEvent) then
+      FShutdownEvent.SetEvent;
     FAIThread.WaitFor;
   end;
   FAIThread.Free;
@@ -288,6 +295,7 @@ begin
           Obj := TJSONObject.Create;
           Obj.AddPair('doc_id', TJSONNumber.Create(Qry.FieldByName('id').AsInteger));
           Obj.AddPair('project', Qry.FieldByName('project_slug').AsString);
+          Obj.AddPair('project_id', TJSONNumber.Create(Qry.FieldByName('project_id').AsInteger));
           Obj.AddPair('type', 'summary');
           Obj.AddPair('title', Qry.FieldByName('title').AsString);
           Obj.AddPair('doc_type', Qry.FieldByName('doc_type').AsString);
@@ -321,6 +329,7 @@ begin
           Obj := TJSONObject.Create;
           Obj.AddPair('doc_id', TJSONNumber.Create(Qry.FieldByName('id').AsInteger));
           Obj.AddPair('project', Qry.FieldByName('project_slug').AsString);
+          Obj.AddPair('project_id', TJSONNumber.Create(Qry.FieldByName('project_id').AsInteger));
           Obj.AddPair('type', 'tagging');
           Obj.AddPair('title', Qry.FieldByName('title').AsString);
           Obj.AddPair('doc_type', Qry.FieldByName('doc_type').AsString);
@@ -335,6 +344,25 @@ begin
     end;
 
     Result.AddPair('total', TJSONNumber.Create(Items.Count));
+
+    // 3. Status note ("AI-Batch Last Run"), so the batch prompt updates it
+    //    by id instead of searching (search missed it -> duplicate create)
+    Qry := ACtx.CreateQuery(
+      'SELECT d.id FROM documents d ' +
+      'JOIN doc_tags dt ON dt.doc_id = d.id AND dt.tag = ''ai-batch-status'' ' +
+      'WHERE d.status <> ''deleted'' ' +
+      'ORDER BY d.updated_at DESC, d.id DESC ' +
+      'LIMIT 1');
+    try
+      Qry.Open;
+      if Qry.Eof then
+        Result.AddPair('status_note_doc_id', TJSONNumber.Create(0))
+      else
+        Result.AddPair('status_note_doc_id',
+          TJSONNumber.Create(Qry.FieldByName('id').AsInteger));
+    finally
+      Qry.Free;
+    end;
   except
     Result.Free;
     raise;
@@ -1611,10 +1639,14 @@ end;
 
 procedure TMxAIBatchRunner.StartClaudeExeThread;
 var
-  ExePath, Prompt: string;
+  ExePath, Prompt, ModelArg: string;
   Logger: IMxLogger;
 begin
   ExePath := FConfig.AIClaudeExePath;
+  // [AI] DefaultModel was read but never passed -> CLI ran on its own default
+  ModelArg := '';
+  if Trim(FConfig.AIDefaultModel) <> '' then
+    ModelArg := Format(' --model "%s"', [Trim(FConfig.AIDefaultModel)]);
 
   // Check if claude.exe exists (if absolute path given)
   if (ExePath <> 'claude') and not FileExists(ExePath) then
@@ -1626,8 +1658,22 @@ begin
   Prompt := StringReplace(AI_BATCH_PROMPT, 'mxLore', FConfig.SelfSlug, [rfReplaceAll]);
   Logger := FLogger; // Capture interface ref for thread safety
 
+  // Repeated starts (batch timer): free a finished previous run before
+  // reassigning. Only called from boot (RunAll) and the batch timer thread;
+  // Destroy joins the timer thread before it touches FAIThread.
+  if Assigned(FAIThread) then
+  begin
+    if not FAIThread.Finished then
+    begin
+      FLogger.Log(mlInfo, 'AI Batch: claude.exe still running, start skipped');
+      Exit;
+    end;
+    FreeAndNil(FAIThread);
+  end;
+
   var LogPath := ExtractFilePath(ParamStr(0)) + 'logs\ai_batch_claude.log';
   var LogPathCapture := LogPath; // Capture for thread
+  var ShutdownEvt := FShutdownEvent; // Owned by caller, outlives this thread
 
   FAIThread := TThread.CreateAnonymousThread(
     procedure
@@ -1640,15 +1686,37 @@ begin
       ExitCode: DWORD;
       hLogFile: THandle;
     begin
-      CmdLine := Format('"%s" -p "%s"', [ExePath, Prompt]);
+      CmdLine := Format('"%s"%s -p "%s"', [ExePath, ModelArg, Prompt]);
 
       // Create log file for stdout/stderr
       SA.nLength := SizeOf(SA);
       SA.bInheritHandle := True;
       SA.lpSecurityDescriptor := nil;
+      // Append across runs (was CREATE_ALWAYS = only last run kept);
+      // start fresh once the file exceeds 1 MB
       hLogFile := CreateFile(PChar(LogPathCapture),
         GENERIC_WRITE, FILE_SHARE_READ, @SA,
-        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+      if hLogFile <> INVALID_HANDLE_VALUE then
+      begin
+        var FileSize: Int64 := 0;
+        if GetFileSizeEx(hLogFile, FileSize) and (FileSize > 1024 * 1024) then
+        begin
+          CloseHandle(hLogFile);
+          hLogFile := CreateFile(PChar(LogPathCapture),
+            GENERIC_WRITE, FILE_SHARE_READ, @SA,
+            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+        end;
+      end;
+      if hLogFile <> INVALID_HANDLE_VALUE then
+      begin
+        SetFilePointer(hLogFile, 0, nil, FILE_END);
+        var Header: UTF8String := UTF8String(sLineBreak + '=== AI Batch run ' +
+          FormatDateTime('yyyy-mm-dd hh:nn:ss', TTimeZone.Local.ToUniversalTime(Now)) +
+          ' UTC ===' + sLineBreak);
+        var Written: DWORD := 0;
+        WriteFile(hLogFile, PAnsiChar(Header)^, Length(Header), Written, nil);
+      end;
 
       FillChar(SI, SizeOf(SI), 0);
       SI.cb := SizeOf(SI);
@@ -1681,10 +1749,24 @@ begin
         Logger.Log(mlInfo, Format('AI Batch: claude.exe started (PID %d, log: %s)',
           [PI.dwProcessId, LogPathCapture]));
 
-        // Wait max 10 minutes (70 items need time)
-        if WaitForSingleObject(PI.hProcess, 600000) = WAIT_TIMEOUT then
+        // Wait max 10 minutes (70 items need time); abort on server shutdown
+        var WaitHandles: array[0..1] of THandle;
+        var WaitCount: DWORD := 1;
+        WaitHandles[0] := PI.hProcess;
+        if Assigned(ShutdownEvt) then
+        begin
+          WaitHandles[1] := ShutdownEvt.Handle;
+          WaitCount := 2;
+        end;
+        var WaitRes := WaitForMultipleObjects(WaitCount, @WaitHandles[0], False, 600000);
+        if WaitRes = WAIT_TIMEOUT then
         begin
           Logger.Log(mlWarning, 'AI Batch: claude.exe timed out after 10 min, terminating');
+          TerminateProcess(PI.hProcess, 1);
+        end
+        else if WaitRes = WAIT_OBJECT_0 + 1 then
+        begin
+          Logger.Log(mlInfo, 'AI Batch: server shutdown, terminating claude.exe');
           TerminateProcess(PI.hProcess, 1);
         end
         else
@@ -1713,10 +1795,41 @@ end;
 
 { --- Main Entry Point --- }
 
-procedure TMxAIBatchRunner.RunAll;
+function TMxAIBatchRunner.GetPendingAICount: Integer;
 var
   Ctx: IMxDbContext;
   Pending: TJSONObject;
+begin
+  Ctx := FPool.AcquireContext;
+  Pending := GetPendingWorkItems(Ctx);
+  try
+    Result := Pending.GetValue<Integer>('total', 0);
+  finally
+    Pending.Free;
+  end;
+end;
+
+// Called from the batch timer thread once ClaudeIntervalMinutes elapsed.
+procedure TMxAIBatchRunner.TryStartClaudeExePeriodic;
+var
+  PendingCount: Integer;
+begin
+  if Assigned(FAIThread) and not FAIThread.Finished then
+  begin
+    FLogger.Log(mlInfo, 'AI Batch timer: claude.exe still running, periodic start skipped');
+    Exit;
+  end;
+  PendingCount := GetPendingAICount;
+  if PendingCount > 0 then
+  begin
+    FLogger.Log(mlInfo, Format(
+      'AI Batch timer: %d pending items, starting claude.exe', [PendingCount]));
+    StartClaudeExeThread;
+  end;
+end;
+
+procedure TMxAIBatchRunner.RunAll;
+var
   PendingCount: Integer;
 begin
   if not FConfig.AIEnabled then
@@ -1782,13 +1895,7 @@ begin
 
   // Check if there's AI work to do before spawning claude.exe
   try
-    Ctx := FPool.AcquireContext;
-    Pending := GetPendingWorkItems(Ctx);
-    try
-      PendingCount := Pending.GetValue<Integer>('total', 0);
-    finally
-      Pending.Free;
-    end;
+    PendingCount := GetPendingAICount;
   except
     on E: Exception do
     begin
@@ -1930,8 +2037,14 @@ var
   IntervalMs: Integer;
   Pool: TMxConnectionPool;
   Logger: IMxLogger;
+  EmbeddingOn: Boolean;
+  ClaudeIntervalMs: UInt64;
 begin
-  if not FConfig.EmbeddingEnabled then
+  EmbeddingOn := FConfig.EmbeddingEnabled;
+  ClaudeIntervalMs := 0;
+  if FConfig.AIEnabled and (FConfig.ClaudeIntervalMinutes > 0) then
+    ClaudeIntervalMs := UInt64(FConfig.ClaudeIntervalMinutes) * 60000;
+  if not EmbeddingOn and (ClaudeIntervalMs = 0) then
     Exit;
   if not Assigned(FShutdownEvent) then
   begin
@@ -1949,10 +2062,15 @@ begin
       Ctx: IMxDbContext;
       Qry: TFDQuery;
       StaleCount: Integer;
+      LastClaudeTick: UInt64;
     begin
       Logger.Log(mlInfo, Format(
-        'AI Batch timer started (interval: %d min)', [IntervalMs div 60000]));
+        'AI Batch timer started (interval: %d min, claude every %d min)',
+        [IntervalMs div 60000, Integer(ClaudeIntervalMs div 60000)]));
+      // Boot run (RunAll) counts as the last claude start
+      LastClaudeTick := TThread.GetTickCount64;
       // First run immediately (non-blocking, runs in this thread)
+      if EmbeddingOn then
       try
         RunEmbeddingRefreshJob;
       except
@@ -1961,11 +2079,28 @@ begin
       end;
       while FShutdownEvent.WaitFor(IntervalMs) = wrTimeout do
       begin
+        // Periodic claude.exe AI batch (tagging/summaries)
+        if (ClaudeIntervalMs > 0) and
+           (TThread.GetTickCount64 - LastClaudeTick >= ClaudeIntervalMs) then
+        try
+          LastClaudeTick := TThread.GetTickCount64;
+          TryStartClaudeExePeriodic;
+        except
+          on E: Exception do
+            Logger.Log(mlError, 'AI Batch timer claude error: ' + E.ClassName);
+        end;
+        if not EmbeddingOn then
+          Continue;
         // Timeout = interval elapsed, check for stale docs
         try
           Ctx := Pool.AcquireContext;
           Qry := Ctx.CreateQuery(
-            'SELECT COUNT(*) AS cnt FROM documents WHERE embedding_stale = 1');
+            'SELECT COUNT(*) AS cnt FROM documents WHERE embedding_stale = 1 ' +
+            // Same doc_type filter as RunEmbeddingRefreshJob - other types keep
+            // stale=1 (column default) forever and must not count as backlog.
+            'AND doc_type IN (''' +
+              StringReplace(FConfig.EmbeddingDocTypes, ',', ''',''', [rfReplaceAll]) +
+            ''')');
           try
             Qry.Open;
             StaleCount := Qry.FieldByName('cnt').AsInteger;

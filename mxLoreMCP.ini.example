@@ -85,7 +85,7 @@ Enabled=0
 
 ; Or XOR-obfuscated (run: mxLoreMCP.exe --encrypt "key")
 ;ApiKeyEnc=
-DefaultModel=claude-haiku-4-5-20251001
+DefaultModel=claude-haiku-5-5
 MaxCallsPerBoot=100
 MaxTokensPerBoot=50000
 
@@ -98,9 +98,9 @@ MaxTokensPerBoot=50000
 ;EmbeddingUrl=https://api.openai.com/v1/embeddings
 ;EmbeddingModel=text-embedding-3-small
 ;EmbeddingDimensions=1536
-;EmbeddingMaxInputChars=30000
+;EmbeddingMaxInputChars=20000
 ;EmbeddingTimeoutMs=30000
-;EmbeddingDocTypes=spec,plan,decision,lesson,note,reference,snippet,bugreport,feature_request,todo,assumption
+;EmbeddingDocTypes=spec,plan,decision,lesson,note,reference,snippet,bugreport,feature_request,todo,assumption,skill,session_note,finding
 
 ; Hybrid search weights (keyword + semantic, must sum to 1.0)
 ;SemanticWeight=0.4
@@ -108,6 +108,10 @@ MaxTokensPerBoot=50000
 
 ; Batch timer interval (embedding refresh + other periodic jobs)
 ;BatchIntervalMinutes=15
+
+; claude.exe AI batch re-run interval (checked on each batch timer tick, only
+; starts when AI work is pending and no previous run is active). 0 = boot only
+;ClaudeIntervalMinutes=60
 
 ; Max docs per embedding batch run (higher = faster initial population)
 ;EmbeddingBatchSize=50

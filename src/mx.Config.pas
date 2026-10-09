@@ -60,6 +60,7 @@ type
     FSemanticWeight: Double;
     FKeywordWeight: Double;
     FBatchIntervalMinutes: Integer;
+    FClaudeIntervalMinutes: Integer;
     FEmbeddingBatchSize: Integer;
     // Identity
     FSelfSlug: string;
@@ -122,6 +123,7 @@ type
     property SemanticWeight: Double read FSemanticWeight;
     property KeywordWeight: Double read FKeywordWeight;
     property BatchIntervalMinutes: Integer read FBatchIntervalMinutes;
+    property ClaudeIntervalMinutes: Integer read FClaudeIntervalMinutes;
     property EmbeddingBatchSize: Integer read FEmbeddingBatchSize;
     // Identity
     property SelfSlug: string read FSelfSlug;
@@ -354,7 +356,7 @@ begin
       Ini.ReadString('AI', 'ApiKeyEnc', ''));
     if FAIApiKey = '' then
       FAIApiKey := Ini.ReadString('AI', 'ApiKey', '');
-    FAIDefaultModel := Ini.ReadString('AI', 'DefaultModel', 'claude-haiku-4-5-20251001');
+    FAIDefaultModel := Ini.ReadString('AI', 'DefaultModel', 'claude-haiku-5-5');
     FAIMaxCallsPerBoot := Ini.ReadInteger('AI', 'MaxCallsPerBoot', 100);
     FAIMaxTokensPerBoot := Ini.ReadInteger('AI', 'MaxTokensPerBoot', 50000);
     FAISummaryEnabled := Ini.ReadBool('AI', 'SummaryEnabled', True);
@@ -375,15 +377,17 @@ begin
     FEmbeddingModel := Ini.ReadString('AI', 'EmbeddingModel',
       'text-embedding-3-small');
     FEmbeddingDimensions := Ini.ReadInteger('AI', 'EmbeddingDimensions', 1536);
-    FEmbeddingMaxInputChars := Ini.ReadInteger('AI', 'EmbeddingMaxInputChars', 30000);
+    FEmbeddingMaxInputChars := Ini.ReadInteger('AI', 'EmbeddingMaxInputChars', 20000);
     FEmbeddingTimeoutMs := Ini.ReadInteger('AI', 'EmbeddingTimeoutMs', 30000);
     FEmbeddingDocTypes := Ini.ReadString('AI', 'EmbeddingDocTypes',
-      'spec,plan,decision,lesson,note,reference,snippet,bugreport,feature_request,todo,assumption,skill');
+      'spec,plan,decision,lesson,note,reference,snippet,bugreport,feature_request,todo,assumption,skill,session_note,finding');
     FSemanticWeight := StrToFloatDef(
       Ini.ReadString('AI', 'SemanticWeight', '0.4'), 0.4);
     FKeywordWeight := StrToFloatDef(
       Ini.ReadString('AI', 'KeywordWeight', '0.6'), 0.6);
     FBatchIntervalMinutes := Ini.ReadInteger('AI', 'BatchIntervalMinutes', 15);
+    // 0 = claude.exe only at boot (pre-build-141 behaviour)
+    FClaudeIntervalMinutes := Ini.ReadInteger('AI', 'ClaudeIntervalMinutes', 60);
     FEmbeddingBatchSize := Ini.ReadInteger('AI', 'EmbeddingBatchSize', 50);
 
     // Fetch (mx_fetch tool — Build 85, ADR #2078; Bug#2866 redesign)

@@ -187,7 +187,7 @@ function AccessLevelToString(ALevel: TAccessLevel): string;
 
 const
   MXAI_VERSION = '2.4.0';
-  MXAI_BUILD   = 140;
+  MXAI_BUILD   = 141;
   // ⚡ This constant, NOT the .dproj VersionInfo, is what the outside world
   //   reads: mx_ping, /api/global, the project bundle, and — decisively —
   //   SelfUpdate's CompareBuild against the newest release tag. Bumping only
