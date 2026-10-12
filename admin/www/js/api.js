@@ -33,7 +33,7 @@ const Api = (function () {
     const res = await fetch('api' + path, opts);
 
     // Session expired — redirect to login
-    if (res.status === 401) {
+    if (res.status === 401 && path !== '/auth/login') {
       csrfToken = '';
       App.showLogin('Session expired. Please sign in again.');
       throw new Error('session_expired');
