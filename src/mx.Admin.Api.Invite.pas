@@ -50,7 +50,8 @@ implementation
 uses
   System.SysUtils, System.JSON, System.DateUtils,
   Data.DB, FireDAC.Comp.Client,
-  mx.Admin.Server,    // MxSendJson/Error, MxParseBody, MxGetClientIp, MxDateStr
+  mx.Admin.Server,    // MxSendJson/Error, MxParseBody, MxDateStr
+  mx.Net.ClientIp,    // MxGetClientIp
   mx.Data.Invite, mx.Logic.Invite;
 
 // --- helpers ------------------------------------------------------------

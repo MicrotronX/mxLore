@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-visual">
+<title>mxLore Orchestrator</title>
+<link rel="stylesheet" href="vendor/xterm.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<section id="login" class="login hidden">
+  <div class="login-stack">
+  <form id="loginForm" class="login-card" autocomplete="off">
+    <div class="brand"><span class="brand-lamps" aria-hidden="true"><i class="lamp running"></i><i class="lamp busy"></i><i class="lamp none"></i></span><span class="brand-name">mxLore Orchestrator</span></div>
+    <p class="login-lede">Sign in to reach your Claude Code sessions.</p>
+    <p class="login-hint">Sign in with your mxLore key.</p>
+    <p id="loginServer" class="login-server"></p>
+    <label>mxLore key<input id="loginKey" type="password" name="mxo-access-key" autocomplete="new-password" required autofocus spellcheck="false"></label>
+    <label id="setupCodeRow" class="hidden">Setup code<input id="loginSetupCode" autocomplete="off" spellcheck="false" class="mono"><span id="setupCodeHint" class="hint mono"></span></label>
+    <label id="totpRow" class="hidden">Authenticator code<input id="loginTotp" inputmode="numeric" maxlength="6" spellcheck="false" autocomplete="one-time-code"></label>
+    <div id="loginError" class="error" role="alert"></div>
+    <button type="submit" class="btn primary wide">Sign in</button>
+    <button type="button" id="preSettingsToggle" class="btn ghost wide pre-toggle" aria-expanded="false" aria-controls="preSettings">Server settings</button>
+  </form>
+  <form id="preSettings" class="login-card pre-settings hidden" autocomplete="off" novalidate>
+    <h3>Server settings</h3>
+    <label>mxLore server address<input id="preUrl" spellcheck="false" class="mono" placeholder="http://127.0.0.1:8080"><span class="hint">Use https for a server on another computer. http works only for this computer.</span></label>
+    <label id="preSetupRow" class="hidden">Setup code<input id="preSetupCode" autocomplete="off" spellcheck="false" class="mono"><span id="preSetupHint" class="hint mono"></span></label>
+    <label id="preKeyRow" class="hidden">mxLore key of the linked account<input id="preKey" type="password" autocomplete="new-password" spellcheck="false"></label>
+    <label id="preTotpRow" class="hidden">Authenticator code<input id="preTotp" inputmode="numeric" maxlength="6" spellcheck="false" autocomplete="one-time-code"><span class="hint">Changing the server signs out the linked account. You then sign in again with the setup code.</span></label>
+    <div id="preError" class="error" role="alert"></div>
+    <button type="submit" class="btn wide">Save address</button>
+  </form>
+  </div>
+</section>
+
+<section id="enroll" class="login hidden">
+  <form id="enrollForm" class="login-card" autocomplete="off" novalidate>
+    <div class="brand"><span class="brand-lamps" aria-hidden="true"><i class="lamp running"></i><i class="lamp busy"></i><i class="lamp none"></i></span><span class="brand-name">mxLore Orchestrator</span></div>
+    <p class="login-lede">Set up two-factor sign-in to continue.</p>
+    <p class="dialog-text">Scan the code with your authenticator app, or type the key by hand. Then enter the 6-digit code it shows.</p>
+    <img id="enrollQr" class="sec-qr" alt="QR code for your authenticator app" width="200" height="200">
+    <p id="enrollSecret" class="mono sec-secret"></p>
+    <label>Code from your authenticator app<input id="enrollCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" spellcheck="false" class="mono"></label>
+    <div id="enrollError" class="error" role="alert"></div>
+    <button type="submit" id="enrollSubmit" class="btn primary wide">Turn on and continue</button>
+    <button type="button" id="enrollRetry" class="btn primary wide hidden">Try again</button>
+    <button type="button" id="enrollSignOut" class="btn ghost wide pre-toggle">Sign out</button>
+  </form>
+</section>
+
+<section id="app" class="app hidden">
+  <div id="railScrim" class="rail-scrim" aria-hidden="true"></div>
+  <aside id="rail" class="rail" aria-label="Projects">
+    <div class="rail-head">
+      <div class="brand"><span class="brand-lamps" aria-hidden="true"><i class="lamp running"></i><i class="lamp busy"></i><i class="lamp none"></i></span><span class="brand-name">Orchestrator</span></div>
+      <button id="addProjectBtn" class="icon-btn add-btn" title="Add project" aria-label="Add project"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></button>
+    </div>
+    <div class="rail-search">
+      <input id="projectFilter" type="search" placeholder="Filter projects" aria-label="Filter projects" spellcheck="false">
+    </div>
+    <ul id="projectList" class="project-list"></ul>
+    <div class="rail-foot">
+      <span id="signedInAs" class="signed-in hidden"></span>
+      <span class="foot-btns">
+        <button id="paletteBtn" class="btn ghost small" title="Command palette (Ctrl+K)">Commands <kbd>Ctrl K</kbd></button>
+        <button id="settingsBtn" class="btn ghost small">Settings</button>
+        <button id="logoutBtn" class="btn ghost small">Sign out</button>
+      </span>
+      <button id="railToggle" class="icon-btn rail-toggle" aria-controls="rail" aria-expanded="true" aria-label="Collapse project list" title="Collapse (Ctrl+B)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 4L6 8l4 4"/></svg></button>
+    </div>
+    <div id="railResize" class="rail-resize" role="separator" aria-orientation="vertical" aria-label="Resize project list" aria-valuemin="200" aria-valuemax="420" tabindex="0" title="Drag to resize, double-click to reset"></div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <button id="railMenuBtn" class="icon-btn rail-menu" aria-controls="rail" aria-expanded="false" aria-label="Show projects"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M3 8h10M3 11.5h10"/></svg></button>
+      <nav id="tabBar" class="tabbar" role="tablist" aria-label="Open sessions"></nav>
+      <div class="top-actions">
+        <button id="mainMenuBtn" class="icon-btn" aria-haspopup="menu" aria-label="Workspace menu" title="Workspace menu"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v.01M8 8v.01M8 12.5v.01" stroke-width="2.4" stroke-linecap="round"/></svg></button>
+      </div>
+    </header>
+    <div id="connBanner" class="banner hidden" role="status"></div>
+    <div id="terminals" class="terminals">
+      <div id="emptyState" class="empty">
+        <p class="empty-title">No sessions open</p>
+        <p class="empty-text">Click a project on the left to resume its last session, or bring back the tabs you had open before.</p>
+        <div class="empty-actions">
+          <button id="emptyRestoreBtn" class="btn primary">Restore workspace</button>
+          <button id="emptyPaletteBtn" class="btn ghost">Open commands <kbd>Ctrl K</kbd></button>
+        </div>
+      </div>
+    </div>
+    <div id="updateBar" class="update-bar hidden" role="status">
+      <i class="lamp busy"></i>
+      <span id="updateText"></span>
+      <button id="updateNow" class="btn small ghost">Restart now</button>
+    </div>
+    <footer id="statusBar" class="statusbar hidden" aria-label="Active session">
+      <span class="sb-state"><i id="sbLamp" class="lamp"></i><span id="sbState"></span></span>
+      <span id="sbPath" class="sb-path mono"></span>
+      <button id="sbSid" class="sb-sid mono" title="Copy full session id"></button>
+      <span id="sbUptime" class="sb-uptime"></span>
+      <span id="sbKeys" class="sb-keys" aria-label="Keys">
+        <button class="btn small ghost" data-key="esc">Esc</button>
+        <button class="btn small ghost" data-key="tab">Tab</button>
+        <button class="btn small ghost" data-key="up" aria-label="Arrow up">&uarr;</button>
+        <button class="btn small ghost" data-key="down" aria-label="Arrow down">&darr;</button>
+        <button class="btn small ghost" data-key="enter">Enter</button>
+        <button class="btn small ghost" data-key="newline" title="New line">&crarr; Line</button>
+        <button class="btn small ghost" data-key="ctrlc">Ctrl C</button>
+      </span>
+      <button id="sbMore" class="btn small ghost sb-more" aria-expanded="false" aria-controls="sbActions">Actions</button>
+      <span id="sbActions" class="sb-actions">
+        <span id="sbQuick" class="sb-quick"></span>
+      </span>
+    </footer>
+  </main>
+</section>
+
+<dialog id="projectDialog" class="dialog">
+  <form id="projectForm" method="dialog">
+    <h2>Add project</h2>
+    <label for="projPath">Folder</label>
+    <div class="path-row">
+      <input id="projPath" required placeholder="C:\Projects\example" spellcheck="false" class="mono">
+      <button type="button" id="projBrowse" class="btn ghost" aria-expanded="false" aria-controls="fsPanel">Browse</button>
+    </div>
+    <div id="fsPanel" class="fs hidden">
+      <nav id="fsCrumbs" class="fs-crumbs" aria-label="Current folder"></nav>
+      <ul id="fsList" class="fs-list"></ul>
+      <p class="fs-key"><i class="lamp running"></i>Has CLAUDE.md or a git repository</p>
+    </div>
+    <label>Name<input id="projName" required></label>
+    <label id="projGroupRow">Group<select id="projGroup"></select></label>
+    <label class="check"><input id="projCreate" type="checkbox"> Create the folder if it does not exist</label>
+    <div id="projError" class="error" role="alert"></div>
+    <div class="dialog-actions">
+      <button type="button" id="projCancel" class="btn ghost">Cancel</button>
+      <button type="submit" class="btn primary">Add project</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="closeDialog" class="dialog">
+  <form method="dialog">
+    <h2 id="closeTitle">Close tab</h2>
+    <p class="dialog-text">Save & close types the save command, waits until the session is quiet, then exits. Kill ends the process right away and anything unsaved is lost.</p>
+    <div class="dialog-actions">
+      <button type="submit" value="cancel" class="btn ghost">Cancel</button>
+      <button type="submit" value="kill" class="btn danger">Kill now</button>
+      <button type="submit" value="save" class="btn primary" autofocus>Save &amp; close</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="settingsDialog" class="dialog">
+  <form id="settingsForm" method="dialog">
+    <h2>Settings</h2>
+    <label>Colours<select id="setTheme">
+      <option value="black">Black: terminal black, soft grey text</option>
+      <option value="slate">Slate: blue-grey</option>
+      <option value="night">Night: warm, less blue light</option>
+    </select><span class="hint">Changes right away. Saved in this browser.</span></label>
+    <label>Save command<input id="setPrompt" required maxlength="200" spellcheck="false" class="mono"><span class="hint">Typed into a Claude session for mxSave and Save &amp; close.</span></label>
+    <div class="row2">
+      <label>Quiet time before exit (seconds)<input id="setIdle" type="number" min="2" max="600" required><span class="hint">2 to 600</span></label>
+      <label>Save timeout (minutes)<input id="setTimeout" type="number" min="1" max="240" required><span class="hint">1 to 240</span></label>
+    </div>
+    <label>Quick actions<textarea id="setQuick" rows="4" spellcheck="false" class="mono" placeholder="Save &amp; resume: /mxSave | /clear | resume"></textarea><span class="hint">One line = one button in the status bar: <code>Button name: step 1 | step 2 | step 3</code>. Each step is typed into Claude and sent with Enter; the next step waits until the output stayed quiet for the quiet time above. Up to 8 buttons, 10 steps each.</span></label>
+    <label>Stay signed in (days)<input id="setDays" type="number" min="1" max="90" required><span class="hint">1 to 90. Applies from the next request.</span></label>
+    <label class="check"><input id="setAuto" type="checkbox"> Reopen my tabs after a restart</label>
+    <label class="check sub"><input id="setAutoReboot" type="checkbox"> Also after Windows restarts</label>
+    <label class="check"><input id="setCloseExit" type="checkbox"> Close a tab when Claude exits cleanly (applies to new and restarted tabs)</label>
+    <label class="check" title="When off, this device keeps the size another device set and you pan it. &quot;Fit to this screen&quot; still switches on request."><input id="setAutoFit" type="checkbox"> Size the terminal to this device automatically (this device only)</label>
+    <div id="setError" class="error" role="alert"></div>
+    <div class="dialog-actions">
+      <button type="button" id="setCancel" class="btn ghost">Cancel</button>
+      <button type="submit" class="btn primary">Save settings</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="securityDialog" class="dialog">
+  <form id="securityForm" method="dialog" novalidate>
+    <h2>mxLore and two-factor</h2>
+    <section class="sec-block">
+      <h3>mxLore server</h3>
+      <label>mxLore server address<input id="secUrl" spellcheck="false" class="mono" placeholder="http://127.0.0.1:8080"><span class="hint">Use https for a server on another computer. Changing the server signs out the linked account.</span></label>
+      <div class="sec-actions"><button type="button" id="secUrlSave" class="btn small">Save address</button></div>
+      <p id="secBound" class="sec-status"></p>
+      <div class="sec-actions">
+        <button type="button" id="secUnbind" class="btn small danger hidden">Unlink</button>
+      </div>
+    </section>
+    <section class="sec-block">
+      <h3>Two-factor sign-in</h3>
+      <p id="secTotpState" class="sec-status"></p>
+      <div id="secEnroll" class="hidden">
+        <p class="dialog-text">Scan the code with your authenticator app, or type the key by hand. Then enter the 6-digit code it shows.</p>
+        <img id="secQr" class="sec-qr" alt="QR code for your authenticator app" width="200" height="200">
+        <p id="secSecret" class="mono sec-secret"></p>
+      </div>
+      <label id="secCodeRow" class="hidden">Code from your authenticator app<input id="secCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" spellcheck="false" class="mono"></label>
+      <div class="sec-actions">
+        <button type="button" id="secTotpStart" class="btn small hidden">Set up two-factor</button>
+        <button type="button" id="secTotpOn" class="btn small primary hidden">Turn on</button>
+        <button type="button" id="secTotpOff" class="btn small danger hidden">Turn off</button>
+      </div>
+    </section>
+    <div id="secError" class="error" role="alert"></div>
+    <div class="dialog-actions">
+      <button type="button" id="secClose" class="btn ghost">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="renameDialog" class="dialog">
+  <form id="renameForm" method="dialog">
+    <h2>Rename project</h2>
+    <label>Name<input id="renameName" required></label>
+    <div id="renameError" class="error" role="alert"></div>
+    <div class="dialog-actions">
+      <button type="button" id="renameCancel" class="btn ghost">Cancel</button>
+      <button type="submit" class="btn primary">Rename</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="groupDialog" class="dialog">
+  <form id="groupForm" method="dialog">
+    <h2 id="groupTitle">New group</h2>
+    <label>Name<input id="groupName" required maxlength="80"></label>
+    <div id="groupError" class="error" role="alert"></div>
+    <div class="dialog-actions">
+      <button type="button" id="groupCancel" class="btn ghost">Cancel</button>
+      <button type="submit" id="groupSubmit" class="btn primary">Create group</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="palette" class="palette" aria-label="Command palette">
+  <input id="paletteInput" placeholder="Type a project, tab or command" spellcheck="false" autocomplete="off" role="combobox" aria-controls="paletteList" aria-expanded="true">
+  <ul id="paletteList" class="palette-list" role="listbox"></ul>
+</dialog>
+
+<div id="railTip" class="rail-tip hidden" role="tooltip"></div>
+<ul id="ctxMenu" class="ctx hidden" role="menu"></ul>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="vendor/xterm.js"></script>
+<script src="vendor/addon-fit.js"></script>
+<script src="vendor/addon-clipboard.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

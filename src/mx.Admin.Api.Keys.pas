@@ -23,13 +23,13 @@ procedure HandleUpdateKey(const C: THttpServerContext;
 // flips is_active=FALSE. Permanent (NIST SP 800-63D) — no un-revoke endpoint.
 procedure HandleRevokeKey(const C: THttpServerContext;
   APool: TMxConnectionPool; AKeyId: Integer;
-  AActorDevId: Integer; ALogger: IMxLogger);
+  AActorDevId: Integer; const ATrustedProxies: string; ALogger: IMxLogger);
 // FR#2936/Plan#3266 M3.5 — POST /api/keys/{id}/rotate. Atomic rotate-in-tx:
 // revokes old + creates new (same dev, name, permissions, fresh expires_at
 // per role-default). One-time plaintext key returned.
 procedure HandleRotateKey(const C: THttpServerContext;
   APool: TMxConnectionPool; AKeyId: Integer;
-  AActorDevId: Integer; ALogger: IMxLogger);
+  AActorDevId: Integer; const ATrustedProxies: string; ALogger: IMxLogger);
 procedure HandleGetEnvironments(const C: THttpServerContext;
   APool: TMxConnectionPool; ADevId: Integer; ALogger: IMxLogger);
 procedure HandleDeleteEnvironment(const C: THttpServerContext;
@@ -40,7 +40,7 @@ implementation
 uses
   System.SysUtils, System.DateUtils, System.JSON, System.Hash, Data.DB,
   FireDAC.Comp.Client,
-  mx.Admin.Server, mx.Crypto;
+  mx.Admin.Server, mx.Crypto, mx.Net.ClientIp;
 
 procedure HandleGetKeys(const C: THttpServerContext;
   APool: TMxConnectionPool; ADevId: Integer; ALogger: IMxLogger);
@@ -487,7 +487,7 @@ end;
 // pass needed (Plan M3.5 RotationOrphansReconcile intentionally omitted).
 procedure HandleRotateKey(const C: THttpServerContext;
   APool: TMxConnectionPool; AKeyId: Integer;
-  AActorDevId: Integer; ALogger: IMxLogger);
+  AActorDevId: Integer; const ATrustedProxies: string; ALogger: IMxLogger);
 var
   Json: TJSONObject;
   Ctx: IMxDbContext;
@@ -541,9 +541,7 @@ begin
   if SameText(OldPermissions, 'admin') then DefaultDays := 180
   else if SameText(OldPermissions, 'readwrite') then DefaultDays := 90;
 
-  ClientIP := '';
-  C.Request.Headers.GetIfExists('X-Forwarded-For', ClientIP);
-  if ClientIP = '' then ClientIP := C.Request.RemoteIp;
+  ClientIP := MxGetClientIp(C, ATrustedProxies);  // BR#19105: trusted-proxy rule
   UserAgent := '';
   C.Request.Headers.GetIfExists('User-Agent', UserAgent);
   if Length(ClientIP) > 45 then ClientIP := Copy(ClientIP, 1, 45);
@@ -726,7 +724,7 @@ end;
 
 procedure HandleRevokeKey(const C: THttpServerContext;
   APool: TMxConnectionPool; AKeyId: Integer;
-  AActorDevId: Integer; ALogger: IMxLogger);
+  AActorDevId: Integer; const ATrustedProxies: string; ALogger: IMxLogger);
 var
   Body, Json: TJSONObject;
   Ctx: IMxDbContext;
@@ -786,11 +784,8 @@ begin
   else
     ActorType := 'admin';
 
-  ClientIP := '';
+  ClientIP := MxGetClientIp(C, ATrustedProxies);  // BR#19105: trusted-proxy rule
   UserAgent := '';
-  C.Request.Headers.GetIfExists('X-Forwarded-For', ClientIP);
-  if ClientIP = '' then
-    ClientIP := C.Request.RemoteIp;
   C.Request.Headers.GetIfExists('User-Agent', UserAgent);
   if Length(ClientIP) > 45 then ClientIP := Copy(ClientIP, 1, 45);
   if Length(UserAgent) > 255 then UserAgent := Copy(UserAgent, 1, 255);

@@ -92,8 +92,8 @@ begin
 
   // Atomic UPDATE with revoked_at IS NULL guard (Bug#3350 TOCTOU pattern).
   // Forensik-Trio: revoke_ip + revoke_user_agent from TMxAuthResult (M3.6b
-  // WARN#1 fix — mx.MCP.Server captures X-Forwarded-For + User-Agent post-
-  // ValidateKey). revoke_actor_type='self' matches Spec §I3b enum; channel
+  // WARN#1 fix — mx.MCP.Server captures the resolved client IP (trusted-proxy
+  // rule, mx.Net.ClientIp) + User-Agent post-ValidateKey). revoke_actor_type='self' matches Spec §I3b enum; channel
   // differentiation (MCP vs admin-UI) via tool_call_log.tool_name JOIN.
   Qry := AContext.CreateQuery(
     'UPDATE client_keys SET ' +

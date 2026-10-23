@@ -1020,6 +1020,23 @@
         <div class="detail-card">
           <div class="detail-card__header">
             <span class="detail-card__title">
+              <i data-lucide="download" class="icon-sm"></i> Downloads
+            </span>
+          </div>
+          <div style="padding:12px 16px; display:flex; flex-direction:column; gap:6px">
+            <label class="toggle-label">
+              <input id="setting-offer-orchestrator" type="checkbox" class="toggle-input"
+                     onchange="App.saveOfferOrchestrator(this)">
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              <span class="toggle-text">Offer mxLoreOrchestrator to developers</span>
+            </label>
+            <span id="offer-orchestrator-result" class="text-secondary" style="font-size:0.82rem"></span>
+          </div>
+        </div>
+
+        <div class="detail-card">
+          <div class="detail-card__header">
+            <span class="detail-card__title">
               <i data-lucide="settings" class="icon-sm"></i> Server settings
             </span>
           </div>

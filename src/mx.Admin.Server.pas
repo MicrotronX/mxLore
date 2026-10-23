@@ -22,9 +22,12 @@ type
     FConfig: TMxConfig;
     FSettingsCache: TMxSettingsCache;
     FInviteRateLimit: TMxRateLimit;
+    FDownloadRateLimit: TMxRateLimit;
+    function DownloadAllowed(const C: THttpServerContext): Boolean;
     procedure RouteRequest(const C: THttpServerContext;
       const ASegments: TArray<string>; const ASession: TMxAdminSession);
     procedure HandleProxyDownload(const C: THttpServerContext);
+    procedure HandleOrchestratorDownload(const C: THttpServerContext);
     function HasNoDevelopers: Boolean;
   protected
     procedure ProcessRequest(const C: THttpServerContext); override;
@@ -51,6 +54,8 @@ type
     FPool: TMxConnectionPool;
     FLogger: IMxLogger;
     FPort: Integer;
+    FBaseUrl: string;
+    FApiModule: TMxAdminApiModule; // owned by FServer
   public
     constructor Create(APool: TMxConnectionPool; AConfig: TMxConfig;
       ALogger: IMxLogger);
@@ -70,23 +75,11 @@ procedure MxSetSessionCookie(const C: THttpServerContext;
 procedure MxClearSessionCookie(const C: THttpServerContext);
 function MxDateStr(AField: TField): string;
 
-/// <summary>
-///   Returns the real client IP address. If the direct RemoteIp is listed in
-///   ATrustedProxies (comma/semicolon/space-separated), honors the first
-///   X-Forwarded-For entry. Otherwise returns RemoteIp unchanged.
-/// </summary>
-/// <remarks>
-///   NEVER trust X-Forwarded-For without a trusted-proxy allow-list — any
-///   client can spoof the header. Use settings key 'connect.trusted_proxies'
-///   which defaults to '127.0.0.1'.
-/// </remarks>
-function MxGetClientIp(const C: THttpServerContext;
-  const ATrustedProxies: string): string;
-
 implementation
 
 uses
   System.DateUtils,
+  mx.Net.ClientIp,  // MxGetClientIp (BR#19105)
   mx.Admin.Api.Auth, mx.Admin.Api.Developer,
   mx.Admin.Api.Keys, mx.Admin.Api.Projects,
   mx.Admin.Api.Global, mx.Admin.Api.Skills,
@@ -94,7 +87,7 @@ uses
   mx.Admin.Api.SelfUpdate, mx.Admin.Api.Notes,
   mx.Admin.Api.Intelligence, mx.Admin.Api.IniEditor,
   mx.Admin.Api.ProjectBundle, mx.Admin.Api.Graph,
-  mx.Tool.Read;  // ResolveProxyExePath — single source for proxy search order
+  mx.Tool.Read;  // ResolveProxyExePath / ResolveOrchestratorExePath — single source for download paths
 
 { Shared helpers }
 
@@ -161,41 +154,6 @@ begin
     'mxadmin_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
 end;
 
-function MxGetClientIp(const C: THttpServerContext;
-  const ATrustedProxies: string): string;
-var
-  RemoteIp, ForwardedFor: string;
-  ProxyList: TArray<string>;
-  I, CommaPos: Integer;
-  IsTrusted: Boolean;
-begin
-  Result := C.Request.RemoteIp;
-  if (Result = '') or (ATrustedProxies = '') then Exit;
-
-  // Is the direct peer in the trusted-proxy allow-list?
-  IsTrusted := False;
-  ProxyList := ATrustedProxies.Split([',', ';', ' '],
-    TStringSplitOptions.ExcludeEmpty);
-  RemoteIp := Result;
-  for I := 0 to High(ProxyList) do
-    if SameText(Trim(ProxyList[I]), RemoteIp) then
-    begin
-      IsTrusted := True;
-      Break;
-    end;
-  if not IsTrusted then Exit;
-
-  // Trusted peer — honor X-Forwarded-For (take first entry = original client)
-  if not C.Request.Headers.GetIfExists('X-Forwarded-For', ForwardedFor) then
-    Exit;
-  CommaPos := Pos(',', ForwardedFor);
-  if CommaPos > 0 then
-    ForwardedFor := Copy(ForwardedFor, 1, CommaPos - 1);
-  ForwardedFor := Trim(ForwardedFor);
-  if ForwardedFor <> '' then
-    Result := ForwardedFor;
-end;
-
 { TMxAdminApiModule }
 
 constructor TMxAdminApiModule.Create(const ABaseUri: string;
@@ -210,10 +168,13 @@ begin
   FSettingsCache := TMxSettingsCache.Create(APool);
   // 20 requests / 5 min (300 sec) rolling window — ADR#1755 + R3 Phase 2.7
   FInviteRateLimit := TMxRateLimit.Create(20, 300);
+  // Public exe downloads: 10 requests / 5 min per client IP
+  FDownloadRateLimit := TMxRateLimit.Create(10, 300);
 end;
 
 destructor TMxAdminApiModule.Destroy;
 begin
+  FDownloadRateLimit.Free;
   FInviteRateLimit.Free;
   FSettingsCache.Free;
   inherited;
@@ -243,12 +204,58 @@ begin
   end;
 end;
 
+// Streams a file to the client in 64 KB chunks (no full-file buffer per
+// request). Content-Length is set up front; the first write sends headers.
+procedure MxStreamFileDownload(const C: THttpServerContext;
+  const APath, AFileName: string);
+var
+  Stream: TFileStream;
+begin
+  try
+    Stream := TFileStream.Create(APath, fmOpenRead or fmShareDenyNone);
+  except
+    MxSendError(C, 404, 'file_not_found');
+    Exit;
+  end;
+  try
+    C.Response.StatusCode := 200;
+    C.Response.Headers.SetValue('Content-Type', 'application/octet-stream');
+    C.Response.Headers.SetValue('Content-Disposition',
+      'attachment; filename="' + AFileName + '"');
+    C.Response.ContentLength := Stream.Size;
+    if Stream.Size > 0 then
+      C.Response.Content.CopyFrom(Stream, Stream.Size, 65536);
+  finally
+    Stream.Free;
+  end;
+  C.Response.Close;
+end;
+
+function TMxAdminApiModule.DownloadAllowed(const C: THttpServerContext): Boolean;
+var
+  TrustedProxies: string;
+begin
+  // Downloads must not depend on the DB: settings unavailable -> remote IP
+  TrustedProxies := '';
+  try
+    TrustedProxies := FSettingsCache.Get('connect.trusted_proxies');
+  except
+    TrustedProxies := '';
+  end;
+  Result := FDownloadRateLimit.TryAcquire(MxGetClientIp(C, TrustedProxies));
+  if not Result then
+  begin
+    C.Response.Headers.SetValue('Retry-After', '300');
+    MxSendError(C, 429, 'rate_limited');
+  end;
+end;
+
 procedure TMxAdminApiModule.HandleProxyDownload(const C: THttpServerContext);
 var
   ExePath: string;
-  Stream: TFileStream;
-  Bytes: TBytes;
 begin
+  if not DownloadAllowed(C) then
+    Exit;
   // Search for proxy exe: exe dir, proxy/, claude-setup/proxy/
   // (shared resolver in mx.Tool.Read — keep single source)
   ExePath := ResolveProxyExePath;
@@ -257,18 +264,45 @@ begin
     MxSendError(C, 404, 'proxy_not_found');
     Exit;
   end;
-  Stream := TFileStream.Create(ExePath, fmOpenRead or fmShareDenyNone);
-  try
-    SetLength(Bytes, Stream.Size);
-    Stream.ReadBuffer(Bytes, Stream.Size);
-  finally
-    Stream.Free;
+  MxStreamFileDownload(C, ExePath, 'mxMCPProxy.exe');
+end;
+
+procedure TMxAdminApiModule.HandleOrchestratorDownload(const C: THttpServerContext);
+
+  // Own scope so the DB context (and its pooled connection) is released
+  // before the file is streamed, not at the end of the handler.
+  function OfferedNow: Boolean;
+  var
+    Ctx: IMxDbContext;
+  begin
+    Result := False;
+    try
+      Ctx := FPool.AcquireContext;
+      Result := IsOrchestratorOffered(Ctx);
+    except
+      // Pool exhausted / DB down: treat as off
+    end;
   end;
-  C.Response.StatusCode := 200;
-  C.Response.Headers.SetValue('Content-Type', 'application/octet-stream');
-  C.Response.Headers.SetValue('Content-Disposition',
-    'attachment; filename="mxMCPProxy.exe"');
-  C.Response.Close(Bytes);
+
+var
+  ExePath: string;
+begin
+  if not DownloadAllowed(C) then
+    Exit;
+  // Only offered when the admin switched it on; same answer as a missing file.
+  // Same DB check as mx_ping (mx.Tool.Read.IsOrchestratorOffered, no cache).
+  if not OfferedNow then
+  begin
+    MxSendError(C, 404, 'orchestrator_not_found');
+    Exit;
+  end;
+  ExePath := ResolveOrchestratorExePath;
+  if ExePath = '' then
+  begin
+    MxSendError(C, 404, 'orchestrator_not_found');
+    Exit;
+  end;
+  MxStreamFileDownload(C, ExePath, 'mxLoreOrchestrator.exe');
 end;
 
 procedure TMxAdminApiModule.ProcessRequest(const C: THttpServerContext);
@@ -300,6 +334,12 @@ begin
        SameText(Segments[1], 'proxy') and (C.Request.MethodType = THttpMethod.Get) then
     begin
       HandleProxyDownload(C);
+      Exit;
+    end;
+    if (Length(Segments) = 2) and SameText(Segments[0], 'download') and
+       SameText(Segments[1], 'orchestrator') and (C.Request.MethodType = THttpMethod.Get) then
+    begin
+      HandleOrchestratorDownload(C);
       Exit;
     end;
 
@@ -516,7 +556,8 @@ begin
        and SameText(ASegments[2], 'revoke')
        and (C.Request.MethodType = THttpMethod.Post) then
     begin
-      mx.Admin.Api.Keys.HandleRevokeKey(C, FPool, Id, ASession.DeveloperId, FLogger);
+      mx.Admin.Api.Keys.HandleRevokeKey(C, FPool, Id, ASession.DeveloperId,
+        FSettingsCache.Get('connect.trusted_proxies'), FLogger);
       Exit;
     end;
 
@@ -525,7 +566,8 @@ begin
        and SameText(ASegments[2], 'rotate')
        and (C.Request.MethodType = THttpMethod.Post) then
     begin
-      mx.Admin.Api.Keys.HandleRotateKey(C, FPool, Id, ASession.DeveloperId, FLogger);
+      mx.Admin.Api.Keys.HandleRotateKey(C, FPool, Id, ASession.DeveloperId,
+        FSettingsCache.Get('connect.trusted_proxies'), FLogger);
       Exit;
     end;
 
@@ -1089,7 +1131,8 @@ begin
 
   FAuth := TMxAdminAuth.Create(FPool, AConfig.SessionTimeoutMinutes);
 
-  BaseUrl := Format('http://+:%d/', [FPort]);
+  BaseUrl := mxListenerPrefix(AConfig.AdminBindAddress, FPort);
+  FBaseUrl := BaseUrl;
   WwwPath := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0)))
     + 'admin' + PathDelim + 'www';
 
@@ -1097,8 +1140,8 @@ begin
   FServer.KeepHostInUrlPrefixes := True;
 
   // API module (more specific prefix, register first)
-  FServer.AddModule(
-    TMxAdminApiModule.Create(BaseUrl + 'api/', FPool, FAuth, AConfig, ALogger));
+  FApiModule := TMxAdminApiModule.Create(BaseUrl + 'api/', FPool, FAuth, AConfig, ALogger);
+  FServer.AddModule(FApiModule);
 
   // /connect clean URL for invite landing page (before static module)
   FServer.AddModule(TMxConnectPageModule.Create(BaseUrl + 'connect', WwwPath));
@@ -1121,6 +1164,28 @@ end;
 procedure TMxAdminServer.Start;
 begin
   FServer.Start;
+  // Upgrade safety, same as the MCP listener: 503 = old '+' reservation.
+  // Not in setup mode: without an admin key the UI skips login, and widening
+  // it to all interfaces would expose an unauthenticated admin to the LAN.
+  if (Pos('+', FBaseUrl) = 0) and mxListenerAnswers503(FBaseUrl) then
+  begin
+    if FApiModule.HasNoDevelopers then
+    begin
+      FLogger.Log(mlError, 'Admin listener ' + FBaseUrl + ' answered 503 (http://+:' +
+        IntToStr(FPort) + '/ reservation present). No fallback in setup mode. Fix: ' +
+        'netsh http delete urlacl url=http://+:' + IntToStr(FPort) + '/ && ' +
+        'netsh http add urlacl url=' + FBaseUrl + ' sddl=D:(A;;GX;;;WD), then restart');
+      FLogger.Log(mlInfo, 'Admin server started on port ' + IntToStr(FPort));
+      Exit;
+    end;
+    FServer.Stop;
+    FServer.KeepHostInUrlPrefixes := False;
+    FServer.Start;
+    FLogger.Log(mlError, 'Admin listener ' + FBaseUrl + ' answered 503 (http://+:' +
+      IntToStr(FPort) + '/ reservation present). FALLBACK: listening on ALL interfaces. Fix: ' +
+      'netsh http delete urlacl url=http://+:' + IntToStr(FPort) + '/ && ' +
+      'netsh http add urlacl url=' + FBaseUrl + ' sddl=D:(A;;GX;;;WD), then restart');
+  end;
   FLogger.Log(mlInfo, 'Admin server started on port ' + IntToStr(FPort));
 end;
 

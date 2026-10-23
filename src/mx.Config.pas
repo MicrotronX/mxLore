@@ -33,6 +33,7 @@ type
     FAllowUrlApiKey: Boolean;
     // Admin
     FAdminPort: Integer;
+    FAdminBindAddress: string;
     // Logging
     FLogFile: string;
     FLogLevel: string;
@@ -96,6 +97,7 @@ type
     property AllowUrlApiKey: Boolean read FAllowUrlApiKey;
     // Admin
     property AdminPort: Integer read FAdminPort;
+    property AdminBindAddress: string read FAdminBindAddress;
     // Logging
     property LogFile: string read FLogFile;
     property LogLevel: string read FLogLevel;
@@ -136,11 +138,53 @@ type
 function mxEncryptStaticString(const APlainText: string): string;
 function mxDecryptStaticString(const AHexEncoded: string): string;
 function mxAutoDetectMariaDB: string;
+// Builds the http.sys URL prefix for a listener. Empty or '0.0.0.0' = all
+// interfaces ('+'), anything else binds to that single address.
+function mxListenerPrefix(const ABindAddress: string; APort: Integer): string;
+// True when a GET on the started listener is answered with 503 by http.sys,
+// i.e. a 'http://+:port/' reservation shadows the host-bound registration.
+function mxListenerAnswers503(const ABaseUrl: string): Boolean;
 
 implementation
 
+uses
+  System.Net.HttpClient;
+
 const
   XKEY = $A3;
+
+function mxListenerPrefix(const ABindAddress: string; APort: Integer): string;
+var
+  Addr: string;
+begin
+  Addr := Trim(ABindAddress);
+  if (Addr <> '') and (Addr[1] = '[') and (Addr[Length(Addr)] = ']') then
+    Addr := Copy(Addr, 2, Length(Addr) - 2); // '[::1]' given in the INI
+  if (Addr = '') or (Addr = '0.0.0.0') then
+    Result := Format('http://+:%d/', [APort])
+  else if Pos(':', Addr) > 0 then
+    Result := Format('http://[%s]:%d/', [Addr, APort]) // IPv6 literal
+  else
+    Result := Format('http://%s:%d/', [Addr, APort]);
+end;
+
+function mxListenerAnswers503(const ABaseUrl: string): Boolean;
+var
+  Client: THTTPClient;
+begin
+  Client := THTTPClient.Create;
+  try
+    Client.ConnectionTimeout := 3000;
+    Client.ResponseTimeout := 3000;
+    try
+      Result := Client.Get(ABaseUrl).StatusCode = 503;
+    except
+      Result := False; // unreachable for another reason: no fallback guess
+    end;
+  finally
+    Client.Free;
+  end;
+end;
 
 function mxEncryptStaticString(const APlainText: string): string;
 var
@@ -342,6 +386,9 @@ begin
 
     // Admin
     FAdminPort := Ini.ReadInteger('Admin', 'admin_port', 0);
+    FAdminBindAddress := Trim(Ini.ReadString('Admin', 'AdminBindAddress', '127.0.0.1'));
+    if FAdminBindAddress = '' then
+      FAdminBindAddress := '127.0.0.1'; // blank must not mean "all interfaces" for admin
 
     // Logging
     FLogFile  := Ini.ReadString('Logging', 'LogFile', 'logs\mxLoreMCP.log');

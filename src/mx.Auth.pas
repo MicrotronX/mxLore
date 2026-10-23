@@ -29,7 +29,7 @@ type
     destructor Destroy; override;
     function ValidateKey(const ABearerToken: string;
       const ADeviceId: string = ''; const AProxyVersion: string = '';
-      const AHost: string = ''): TMxAuthResult;
+      const AHost: string = ''; ATouch: Boolean = True): TMxAuthResult;
   end;
 
 implementation
@@ -164,7 +164,7 @@ end;
 
 function TMxAuthManager.ValidateKey(const ABearerToken: string;
   const ADeviceId: string; const AProxyVersion: string;
-  const AHost: string): TMxAuthResult;
+  const AHost: string; ATouch: Boolean): TMxAuthResult;
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
@@ -328,14 +328,18 @@ begin
   end;
 
   // Update last_used + last_seen identity (fire-and-forget). Empty header
-  // keeps the previous last_seen value (Plan#17121 M1).
+  // keeps the previous last_seen value (Plan#17121 M1). ATouch=False for
+  // read-only callers (whoami) that must not mark the key as used.
+  if ATouch then
   try
     Qry := Ctx.CreateQuery(
       'UPDATE client_keys SET last_used_at = NOW(), ' +
+      '  last_used_ip = COALESCE(NULLIF(:ip, ''''), last_used_ip), ' +
       '  last_seen_device_id = COALESCE(NULLIF(:dev, ''''), last_seen_device_id), ' +
       '  last_seen_proxy_version = COALESCE(NULLIF(:ver, ''''), last_seen_proxy_version) ' +
       'WHERE id = :id');
     try
+      Qry.ParamByName('ip').AsWideString := Copy(AHost, 1, 45);
       Qry.ParamByName('dev').AsWideString := Result.DeviceId;
       Qry.ParamByName('ver').AsWideString := Result.ProxyVersion;
       Qry.ParamByName('id').AsInteger := Result.KeyId;

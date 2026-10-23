@@ -11,6 +11,20 @@ SRCDIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "Building ${BASENAME}..."
 
+# Pre-release gate (ADR-12216): no temporary probes, no orchestrator secrets in the index
+ORCH="${SRCDIR}/src/orchestrator-go"
+if grep -q "mouse-probe" "${ORCH}"/*.go; then
+  echo "GATE FAILED: temporary mouse-probe still in src/orchestrator-go"; exit 1
+fi
+LEAK=$(git -C "${SRCDIR}" ls-files src/orchestrator-go | grep -E '\.pem$|orchestrator\.json$|setup-code\.txt$|sessions\.json$')
+if [ -n "${LEAK}" ]; then
+  echo "GATE FAILED: private orchestrator files are tracked:"; echo "${LEAK}"; exit 1
+fi
+
+# Orchestrator: release builds only via build.sh (-trimpath, no local paths in the EXE)
+ORCH_EXE="${SRCDIR}/release/orchestrator-build/mxLoreOrchestrator.exe"
+bash "${ORCH}/build.sh" "${ORCH_EXE}" || { echo "Orchestrator build failed (Go on PATH?)"; exit 1; }
+
 # Clean
 rm -rf "release/${BASENAME}" "${ZIPFILE}"
 mkdir -p "${OUTDIR}/sql" "${OUTDIR}/admin/www/js" "${OUTDIR}/admin/www/js/lib" "${OUTDIR}/admin/www/css" "${OUTDIR}/lib" "${OUTDIR}/claude-setup/proxy"
@@ -21,6 +35,15 @@ cp "${SRCDIR}/mxLoreMCPGui.exe"  "${OUTDIR}/"
 
 # Proxy
 cp "${SRCDIR}/claude-setup/proxy/mxMCPProxy.exe" "${OUTDIR}/"
+
+# Orchestrator (browser terminal tabs for Claude Code)
+mkdir -p "${OUTDIR}/orchestrator" || { echo "ERROR: cannot create ${OUTDIR}/orchestrator"; exit 1; }
+cp "${ORCH_EXE}"                         "${OUTDIR}/orchestrator/" || { echo "ERROR: copy failed: ${ORCH_EXE}"; exit 1; }
+# Microsoft ConPTY (MIT) must sit next to the EXE, else Windows' built-in ConPTY drops OSC 7501
+cp "${ORCH}/bin/conpty.dll"               "${OUTDIR}/orchestrator/" || { echo "ERROR: copy failed: bin/conpty.dll"; exit 1; }
+cp "${ORCH}/bin/OpenConsole.exe"          "${OUTDIR}/orchestrator/" || { echo "ERROR: copy failed: bin/OpenConsole.exe"; exit 1; }
+cp "${ORCH}/THIRD-PARTY-NOTICES.txt"      "${OUTDIR}/orchestrator/" || { echo "ERROR: copy failed: THIRD-PARTY-NOTICES.txt"; exit 1; }
+cp "${ORCH}/README.md"                    "${OUTDIR}/orchestrator/" || { echo "ERROR: copy failed: README.md"; exit 1; }
 
 # Config
 cp "${SRCDIR}/mxLoreMCP.ini.example" "${OUTDIR}/"

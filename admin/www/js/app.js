@@ -1963,6 +1963,38 @@ var App = (function () {
     snippet: 'Snippets'
   };
 
+  async function loadOfferOrchestrator() {
+    var cb = $('#setting-offer-orchestrator');
+    if (!cb) return;
+    cb.disabled = true;
+    try {
+      var resp = await Api.getSettings();
+      var on = false;
+      (resp.settings || []).forEach(function (s) {
+        if (s.key === 'connect.offer_orchestrator') on = (String(s.value == null ? '' : s.value).trim().toLowerCase() === 'true');
+      });
+      cb.checked = on;
+      cb.disabled = false;
+    } catch (e) {
+      var res = $('#offer-orchestrator-result');
+      if (res) res.textContent = 'Failed to load: ' + ((e && e.message) || 'unknown');
+    }
+  }
+
+  async function saveOfferOrchestrator(cb) {
+    var res = $('#offer-orchestrator-result');
+    cb.disabled = true;
+    try {
+      await Api.saveSettings({ 'connect.offer_orchestrator': cb.checked ? 'true' : 'false' });
+      if (res) res.textContent = 'Saved.';
+    } catch (e) {
+      cb.checked = !cb.checked;
+      if (res) res.textContent = 'Save failed: ' + ((e && e.message) || 'unknown');
+    } finally {
+      cb.disabled = false;
+    }
+  }
+
   async function loadGlobalPage() {
     showPage('global');
 
@@ -2020,6 +2052,8 @@ var App = (function () {
         '<tr><td>Admin-Port</td><td class="mono">' + (settings.admin_port || '-') + '</td></tr>';
 
       Icons.render();
+
+      loadOfferOrchestrator();
 
       // Load dashboard cards separately (non-blocking, each catches own errors)
       loadAccessLogCard();
@@ -4230,6 +4264,7 @@ var App = (function () {
     loadSkillsPage: loadSkillsPage,
     switchSettingsTab: switchSettingsTab,
     saveIniValue: saveIniValue,
+    saveOfferOrchestrator: saveOfferOrchestrator,
     switchSkillTab: switchSkillTab,
     skillFeedback: skillFeedback,
     runCleanup: runCleanup,

@@ -89,18 +89,59 @@ If other machines need to connect to mxLore:
 ```ini
 [Server]
 BindAddress=0.0.0.0
+
+[Admin]
+AdminBindAddress=127.0.0.1   ; keep local; set 0.0.0.0 only if the Admin UI must be reachable over LAN
 ```
+
+LAN access needs the `http://+:8080/` reservation (see Step 4).
+
+`AdminBindAddress` controls the Admin UI (port 8081) and is honoured: default `127.0.0.1`, blank means `127.0.0.1`, `0.0.0.0` means all interfaces.
+
+`BindAddress` (MCP, port 8080) works the same, except that a blank value means all interfaces (`0.0.0.0`).
+
+A specific address (e.g. `127.0.0.1`) needs a URL reservation for exactly that address, and no `http://+:port/` reservation may exist for the same port. While a `+` reservation exists, Windows answers every request with 503:
+
+```
+netsh http delete urlacl url=http://+:8080/
+netsh http delete urlacl url=http://+:8081/
+netsh http add urlacl url=http://127.0.0.1:8080/ sddl=D:(A;;GX;;;WD)
+netsh http add urlacl url=http://127.0.0.1:8081/ sddl=D:(A;;GX;;;WD)
+```
+
+For `0.0.0.0` (all interfaces) use the `http://+:<port>/` reservation from Step 4 and delete any specific-address reservation on the same port first (`netsh http delete urlacl url=http://127.0.0.1:8080/`, same for 8081).
+
+The server logs the required command at startup when a listener is bound to a specific address.
+
+Upgrading from a build before this setting: both listeners now honour their bind address, and the Admin UI defaults to localhost only. If only the old `http://+:port/` reservation exists, the server detects this at startup, falls back to listening on all interfaces (as before the update) and logs an ERROR with the commands to fix it. Switch the reservations as shown above and restart to get the localhost-only binding.
 
 See [Network Security](../README.md#network-security) for HTTPS requirements.
 
 ## Step 4: Register URL (one-time, as Administrator)
 
-Windows requires URL reservations for HTTP servers. Open a **Command Prompt as Administrator** and run:
+Windows requires URL reservations for HTTP servers. The reservation must match the bind address in the INI. Open a **Command Prompt as Administrator** and run the block that fits your setup.
+
+Default (`BindAddress=127.0.0.1`, `AdminBindAddress=127.0.0.1`, localhost only):
 
 ```bash
-netsh http add urlacl url=http://+:8080/ user=Everyone
-netsh http add urlacl url=http://+:8081/ user=Everyone
+netsh http add urlacl url=http://127.0.0.1:8080/ sddl=D:(A;;GX;;;WD)
+netsh http add urlacl url=http://127.0.0.1:8081/ sddl=D:(A;;GX;;;WD)
 ```
+
+All interfaces (`0.0.0.0` or blank):
+
+```bash
+netsh http add urlacl url=http://+:8080/ sddl=D:(A;;GX;;;WD)
+netsh http add urlacl url=http://+:8081/ sddl=D:(A;;GX;;;WD)
+```
+
+| INI value | Reservation | Reachable from |
+|-----------|-------------|----------------|
+| `127.0.0.1` | `http://127.0.0.1:<port>/` | this machine only |
+| a LAN IP, e.g. `192.168.1.5` | `http://192.168.1.5:<port>/` | that interface only |
+| `0.0.0.0` or blank | `http://+:<port>/` | all interfaces |
+
+Never keep a `+` reservation and a specific-address reservation on the same port: the `+` one wins and every request answers 503. Check with `netsh http show urlacl`, remove a wrong one with `netsh http delete urlacl url=<url>`.
 
 You only need to do this once. After that, the server runs without admin rights.
 
@@ -130,8 +171,9 @@ Console output should show:
 INFO  mxLore v2.4.0 (Build 81) starting...
 INFO  Database connected: mxai_knowledge@localhost
 INFO  Auto-schema: setup.sql executed (fresh install)
-INFO  MCP server listening on 127.0.0.1:8080
-INFO  Admin server listening on 127.0.0.1:8081
+INFO  MCP server started on port 8080
+INFO  Server running on http://127.0.0.1:8080/
+INFO  Admin server started on port 8081
 ```
 
 If you see errors, check [Troubleshooting](troubleshooting.md).

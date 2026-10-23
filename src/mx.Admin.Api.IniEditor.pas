@@ -51,10 +51,11 @@ const
   HIGH_IMPACT_SECTIONS: array[0..0] of string = (
     'Database'
   );
-  HIGH_IMPACT_INFRA: array[0..5] of string = (
+  HIGH_IMPACT_INFRA: array[0..6] of string = (
     'Server.BindAddress',
     'Server.Port',
     'Admin.admin_port',
+    'Admin.AdminBindAddress',
     'Security.developer_acl_mode',
     'Security.AllowUrlApiKey',
     'Backup.BackupPath'

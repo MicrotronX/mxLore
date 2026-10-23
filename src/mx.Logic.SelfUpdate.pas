@@ -945,12 +945,13 @@ end;
 // logs\, backups\, .old-*\) never enters rotation.
 function EnumerateReleaseScopedSubdirFiles(const AExeDir: string): TArray<string>;
 const
-  RecursiveDirs: array[0..4] of string = (
+  RecursiveDirs: array[0..5] of string = (
     'sql',
     'admin\www',
     'lib',
     'claude-setup',
-    'docs'
+    'docs',
+    'orchestrator'
   );
 var
   List: TStringList;

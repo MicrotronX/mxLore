@@ -42,6 +42,13 @@ type
     /// </summary>
     procedure CleanupExpired;
 
+    /// <summary>
+    ///   Read-only check: True if the key has reached the limit inside the
+    ///   current window (nothing is recorded). Pair with TryAcquire to count
+    ///   only failures. ARetryAfterSec = seconds until the oldest entry expires.
+    /// </summary>
+    function IsLimited(const AKey: string; out ARetryAfterSec: Integer): Boolean;
+
     property MaxRequests: Integer read FMaxRequests;
     property WindowSeconds: Integer read FWindowSeconds;
   end;
@@ -147,6 +154,31 @@ begin
     end;
   finally
     KeysToRemove.Free;
+  end;
+end;
+
+function TMxRateLimit.IsLimited(const AKey: string;
+  out ARetryAfterSec: Integer): Boolean;
+var
+  Queue: TQueue<Int64>;
+  NowTicks, Cutoff: Int64;
+begin
+  Result := False;
+  ARetryAfterSec := 0;
+  NowTicks := TStopwatch.GetTimeStamp;
+  Cutoff := NowTicks - FWindowTicks;
+  FLock.Enter;
+  try
+    if not FBuckets.TryGetValue(AKey, Queue) then
+      Exit;
+    PruneOldEntries(Queue, Cutoff);
+    if Queue.Count >= FMaxRequests then
+    begin
+      Result := True;
+      ARetryAfterSec := Integer((Queue.Peek - Cutoff) div TStopwatch.Frequency) + 1;
+    end;
+  finally
+    FLock.Leave;
   end;
 end;
 

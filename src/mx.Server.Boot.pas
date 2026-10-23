@@ -146,6 +146,8 @@ begin
       Defaults.Add('[Admin]');
       Defaults.Add('; Admin UI port (0 = disabled). Open http://localhost:<port> to manage.');
       Defaults.Add('admin_port=8081');
+      Defaults.Add('; AdminBindAddress: 127.0.0.1 = localhost only (default). 0.0.0.0 = all interfaces.');
+      Defaults.Add('AdminBindAddress=127.0.0.1');
       Defaults.Add('');
       Defaults.Add('[Logging]');
       Defaults.Add('LogFile=logs\mxLoreMCP.log');
@@ -339,6 +341,16 @@ begin
           try SeedQry.ExecSQL; finally SeedQry.Free; end;
 
           FLogger.Log(mlInfo, 'Auto-migrate: app_settings created + seeded');
+        end;
+
+        // Re-seed the trusted-proxy key on every boot when missing: installs
+        // whose app_settings predates this key never received the row, and
+        // without it X-Forwarded-For is ignored behind the proxy (BR#19105).
+        begin
+          var TrustedQry := MigCtx.CreateQuery(
+            'INSERT IGNORE INTO app_settings (setting_key, setting_value) VALUES ' +
+            '(''connect.trusted_proxies'', ''127.0.0.1'')');
+          try TrustedQry.ExecSQL; finally TrustedQry.Free; end;
         end;
       finally
         MigQry.Free;
@@ -1971,21 +1983,31 @@ begin
       if Pos('Could not add', E.Message) > 0 then
       begin
         FLogger.Log(mlError, 'Fix: run as Administrator, or reserve the URL:');
-        FLogger.Log(mlError, '  netsh http add urlacl url=http://+:' +
-          IntToStr(FConfig.ServerPort) + '/ user=Everyone');
-        FLogger.Log(mlError, '  netsh http add urlacl url=http://+:' +
-          IntToStr(FConfig.AdminPort) + '/ user=Everyone');
+        FLogger.Log(mlError, '  netsh http add urlacl url=' +
+          mxListenerPrefix(FConfig.BindAddress, FConfig.ServerPort) + ' sddl=D:(A;;GX;;;WD)');
+        FLogger.Log(mlError, '  netsh http add urlacl url=' +
+          mxListenerPrefix(FConfig.AdminBindAddress, FConfig.AdminPort) + ' sddl=D:(A;;GX;;;WD)');
       end;
       FHost.OnError('MCP server failed to start on port ' +
         IntToStr(FConfig.ServerPort) + ': ' + E.Message);
       raise;
     end;
   end;
-  FLogger.Log(mlInfo, 'Server running on ' + FConfig.BindAddress + ':' +
-    IntToStr(FConfig.ServerPort));
+  FLogger.Log(mlInfo, 'Server running on ' +
+    mxListenerPrefix(FConfig.BindAddress, FConfig.ServerPort));
+  if Pos('+', mxListenerPrefix(FConfig.BindAddress, FConfig.ServerPort)) = 0 then
+    FLogger.Log(mlInfo, 'Host-bound listener: requires "netsh http add urlacl url=' +
+      mxListenerPrefix(FConfig.BindAddress, FConfig.ServerPort) +
+      '" and no http://+ reservation on that port (else 503)');
 
   if Assigned(FAdminServer) then
+  begin
     FAdminServer.Start;
+    if Pos('+', mxListenerPrefix(FConfig.AdminBindAddress, FConfig.AdminPort)) = 0 then
+      FLogger.Log(mlInfo, 'Host-bound admin listener: requires "netsh http add urlacl url=' +
+        mxListenerPrefix(FConfig.AdminBindAddress, FConfig.AdminPort) +
+        '" and no http://+ reservation on that port (else 503)');
+  end;
 
   // Self-Update: register stop callback so MxSelfUpdate_InstallAndRestart
   // can gracefully stop Sparkle listeners before the exe is replaced (T11).

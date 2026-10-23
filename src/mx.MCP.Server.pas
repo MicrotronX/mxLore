@@ -11,7 +11,8 @@ uses
   Data.DB, FireDAC.Comp.Client,
   mx.Types, mx.Config, mx.Log, mx.Data.Pool, mx.Auth, mx.Errors,
   mx.MCP.Schema, mx.MCP.Protocol, mx.Logic.AccessControl,
-  mx.Logic.AgentMessaging;
+  mx.Logic.AgentMessaging, mx.Logic.RateLimit,
+  mx.Logic.Settings, mx.Net.ClientIp;
 
 type
   TMxMcpApiModule = class(THttpServerModule)
@@ -21,16 +22,21 @@ type
     FLogger: IMxLogger;
     FProtocol: TMxMcpProtocol;
     FAllowUrlApiKey: Boolean;
+    FSettings: TMxSettingsCache;     // not owned, freed by TMxMcpServer
+    FWhoAmIFailLimit: TMxRateLimit;  // failed whoami validations per peer IP
+    function TrustedProxies: string;
     procedure HandleAgentInboxGet(const C: THttpServerContext;
       const AProject: string);
     procedure HandleAgentAckGet(const C: THttpServerContext;
       const AIds: string);
+    procedure HandleWhoAmIGet(const C: THttpServerContext);
   protected
     procedure ProcessRequest(const C: THttpServerContext); override;
   public
     constructor Create(const ABaseUri: string; APool: TMxConnectionPool;
       AAuth: TMxAuthManager; ARegistry: TMxMcpRegistry;
-      ALogger: IMxLogger; AAllowUrlApiKey: Boolean); reintroduce;
+      ALogger: IMxLogger; AAllowUrlApiKey: Boolean;
+      ASettings: TMxSettingsCache); reintroduce;
     destructor Destroy; override;
   end;
 
@@ -38,6 +44,7 @@ type
   private
     FServer: THttpSysServer;
     FPool: TMxConnectionPool;
+    FSettings: TMxSettingsCache;
     FLogger: IMxLogger;
     FPort: Integer;
     FBindAddress: string;
@@ -55,18 +62,35 @@ implementation
 
 constructor TMxMcpApiModule.Create(const ABaseUri: string;
   APool: TMxConnectionPool; AAuth: TMxAuthManager;
-  ARegistry: TMxMcpRegistry; ALogger: IMxLogger; AAllowUrlApiKey: Boolean);
+  ARegistry: TMxMcpRegistry; ALogger: IMxLogger; AAllowUrlApiKey: Boolean;
+  ASettings: TMxSettingsCache);
 begin
   inherited Create(ABaseUri);
   FPool := APool;
   FAuth := AAuth;
   FLogger := ALogger;
   FAllowUrlApiKey := AAllowUrlApiKey;
+  FSettings := ASettings;
   FProtocol := TMxMcpProtocol.Create(ARegistry, APool, ALogger);
+  FWhoAmIFailLimit := TMxRateLimit.Create(10, 300);  // 10 failures / 5 min
+end;
+
+// connect.trusted_proxies: only these peers may set X-Forwarded-For (BR#19105).
+function TMxMcpApiModule.TrustedProxies: string;
+begin
+  // Reload per request: the Admin UI writes to its own cache instance, so this
+  // one would otherwise keep the boot-time value until restart (BR#19105 review).
+  Result := '';
+  if Assigned(FSettings) then
+  begin
+    FSettings.Invalidate;
+    Result := FSettings.Get('connect.trusted_proxies');
+  end;
 end;
 
 destructor TMxMcpApiModule.Destroy;
 begin
+  FreeAndNil(FWhoAmIFailLimit);
   FreeAndNil(FProtocol);
   inherited;
 end;
@@ -174,18 +198,16 @@ end;
 // shared by the MCP, inbox and ack endpoints so binding/logging stays in one
 // place (TMxAuthManager.CheckDeviceBinding).
 function ValidateRequestKey(AAuth: TMxAuthManager; const C: THttpServerContext;
-  const AAuthHeader: string): TMxAuthResult;
+  const AAuthHeader, ATrustedProxies: string): TMxAuthResult;
 var
   DeviceId, ProxyVersion, Host: string;
 begin
   DeviceId := '';
   ProxyVersion := '';
-  Host := '';
   C.Request.Headers.GetIfExists('X-Device-Id', DeviceId);
   C.Request.Headers.GetIfExists('X-Proxy-Version', ProxyVersion);
-  C.Request.Headers.GetIfExists('X-Forwarded-For', Host);
-  if Host = '' then
-    Host := C.Request.RemoteIp;
+  // X-Forwarded-For is honored only from trusted proxies (BR#19105).
+  Host := MxGetClientIp(C, ATrustedProxies);
   Result := AAuth.ValidateKey(AAuthHeader, DeviceId, ProxyVersion, Host);
 end;
 
@@ -234,6 +256,20 @@ var
   ResponseBytes: TBytes;
 begin
   try
+    // FR#19103 - GET /api/whoami: read-only identity check for the key
+    if SameText(C.Request.Uri.AbsolutePath, '/api/whoami') then
+    begin
+      if C.Request.MethodType = THttpMethod.Get then
+        HandleWhoAmIGet(C)
+      else
+      begin
+        C.Response.StatusCode := 405;
+        C.Response.Headers.SetValue('Allow', 'GET');
+        C.Response.Close;
+      end;
+      Exit;
+    end;
+
     // GET /mcp?agent_inbox=<project> — lightweight polling for proxy
     if C.Request.MethodType = THttpMethod.Get then
     begin
@@ -294,7 +330,7 @@ begin
       Exit;
     end;
 
-    AuthResult := ValidateRequestKey(FAuth, C, AuthHeader);
+    AuthResult := ValidateRequestKey(FAuth, C, AuthHeader, TrustedProxies);
     if not AuthResult.Valid then
     begin
       // M3.11b forward-proof: pass AuthResult.AuthReason so future-
@@ -312,9 +348,8 @@ begin
     // FR#2936/Plan#3266 M3.6b — capture request-context for forensic trio.
     // Consumed by mx_key_revoke (self-revoke) to populate revoke_ip +
     // revoke_user_agent. Same column sizes as admin path (VARCHAR 45/255).
-    C.Request.Headers.GetIfExists('X-Forwarded-For', AuthResult.RemoteIp);
-    if AuthResult.RemoteIp = '' then
-      AuthResult.RemoteIp := C.Request.RemoteIp;
+    // X-Forwarded-For only from trusted proxies (BR#19105).
+    AuthResult.RemoteIp := MxGetClientIp(C, TrustedProxies);
     if Length(AuthResult.RemoteIp) > 45 then
       AuthResult.RemoteIp := Copy(AuthResult.RemoteIp, 1, 45);
     C.Request.Headers.GetIfExists('User-Agent', AuthResult.UserAgent);
@@ -397,6 +432,81 @@ begin
   end;
 end;
 
+// FR#19103 - GET /api/whoami. Read-only: device id and proxy version are not
+// passed to ValidateKey, so no device binding is created; keys that already
+// carry a device binding are therefore rejected. Every
+// failure cause returns the same 401 body (no oracle). The key is never logged.
+procedure TMxMcpApiModule.HandleWhoAmIGet(const C: THttpServerContext);
+var
+  AuthHeader, Host, Role: string;
+  AuthResult: TMxAuthResult;
+  Resp: TJSONObject;
+  ResponseBytes: TBytes;
+  RetryAfter: Integer;
+  ClientIp: string;
+begin
+  // Client IP via trusted-proxy rule (BR#19105): behind a same-host proxy the
+  // peer is the proxy for every client, so the raw peer would share one bucket.
+  ClientIp := MxGetClientIp(C, TrustedProxies);
+
+  // Per-IP failure limit (10 / 5 min): blocked before key validation.
+  if FWhoAmIFailLimit.IsLimited(ClientIp, RetryAfter) then
+  begin
+    C.Response.StatusCode := 429;
+    C.Response.Headers.SetValue('Content-Type', 'application/json');
+    C.Response.Headers.SetValue('Retry-After', IntToStr(RetryAfter));
+    C.Response.Close(TEncoding.UTF8.GetBytes('{"error":"too_many_requests"}'));
+    FLogger.Log(mlWarning, 'whoami rate limited');
+    Exit;
+  end;
+
+  AuthHeader := '';
+  C.Request.Headers.GetIfExists('Authorization', AuthHeader);
+  if (AuthHeader = '') and FAllowUrlApiKey then
+    AuthHeader := ExtractQueryApiKey(C.Request.Uri.Query);
+
+  AuthResult.Valid := False;
+  if AuthHeader <> '' then
+  begin
+    Host := ClientIp;
+    AuthResult := FAuth.ValidateKey(AuthHeader, '', '', Host, False);
+  end;
+
+  // Grace-window keys (expired < 24h) and device-bound keys are refused:
+  // whoami cannot enforce the device binding, and an expired key must not
+  // mint new downstream sessions.
+  if not AuthResult.Valid or (AuthResult.AuthReason <> AR_OK)
+    or (AuthResult.BoundDeviceId <> '') then
+  begin
+    FWhoAmIFailLimit.TryAcquire(ClientIp);  // record the failure
+    C.Response.StatusCode := 401;
+    C.Response.Headers.SetValue('Content-Type', 'application/json');
+    C.Response.Headers.SetValue('WWW-Authenticate', 'Bearer realm="mxLore"');
+    C.Response.Close(TEncoding.UTF8.GetBytes('{"error":"unauthorized"}'));
+    FLogger.Log(mlWarning, 'whoami auth failed');
+    Exit;
+  end;
+
+  if AuthResult.IsAdmin then
+    Role := 'admin'
+  else
+    Role := 'developer';
+
+  Resp := TJSONObject.Create;
+  try
+    Resp.AddPair('developer_id', TJSONNumber.Create(AuthResult.DeveloperId));
+    Resp.AddPair('name', AuthResult.DeveloperName);
+    Resp.AddPair('role', Role);
+    ResponseBytes := TEncoding.UTF8.GetBytes(Resp.ToJSON);
+  finally
+    Resp.Free;
+  end;
+  SetKeyExpiryHeader(C, AuthResult);
+  C.Response.StatusCode := 200;
+  C.Response.Headers.SetValue('Content-Type', 'application/json');
+  C.Response.Close(ResponseBytes);
+end;
+
 // GET ?agent_inbox=<project> — lightweight polling for proxy background thread
 procedure TMxMcpApiModule.HandleAgentInboxGet(const C: THttpServerContext;
   const AProject: string);
@@ -426,7 +536,7 @@ begin
     Exit;
   end;
 
-  AuthResult := ValidateRequestKey(FAuth, C, AuthHeader);
+  AuthResult := ValidateRequestKey(FAuth, C, AuthHeader, TrustedProxies);
   if not AuthResult.Valid then
   begin
     SendAuthProblem(C, 403, AuthResult.AuthReason,
@@ -593,7 +703,7 @@ begin
     Exit;
   end;
 
-  AuthResult := ValidateRequestKey(FAuth, C, AuthHeader);
+  AuthResult := ValidateRequestKey(FAuth, C, AuthHeader, TrustedProxies);
   if not AuthResult.Valid then
   begin
     SendAuthProblem(C, 403, AuthResult.AuthReason,
@@ -695,13 +805,15 @@ begin
   FPort := AConfig.ServerPort;
   FBindAddress := AConfig.BindAddress;
 
-  if (FBindAddress = '') or (FBindAddress = '0.0.0.0') then
-    BaseUrl := Format('http://+:%d/', [FPort])
-  else
-    BaseUrl := Format('http://%s:%d/', [FBindAddress, FPort]);
+  BaseUrl := mxListenerPrefix(FBindAddress, FPort);
 
+  FSettings := TMxSettingsCache.Create(APool);
   FServer := THttpSysServer.Create;
-  var Module := TMxMcpApiModule.Create(BaseUrl, APool, AAuth, ARegistry, ALogger, AConfig.AllowUrlApiKey);
+  // Register the configured host instead of Sparkle's default '+'. A specific
+  // host needs its own urlacl and no 'http://+:port/' reservation (else 503).
+  FServer.KeepHostInUrlPrefixes := True;
+  var Module := TMxMcpApiModule.Create(BaseUrl, APool, AAuth, ARegistry, ALogger,
+    AConfig.AllowUrlApiKey, FSettings);
   Module.AddMiddleware(TCorsMiddleware.Create('*', 'POST'));
   FServer.AddModule(Module);
 
@@ -712,12 +824,28 @@ destructor TMxMcpServer.Destroy;
 begin
   Stop;
   FreeAndNil(FServer);
+  FreeAndNil(FSettings);
   inherited;
 end;
 
 procedure TMxMcpServer.Start;
+var
+  BaseUrl: string;
 begin
   FServer.Start;
+  // Upgrade safety: an old 'http://+:port/' reservation makes the host-bound
+  // listener answer 503. Fall back to all interfaces instead of going dark.
+  BaseUrl := mxListenerPrefix(FBindAddress, FPort);
+  if (Pos('+', BaseUrl) = 0) and mxListenerAnswers503(BaseUrl) then
+  begin
+    FServer.Stop;
+    FServer.KeepHostInUrlPrefixes := False;
+    FServer.Start;
+    FLogger.Log(mlError, 'MCP listener ' + BaseUrl + ' answered 503 (http://+:' +
+      IntToStr(FPort) + '/ reservation present). FALLBACK: listening on ALL interfaces. Fix: ' +
+      'netsh http delete urlacl url=http://+:' + IntToStr(FPort) + '/ && ' +
+      'netsh http add urlacl url=' + BaseUrl + ' sddl=D:(A;;GX;;;WD), then restart');
+  end;
   FLogger.Log(mlInfo, 'MCP server started on port ' + IntToStr(FPort));
 end;
 

@@ -66,7 +66,7 @@ The console should show `Admin server listening on 127.0.0.1:8081`. **You're hal
 | Scenario | Setup |
 |----------|-------|
 | **Localhost** (single user) | HTTP is fine. Default: `BindAddress=127.0.0.1` |
-| **LAN** (team) | Set `BindAddress=0.0.0.0` in INI. HTTP OK on trusted networks. |
+| **LAN** (team) | Set `BindAddress=0.0.0.0` in INI and use the `http://+:8080/` URL reservation (see [Installation](docs/installation.md#step-4-register-url-one-time-as-administrator)); delete any `127.0.0.1` reservation on that port. The Admin UI stays on localhost unless `AdminBindAddress=0.0.0.0`. HTTP OK on trusted networks. |
 | **WAN / Cloud** | **HTTPS required.** Use a reverse proxy (IIS, nginx, Apache) with TLS. |
 
 ## Private by Design

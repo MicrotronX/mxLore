@@ -30,6 +30,15 @@ function HandleGetRevision(const AParams: TJSONObject;
 // keep single source for the search order.
 function ResolveProxyExePath: string;
 
+// Resolves <ExeDir>\orchestrator\mxLoreOrchestrator.exe, '' if missing.
+// Shared with Admin orchestrator download (mx.Admin.Server).
+function ResolveOrchestratorExePath: string;
+
+// True when app_settings 'connect.offer_orchestrator' is 'true' (trimmed,
+// case-insensitive). Reads the DB directly (no settings cache) so mx_ping and
+// the Admin download route always give the same answer. False on DB error.
+function IsOrchestratorOffered(AContext: IMxDbContext): Boolean;
+
 implementation
 
 // Bug#17686: may the caller see the other end of a relation? Same rules as
@@ -46,13 +55,18 @@ end;
 // proxy_sha256 helper: lazy SHA-256 of the shipped mxMCPProxy.exe, cached
 // per (path, file timestamp). ResolveProxyExePath is exported and reused by
 // Admin HandleProxyDownload (mx.Admin.Server.pas) so the hash always matches
-// the actually delivered file.
+// the actually delivered file. The cache holds one entry per file path.
 // ---------------------------------------------------------------------------
+type
+  TFileHashEntry = record
+    Age: TDateTime;
+    Size: Int64;
+    Hash: string;
+  end;
+
 var
   GProxyHashLock: TObject;
-  GProxyHashPath: string;
-  GProxyHashAge: TDateTime;
-  GProxyHash: string;
+  GFileHashes: TDictionary<string, TFileHashEntry>;
 
 function ResolveProxyExePath: string;
 begin
@@ -65,37 +79,97 @@ begin
       Exit(SearchPath);
 end;
 
-// Returns lowercase hex SHA-256 of the proxy exe, '' if no file found or
-// unreadable (caller omits the field then — never fails mx_ping).
-function GetProxySha256: string;
+function ResolveOrchestratorExePath: string;
+begin
+  Result := ExtractFilePath(ParamStr(0)) + 'orchestrator' + PathDelim +
+    'mxLoreOrchestrator.exe';
+  if not FileExists(Result) then
+    Result := '';
+end;
+
+function IsOrchestratorOffered(AContext: IMxDbContext): Boolean;
 var
-  ExePath: string;
+  Qry: TFDQuery;
+begin
+  Result := False;
+  try
+    Qry := AContext.CreateQuery(
+      'SELECT setting_value FROM app_settings ' +
+      'WHERE setting_key = ''connect.offer_orchestrator''');
+    try
+      Qry.Open;
+      if not Qry.IsEmpty then
+        Result := SameText(Trim(Qry.FieldByName('setting_value').AsString), 'true');
+    finally
+      Qry.Free;
+    end;
+  except
+    // app_settings may not exist on old schema - treat as off
+    Result := False;
+  end;
+end;
+
+// Returns lowercase hex SHA-256 of the given file, '' if the path is empty or
+// the file is unreadable (caller omits the field then — never fails mx_ping).
+// Cached per path and file timestamp.
+function GetFileSha256(const AExePath: string): string;
+var
   FileTime: TDateTime;
+  FileSize: Int64;
+  SR: TSearchRec;
+  Entry: TFileHashEntry;
 begin
   Result := '';
-  ExePath := ResolveProxyExePath;
-  if ExePath = '' then
+  if AExePath = '' then
     Exit;
   TMonitor.Enter(GProxyHashLock);
   try
-    // FileAge inside the lock so cached mtime and hash stay consistent (TOCTOU)
-    if not FileAge(ExePath, FileTime) then
+    // FileAge/size inside the lock so cached stamp and hash stay consistent (TOCTOU)
+    if not FileAge(AExePath, FileTime) then
       Exit;
-    if (GProxyHash <> '') and (GProxyHashPath = ExePath) and
-       (GProxyHashAge = FileTime) then
-      Exit(GProxyHash);
+    if FindFirst(AExePath, faAnyFile, SR) <> 0 then
+      Exit;
     try
-      GProxyHash := LowerCase(THashSHA2.GetHashStringFromFile(ExePath));
-      GProxyHashPath := ExePath;
-      GProxyHashAge := FileTime;
-      Result := GProxyHash;
+      FileSize := SR.Size;
+    finally
+      FindClose(SR);
+    end;
+    if GFileHashes.TryGetValue(AExePath, Entry) and (Entry.Hash <> '') and
+       (Entry.Age = FileTime) and (Entry.Size = FileSize) then
+      Exit(Entry.Hash);
+    try
+      Entry.Hash := LowerCase(THashSHA2.GetHashStringFromFile(AExePath));
+      Entry.Age := FileTime;
+      Entry.Size := FileSize;
+      GFileHashes.AddOrSetValue(AExePath, Entry);
+      Result := Entry.Hash;
     except
       // File locked or unreadable: omit field, retry on next ping
-      GProxyHash := '';
+      GFileHashes.Remove(AExePath);
     end;
   finally
     TMonitor.Exit(GProxyHashLock);
   end;
+end;
+
+// Returns lowercase hex SHA-256 of the proxy exe, '' if no file found.
+function GetProxySha256: string;
+begin
+  Result := GetFileSha256(ResolveProxyExePath);
+end;
+
+// Builds the public download URL for APath: external admin URL when
+// configured (trailing slash stripped), else the localhost admin port.
+function BuildDownloadUrl(const AExtAdminUrl, APath: string): string;
+var
+  Base: string;
+begin
+  Base := Trim(AExtAdminUrl);
+  if Base.EndsWith('/') then
+    Base := Copy(Base, 1, Length(Base) - 1);
+  if Base = '' then
+    Base := 'http://localhost:' + IntToStr(MXAI_ADMIN_PORT);
+  Result := Base + APath;
 end;
 
 // ---------------------------------------------------------------------------
@@ -156,22 +230,29 @@ begin
         // app_settings may not exist on old schema — ignore
       end;
       // Always provide internal URL (works for local installs)
-      var InternalUrl := 'http://localhost:' + IntToStr(MXAI_ADMIN_PORT) + '/api/download/proxy';
-      Data.AddPair('proxy_download_url_internal', InternalUrl);
-      // External URL from settings (for remote devs behind reverse proxy)
-      if ExtAdminUrl <> '' then
-      begin
-        if ExtAdminUrl.EndsWith('/') then
-          ExtAdminUrl := Copy(ExtAdminUrl, 1, Length(ExtAdminUrl) - 1);
-        Data.AddPair('proxy_download_url', ExtAdminUrl + '/api/download/proxy');
-      end
-      else
-        Data.AddPair('proxy_download_url', InternalUrl);
+      Data.AddPair('proxy_download_url_internal',
+        BuildDownloadUrl('', '/api/download/proxy'));
+      // External URL from settings (for remote devs behind reverse proxy),
+      // localhost fallback when none is configured
+      Data.AddPair('proxy_download_url',
+        BuildDownloadUrl(ExtAdminUrl, '/api/download/proxy'));
       // SHA-256 of the delivered proxy exe so install-proxy.sh can verify
       // the download (EXPECTED_SHA256). Omitted when no proxy file exists.
       var ProxySha := GetProxySha256;
       if ProxySha <> '' then
         Data.AddPair('proxy_sha256', ProxySha);
+      // Orchestrator: offered only when the admin switched it on and the
+      // file exists in the server directory.
+      if IsOrchestratorOffered(AContext) then
+      begin
+        var OrchSha := GetFileSha256(ResolveOrchestratorExePath);
+        if OrchSha <> '' then
+        begin
+          Data.AddPair('orchestrator_download_url',
+            BuildDownloadUrl(ExtAdminUrl, '/api/download/orchestrator'));
+          Data.AddPair('orchestrator_sha256', OrchSha);
+        end;
+      end;
     end;
     // Cross-platform proxy: macOS binaries (Go-Port) via GitHub release assets.
     // Static "latest/download" URLs, always available (independent of admin_port).
@@ -1685,8 +1766,10 @@ end;
 
 initialization
   GProxyHashLock := TObject.Create;
+  GFileHashes := TDictionary<string, TFileHashEntry>.Create;
 
 finalization
+  GFileHashes.Free;
   GProxyHashLock.Free;
 
 end.
