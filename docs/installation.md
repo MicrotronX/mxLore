@@ -128,7 +128,7 @@ netsh http add urlacl url=http://127.0.0.1:8080/ sddl=D:(A;;GX;;;WD)
 netsh http add urlacl url=http://127.0.0.1:8081/ sddl=D:(A;;GX;;;WD)
 ```
 
-All interfaces (`0.0.0.0` or blank):
+All interfaces (`0.0.0.0`; a blank value means `127.0.0.1`):
 
 ```bash
 netsh http add urlacl url=http://+:8080/ sddl=D:(A;;GX;;;WD)
@@ -137,9 +137,9 @@ netsh http add urlacl url=http://+:8081/ sddl=D:(A;;GX;;;WD)
 
 | INI value | Reservation | Reachable from |
 |-----------|-------------|----------------|
-| `127.0.0.1` | `http://127.0.0.1:<port>/` | this machine only |
+| `127.0.0.1` (default) or blank | `http://127.0.0.1:<port>/` | this machine only |
 | a LAN IP, e.g. `192.168.1.5` | `http://192.168.1.5:<port>/` | that interface only |
-| `0.0.0.0` or blank | `http://+:<port>/` | all interfaces |
+| `0.0.0.0` | `http://+:<port>/` | all interfaces |
 
 Never keep a `+` reservation and a specific-address reservation on the same port: the `+` one wins and every request answers 503. Check with `netsh http show urlacl`, remove a wrong one with `netsh http delete urlacl url=<url>`.
 
@@ -177,6 +177,16 @@ INFO  Admin server started on port 8081
 ```
 
 If you see errors, check [Troubleshooting](troubleshooting.md).
+
+### Optional: Start automatically after a reboot
+
+mxLore does not install itself as a Windows service. The lightest way to survive a reboot is a Scheduled Task that starts the console EXE at system startup (run once in an **Administrator** Command Prompt, adjust the path):
+
+```bash
+schtasks /create /tn "mxLore Server" /tr "\"C:\mxLore\mxLoreMCP.exe\"" /sc onstart /ru SYSTEM /rl highest /f
+```
+
+The task runs without a logged-in user; logs still go to `logs\mxLoreMCP.log`. Self-Update restarts the process in place, so the task does not interfere with it. Prefer the GUI EXE instead? Put a shortcut to `mxLoreMCPGui.exe` into `shell:startup` of the account that stays logged in.
 
 ## Step 6: Verify
 

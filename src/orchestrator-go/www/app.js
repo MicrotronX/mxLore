@@ -1310,7 +1310,10 @@
       x.appendChild(icon(ICON_X));
       x.addEventListener("click", (ev) => { ev.stopPropagation(); closeTab(t); });
       b.appendChild(x);
-      b.addEventListener("click", () => activate(t.id));
+      // Activate on pointerdown: the poll re-renders the bar whenever a lamp changes, which can
+      // replace this element between mousedown and mouseup and swallow the click.
+      b.addEventListener("pointerdown", (ev) => { if (ev.button === 0 && !ev.target.closest(".x")) activate(t.id); });
+      b.addEventListener("click", () => { if (state.active !== t.id) activate(t.id); });
       wireTabDrag(b, t);
       b.addEventListener("auxclick", (ev) => { if (ev.button === 1) closeTab(t); });
       b.addEventListener("contextmenu", (ev) => { ev.preventDefault(); openCtx(t, ev.clientX, ev.clientY); });
@@ -1597,7 +1600,11 @@
       b.setAttribute("role", "menuitem");
       if (it.sub) b.setAttribute("aria-haspopup", "menu");
       b.disabled = !!it.disabled;
-      b.addEventListener("click", () => { const back = ctxReturn; ctxReturn = null; closeCtx(); if (it.sub) ctxReturn = back; else closeDrawer(); it.fn(); });
+      b.addEventListener("click", () => {
+        const back = ctxReturn; ctxReturn = null; closeCtx(); if (it.sub) ctxReturn = back; else closeDrawer(); it.fn();
+        // Menu actions (mxSave, Save & close, ...) return the cursor to the terminal unless they opened a dialog.
+        if (!it.sub) requestAnimationFrame(() => { const v = state.views.get(state.active); if (v && !overlayOpen()) v.term.focus(); });
+      });
       li.appendChild(b);
       ctx.appendChild(li);
     }
@@ -1652,6 +1659,7 @@
       const b = el("button", "btn small ghost");
       b.textContent = a.name;
       b.title = a.steps.join("  →  ");
+      b.addEventListener("pointerdown", (ev) => ev.preventDefault()); // keep focus on the terminal
       b.addEventListener("click", () => { const t = activeTab(); if (t) runQuick(t, i); });
       box.appendChild(b);
     });
@@ -1666,6 +1674,7 @@
       if (info && info.id) setTab(info);
       toast("Running \"" + quickActions[i].name + "\" in " + tabTitle(t) + ".");
     } catch (e) { if (e && e.message === "stale_quick_action") loadQuickActions(); fail(e); }
+    finally { const v = state.views.get(state.active); if (v && !overlayOpen()) v.term.focus(); }
   }
   function quickToText(list) {
     return list.map((a) => a.name + ": " + a.steps.join(" | ")).join("\n");
@@ -2075,6 +2084,42 @@
     if (term.textarea) {
       for (const [k, val] of [["autocomplete", "off"], ["autocorrect", "off"], ["autocapitalize", "off"], ["spellcheck", "false"]]) term.textarea.setAttribute(k, val);
     }
+    // Android keyboards ignore those attributes and xterm resends the whole field per word.
+    // There the field is the source of truth: send only what changed since the last send.
+    const ime = term.textarea && /Android/i.test(navigator.userAgent) ? { sent: "", bsAt: 0 } : null;
+    if (ime) {
+      const ta = term.textarea;
+      ta.addEventListener("keydown", (ev) => { if (ev.keyCode === 8) ime.bsAt = performance.now(); }, true);
+      ta.addEventListener("focus", () => { ime.sent = ta.value; });
+      // xterm empties the field from code (no input event); what is left there is already sent.
+      ta.addEventListener("beforeinput", () => { if (ta.value !== ime.sent) ime.sent = ta.value; }, true);
+      ta.addEventListener("input", (ev) => {
+        if (ev.inputType === "insertFromPaste") { ime.sent = ta.value; return; }
+        const now = ta.value, old = ime.sent;
+        let p = 0;
+        while (p < now.length && p < old.length && now[p] === old[p]) p++;
+        const removed = [...old.slice(p)].length;
+        ime.sent = now;
+        // A real Backspace key already went out through xterm.
+        const del = performance.now() - ime.bsAt < 100 ? Math.max(0, removed - 1) : removed;
+        const out = "\x7f".repeat(del) + now.slice(p);
+        if (out) send(v, enc.encode(out));
+      });
+    }
+    // Files dragged onto the terminal: the browser knows only name and bytes, so the
+    // orchestrator stores each file and the absolute path is typed into the terminal.
+    box.addEventListener("dragover", (ev) => {
+      if (!ev.dataTransfer || !Array.from(ev.dataTransfer.types).includes("Files")) return;
+      ev.preventDefault(); ev.dataTransfer.dropEffect = "copy"; box.classList.add("drop-files");
+    });
+    box.addEventListener("dragleave", () => box.classList.remove("drop-files"));
+    box.addEventListener("drop", async (ev) => {
+      box.classList.remove("drop-files");
+      const files = ev.dataTransfer ? Array.from(ev.dataTransfer.files) : [];
+      if (!files.length) return;
+      ev.preventDefault(); ev.stopPropagation();
+      await dropFilesInto(v, files);
+    });
     box.addEventListener("paste", (ev) => {
       const cd = ev.clipboardData;
       if (cd && cd.getData("text/plain")) return; // xterm pastes text itself (bracketed paste)
@@ -2164,7 +2209,14 @@
       claim.style.transform = shift;
       if (v.overlay) v.overlay.style.transform = shift;
     }, { passive: true });
-    term.onData((d) => send(v, enc.encode(d)));
+    term.onData((d) => {
+      if (ime) {
+        // Plain text comes from the input listener; keys (Enter, arrows, Backspace, paste) pass.
+        if (!/[\x00-\x1f\x7f]/.test(d)) return;
+        if (/[\r\n\x03\x1b]/.test(d)) { term.textarea.value = ""; ime.sent = ""; }
+      }
+      send(v, enc.encode(d));
+    });
     term.onBinary((d) => {
       const b = new Uint8Array(d.length);
       for (let i = 0; i < d.length; i++) b[i] = d.charCodeAt(i) & 255;
@@ -2179,6 +2231,44 @@
     document.fonts.load('14px "JetBrains Mono"').then(() => {
       for (const v of state.views.values()) { try { v.term.options.fontFamily = '"JetBrains Mono", Consolas, monospace'; } catch (e) {} fit(v); }
     }).catch(() => {});
+  }
+
+  // Page-wide file drop: anywhere outside the project/tab reorder zones goes to the active
+  // terminal; without this the browser opens the dropped file in a new tab.
+  const hasFiles = (ev) => !!(ev.dataTransfer && Array.from(ev.dataTransfer.types).includes("Files"));
+  document.addEventListener("dragover", (ev) => { if (hasFiles(ev)) { ev.preventDefault(); ev.dataTransfer.dropEffect = "copy"; } });
+  document.addEventListener("drop", async (ev) => {
+    if (!hasFiles(ev)) return;
+    ev.preventDefault();
+    const v = state.views.get(state.active);
+    const files = Array.from(ev.dataTransfer.files);
+    if (!v || !files.length) { if (!v) toast("Open a terminal tab first, then drop the file onto it.", true); return; }
+    await dropFilesInto(v, files);
+  });
+  async function dropFilesInto(v, files) {
+    const paths = [];
+    for (const f of files) {
+      try { paths.push(await uploadDrop(f)); } catch (e) { fail(e); }
+    }
+    if (!paths.length) return;
+    send(v, enc.encode(paths.map((p) => (/\s/.test(p) ? '"' + p + '"' : p)).join(" ") + " "));
+    v.term.focus();
+  }
+  async function uploadDrop(file) {
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    let res;
+    try { res = await fetch("/api/drops", { method: "POST", credentials: "same-origin", body: fd }); }
+    catch (e) { throw new NetError("The orchestrator is not reachable. Check that it is still running."); }
+    const text = await res.text();
+    let data = null;
+    if (text) { try { data = JSON.parse(text); } catch (e) { data = { error: text.trim() }; } }
+    if (!res.ok) {
+      const code = data && data.error;
+      if (code === "drop_too_large") throw new Error("\"" + file.name + "\" is larger than 64 MB and was not stored.");
+      throw new Error("\"" + file.name + "\" could not be stored" + (code ? " (" + code + ")" : "") + ".");
+    }
+    return data.path;
   }
 
   function send(v, bytes) {

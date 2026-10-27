@@ -497,6 +497,7 @@ var
   NewRawKey, NewKeyHash, GuidStr, ClientIP, UserAgent: string;
   G: TGUID;
   InTx: Boolean;
+  NewExpires: TDateTime;
 begin
   if AActorDevId <= 0 then
   begin
@@ -604,7 +605,8 @@ begin
       Qry.ParamByName('hash').AsWideString := NewKeyHash;
       Qry.ParamByName('prefix').AsWideString := Copy(NewRawKey, 1, 12);
       Qry.ParamByName('perms').AsWideString := OldPermissions;
-      Qry.ParamByName('expires').AsDateTime := IncDay(Now, DefaultDays);
+      NewExpires := IncDay(Now, DefaultDays);
+      Qry.ParamByName('expires').AsDateTime := NewExpires;
       Qry.ParamByName('old_id').AsInteger := AKeyId;
       Qry.ExecSQL;
     finally
@@ -716,6 +718,10 @@ begin
     Json.AddPair('id', TJSONNumber.Create(NewKeyId));
     Json.AddPair('key', NewRawKey); // shown ONCE
     Json.AddPair('name', OldName);
+    // FR#3517-#3: carry permissions + expires_at so the admin UI needs no
+    // follow-up GET; same date format as the key list (MxDateStr).
+    Json.AddPair('permissions', OldPermissions);
+    Json.AddPair('expires_at', FormatDateTime('dd.mm.yyyy hh:nn', NewExpires));
     MxSendJson(C, 201, Json);
   finally
     Json.Free;

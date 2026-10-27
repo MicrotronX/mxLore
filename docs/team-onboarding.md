@@ -29,6 +29,8 @@ Every host (laptop, workstation, CI runner) that connects to mxLore needs **its 
    - **Expires:** optional.
 4. Copy the generated `mxk_…` key and send it to the team member through a secure channel (password manager, encrypted chat, etc.).
 
+> **Team members on other machines?** The server listens on `127.0.0.1` only by default. Set `BindAddress=0.0.0.0` under `[Server]` in `mxLoreMCP.ini` (keep `AdminBindAddress=127.0.0.1` unless the Admin UI itself must be reachable over LAN) and register the matching `http://+:8080/` URL reservation. A blank value means `127.0.0.1`, not all interfaces. Details and the `netsh` commands: [installation.md](installation.md#step-4-register-url-one-time-as-administrator).
+
 > **Faster path — Team Connect invite links:** Instead of sending raw keys, the admin can generate a one-time invite link (see [Invite Team Members](#invite-team-members) below). The link opens a landing page with copy-paste instructions pre-filled for the member's client of choice. Preferred for onboarding multiple people.
 
 ### If you're a team member

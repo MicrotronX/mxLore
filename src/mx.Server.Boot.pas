@@ -1985,8 +1985,9 @@ begin
         FLogger.Log(mlError, 'Fix: run as Administrator, or reserve the URL:');
         FLogger.Log(mlError, '  netsh http add urlacl url=' +
           mxListenerPrefix(FConfig.BindAddress, FConfig.ServerPort) + ' sddl=D:(A;;GX;;;WD)');
-        FLogger.Log(mlError, '  netsh http add urlacl url=' +
-          mxListenerPrefix(FConfig.AdminBindAddress, FConfig.AdminPort) + ' sddl=D:(A;;GX;;;WD)');
+        if FConfig.AdminPort > 0 then
+          FLogger.Log(mlError, '  netsh http add urlacl url=' +
+            mxListenerPrefix(FConfig.AdminBindAddress, FConfig.AdminPort) + ' sddl=D:(A;;GX;;;WD)');
       end;
       FHost.OnError('MCP server failed to start on port ' +
         IntToStr(FConfig.ServerPort) + ': ' + E.Message);

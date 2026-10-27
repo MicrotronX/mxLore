@@ -361,7 +361,9 @@ begin
         'Download: https://mariadb.org/download/?t=connector&p=connector-c');
 
     // Server
-    FBindAddress    := Ini.ReadString('Server', 'BindAddress', '127.0.0.1');
+    FBindAddress    := Trim(Ini.ReadString('Server', 'BindAddress', '127.0.0.1'));
+    if FBindAddress = '' then
+      FBindAddress := '127.0.0.1'; // blank must not mean "all interfaces" (same rule as admin)
     FServerPort     := Ini.ReadInteger('Server', 'Port', 8080);
     FMaxConnections := Ini.ReadInteger('Server', 'MaxConnections', 10);
     FSetupVersion   := Ini.ReadString('Server', 'SetupVersion', '');

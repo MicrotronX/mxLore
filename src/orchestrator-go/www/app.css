@@ -250,6 +250,7 @@ select:focus { outline: none; border-color: var(--focus); }
 .terminals { position: relative; flex: 1; min-height: 0; background: var(--bg); }
 .term { position: absolute; inset: 0; }
 .term .xterm { height: 100%; padding: 8px 0 6px 10px; }
+.term.drop-files { outline: 2px dashed var(--accent, #6aa9ff); outline-offset: -4px; }
 /* Another device owns the size: show it unscaled and let the box pan it. */
 .term.grid-locked { overflow: auto; }
 .term.grid-locked .xterm { height: auto; width: max-content; }

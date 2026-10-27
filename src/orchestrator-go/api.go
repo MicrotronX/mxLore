@@ -65,6 +65,7 @@ func (s *Server) Routes(static http.Handler) http.Handler {
 	mux.HandleFunc("DELETE /api/projects/{id}", s.requireEnrolled(s.handleProjectDelete))
 
 	mux.HandleFunc("GET /api/fs", s.requireEnrolled(s.handleFsList))
+	mux.HandleFunc("POST /api/drops", s.requireEnrolled(s.handleDrop))
 	mux.HandleFunc("GET /api/update", s.requireEnrolled(s.handleUpdateGet))
 	mux.HandleFunc("POST /api/update/restart", s.requireEnrolled(s.handleUpdateRestart))
 	mux.HandleFunc("GET /api/groups", s.requireEnrolled(s.handleGroups))
@@ -98,7 +99,12 @@ func (s *Server) Routes(static http.Handler) http.Handler {
 
 	mux.HandleFunc("GET /ws/tabs/{id}", s.requireEnrolled(s.handleWS))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { apiErr(w, http.StatusNotFound, "not_found") })
-	mux.Handle("/", static)
+	// no-cache (not no-store): the browser still revalidates with ETag/If-Modified-Since,
+	// but never runs a stale app.js after an update.
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		static.ServeHTTP(w, r)
+	}))
 	return s.guard.Wrap(mux)
 }
 
