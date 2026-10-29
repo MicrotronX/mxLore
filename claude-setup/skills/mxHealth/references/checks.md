@@ -220,7 +220,8 @@ entirely from output).
 
 - **Rules + numbers:** `Read ~/.claude/skills/_shared/backlog-hygiene.md` (SSoT — do not restate deadlines here).
 - **Trigger:** the two searches defined there (tag search + active list), plus
-  one `mx_batch_detail` over the tagged ids to read the marker line.
+  one `mx_batch_detail` over the tagged ids to read the marker line, plus the
+  done-in-plan calls per SSoT (skipped in loop mode).
 - **Checks:**
   - Tag `fixed-pending-verify` without a parseable marker line -> `WARNING`
     (will never auto-close).
@@ -229,8 +230,13 @@ entirely from output).
     `doc_id | type | days_since_content_change | title`, sorted oldest first,
     max 30 rows. Recommend a code re-audit (subagent, evidence `file:line`
     per item); the user decides.
+  - Done-in-active-plan candidates (rules: SSoT section `Done-in-active-plan candidates`) ->
+    `WARNING`; result shows the count + max 5 rows and `+<N> more in note #<id>` when cut;
+    the full list goes into the Phase 3b note. Counts `not checkable`, `contradicted`, `linked, no task evidence`
+    are always printed when > 0.
 - ⚡ NEVER writes: no archive, no tag, no append. Auto-close runs only in
   mxSave (single locus). Field `days_since_content_change` missing -> skip the
   stale part silently.
-- **Loop mode:** counts only (`P15: <S> stale, <T> tagged, <B> broken marker`).
-- **Persistence:** Phase 3b note; Phase 4 bugreport only for broken markers.
+- **Loop mode:** counts only (`P15: <S> stale, <T> tagged, <B> broken marker`); done-in-plan is skipped.
+- **Persistence:** Phase 3b note; Phase 4 bugreport only for broken markers. Done-in-plan rows
+  -> `context_hash` `p15-done:<doc-slug>`.
