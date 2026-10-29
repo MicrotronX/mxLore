@@ -49,6 +49,7 @@ FR/BR are NOT FS-anchor-capable (no checkbox / impl-target — see `~/.claude/sk
 - ⚡ Skip entire block if `!mcp_available` OR `--loop` mode (interactive prompt).
 - Collect `#IDs` this session explicitly discussed as **fixed / shipped / committed / closed / done** — sources: chat decisions of THIS session + the Step-2 status.md/CLAUDE.md edits (both available before Step 3) + ids from a `Backlog re-audit` result shown in THIS session (resume background agent, rows with `file:line` only; rules: `~/.claude/skills/_shared/backlog-hygiene.md`). Do NOT infer from code; only IDs the session actually named or that list showed.
 - ∅collected IDs → skip silently (do not scan the whole backlog).
+- A `Backlog re-audit` result was shown in THIS session (rows or not) → after this block: `mx_set_env(project, key='BACKLOG_REAUDIT_AT', env_value=<today_utc>)` (param `env_value`). Only here — never at spawn time.
 - `mx_batch_detail(doc_ids=[...])` (max 10/call, iterate) → keep only `doc_type ∈ {feature_request, bugreport, todo}` AND `status='active'` (already-archived → drop silently, no re-archive).
 - Bundle up to 4 per `AskUserQuestion`: `<type>#<id>: <title>` + `evidence: <session-reference>` + options `archive` / `pending-verify` (built, only a test is open) / `keep`. NEVER auto-archive without confirm (an ID named in passing may not be truly closed).
   - `archive` → `mx_update_doc(doc_id, status='archived', change_reason='mxSave FR/BR closure-sweep: fixed/shipped this session')`

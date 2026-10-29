@@ -29,11 +29,11 @@ reintroduces the stack-pop search-skip defect.
    - **Recency:** prefer `updated_at DESC` ordering so the most
      recent matching note wins the `limit` cut. `limit=4` (raised from 2) keeps
      a stale creation note from crowding out the completion note.
-2. If hit: `mx_detail(note_id, max_content_tokens=1500)` on first match.
+2. If hit: `mx_detail(doc_id=<note_id>, max_content_tokens=1500)` on first match.
    `1500` = full session_note body for Mode 5 enrichment.
 3. Also: follow WF outbound relations (references / implements) if WF body
    lists `Spec#NNNN` / `Plan#NNNN` / `Decision#NNNN` with `in-progress` or
-   `draft` status -> `mx_detail(primary_artifact, max_content_tokens=600)`.
+   `draft` status -> `mx_detail(doc_id=<primary_artifact>, max_content_tokens=600)`.
    `600` server-default = status / next-action peek only.
 4. Merge surfaced pivot-decisions, next-action hints, and open-OQ-state into
    the Resume output. This prevents "orphan resume" where Mode 5 technically
@@ -46,7 +46,7 @@ reintroduces the stack-pop search-skip defect.
 STACK-INDEPENDENT and STILL RUN.
 
 - **Unconditional `mx_detail`:** if `state.last_save_session_note_doc_id !=
-  null` -> `mx_detail(note_id, max_content_tokens=1500)`. Loads the last
+  null` -> `mx_detail(doc_id=<note_id>, max_content_tokens=1500)`. Loads the last
   session_note regardless of stack state.
 - **Unconditional `mx_search` fallback:** `mx_search(project,
   doc_type='session_note', limit=4)` ordered by `updated_at DESC` (most

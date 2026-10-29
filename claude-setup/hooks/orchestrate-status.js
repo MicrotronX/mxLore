@@ -22,14 +22,16 @@ try {
   const prompt = String(payload.prompt || '');
   // Harness-injected prompts (task notifications, agent hand-backs) are not user intent.
   const injected = /<task-notification>|\[SYSTEM NOTIFICATION|<agent-message|<command-name>/i.test(prompt);
-  if (!injected && RESUME_RE.test(prompt) && !/^\s*\/mxOrchestrate/i.test(prompt)) {
-    console.log('[mxOrchestrate] ⚡ RESUME intent — invoke the mxOrchestrate SKILL (args "resume") FIRST, before any other tool; answer the rest of the prompt afterwards.');
-  }
   if (!fs.existsSync(STATE_FILE)) process.exit(0);
 
   const raw = fs.readFileSync(STATE_FILE, 'utf8');
   if (!raw || !raw.trim()) process.exit(0);
   const state = JSON.parse(raw);
+  // Only while the context is still empty (flag cleared by the skill) — a later
+  // question that merely contains "resume" is not a second resume.
+  if (!injected && state.context_cleared_at && RESUME_RE.test(prompt) && !/^\s*\/mxOrchestrate/i.test(prompt)) {
+    console.log('[mxOrchestrate] ⚡ RESUME intent — invoke the mxOrchestrate SKILL (args "resume") FIRST, before any other tool; answer the rest of the prompt afterwards.');
+  }
 
   // workflow_stack
   const stack = Array.isArray(state.workflow_stack) ? state.workflow_stack

@@ -184,12 +184,8 @@ try {
   if (handoff) {
     console.log(
       `[mxOrchestrate] Resume handoff loaded (session note #${state.last_save_session_note_doc_id}, ` +
-      `saved ${state.last_save}). This IS the briefing — skip the resume ritual UNLESS the user's prompt asks to resume/continue ` +
-      `(any language) — then invoke the mxOrchestrate SKILL (args "resume") FIRST, before any other tool. ` +
-      `Otherwise open the MCP session yourself before any work (registers this agent): ` +
-      `mx_session_start(project=<Slug from CLAUDE.md>, since="${state.last_save}", setup_version=<~/.claude/setup-version.json .version>), ` +
-      `then in .claude/orchestrate-state.json set session_id, set last_reconciliation to now (date -u) and delete context_cleared_at + context_cleared_source (re-read the file to verify), ` +
-      `then run the backlog re-audit spawn per ~/.claude/skills/_shared/backlog-hygiene.md section "Backlog re-audit" (background agent, throttled by mx_get_env key BACKLOG_REAUDIT_AT; skip silently when not due). ` +
+      `saved ${state.last_save}). This IS the briefing. Before any work the mxOrchestrate skill (args "resume") opens the MCP session, ` +
+      `clears the state flags and starts the backlog re-audit; this handoff only spares the note fetch. ` +
       `Docs it reports as changed since the save are newer than this handoff — mention them. ` +
       `Full note on demand via mx_detail.\n` + handoff
     );
