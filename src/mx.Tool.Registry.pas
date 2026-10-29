@@ -487,9 +487,9 @@ begin
 
   ARegistry
     .Add('mx_get_env', HandleGetEnv)
-    .Desc('Get env value by key, or list all')
-    .Param('key', mptString, False, 'Key to look up')
-    .Param('project', mptString, False, 'Project slug');
+    .Desc('Get env value by key. Without key: key names only (has_value, value_length), never values')
+    .Param('key', mptString, False, 'Key to look up (required to receive a value)')
+    .Param('project', mptString, False, 'Project slug (list: this project + _global; omitted: all projects)');
 
   ARegistry
     .Add('mx_delete_env', HandleDeleteEnv)

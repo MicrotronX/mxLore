@@ -233,26 +233,39 @@ begin
   end
   else
   begin
-    // All keys for this client
+    // Key names for this client: never the values. A value leaves the server
+    // only through an explicit key lookup, so a listing for project A cannot
+    // carry project B's secrets into A's context (BR#19936). With a project the
+    // list covers that project plus _global, without one every project.
+    if ProjectSlug <> '' then
+      ProjectId := ResolveProjectId(AContext, ProjectSlug)
+    else
+      ProjectId := 0;
     Arr := TJSONArray.Create;
     try
       Qry := AContext.CreateQuery(
-        'SELECT de.env_key, de.env_value, p.slug AS project_slug, ' +
+        'SELECT de.env_key, CHAR_LENGTH(de.env_value) AS value_length, ' +
+        '  p.slug AS project_slug, ' +
         '  CASE WHEN de.project_id = :global_id THEN ''global'' ELSE ''project'' END AS source ' +
         'FROM developer_environments de ' +
         'JOIN projects p ON de.project_id = p.id ' +
         'WHERE de.client_key_id = :key_id ' +
+        '  AND (:proj_id = 0 OR de.project_id IN (:proj_id2, :global_id2)) ' +
         'ORDER BY de.env_key, source');
       try
         Qry.ParamByName('key_id').AsInteger := KeyId;
         Qry.ParamByName('global_id').AsInteger := GlobalId;
+        Qry.ParamByName('global_id2').AsInteger := GlobalId;
+        Qry.ParamByName('proj_id').AsInteger := ProjectId;
+        Qry.ParamByName('proj_id2').AsInteger := ProjectId;
         Qry.Open;
 
         while not Qry.Eof do
         begin
           Obj := TJSONObject.Create;
           Obj.AddPair('key', Qry.FieldByName('env_key').AsString);
-          Obj.AddPair('value', Qry.FieldByName('env_value').AsString);
+          Obj.AddPair('has_value', TJSONBool.Create(Qry.FieldByName('value_length').AsInteger > 0));
+          Obj.AddPair('value_length', TJSONNumber.Create(Qry.FieldByName('value_length').AsInteger));
           Obj.AddPair('project', Qry.FieldByName('project_slug').AsString);
           Obj.AddPair('source', Qry.FieldByName('source').AsString);
           Arr.AddElement(Obj);
