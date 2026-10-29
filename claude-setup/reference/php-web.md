@@ -150,7 +150,7 @@ Cross-Origin-Embedder-Policy: require-corp
 const a = await fetchA();
 const b = await fetchB();
 
-// RICHTIG — parallel wenn unabhaengig
+// RIGHT — parallel when independent
 const [a, b] = await Promise.all([fetchA(), fetchB()]);
 
 // Error-Handling

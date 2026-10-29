@@ -29,7 +29,7 @@ mx_search include_content=false limit=3-5. mx_briefing token_budget=1000-1500
 mx_skill_findings_list paginate(limit=10) !full-list
 Edit surgical 1-5L. multi-line→Write or background-subagent
 tail -15 default for logs. wider only on need
-status.md ≤4KB UND Zeile≤1KB (gleiche Byte-Einheit wie CLAUDE.md, !Zeilenzahl) pointer-only(MCP IDs) !duplicate-content. Block ohne #NNNN wird !geloescht →erst nach MCP schreiben
+status.md ≤4KB AND line≤1KB (same byte unit as CLAUDE.md, !line-count) pointer-only(MCP IDs) !duplicate-content. Block without #NNNN !deleted →write to MCP first
 N mirrored files→edit canonical 1x + cp, !N Edit calls
 
 ## Agent-Messages ⚡ (content, !transport — cross-project)
@@ -70,8 +70,8 @@ delphi→~/.claude/reference/delphi.md | php/web→~/.claude/reference/php-web.m
 ## Docs
 ~/.claude/CLAUDE.md=global(all projects, via /mxSetup)
 <project>/CLAUDE.md=project-only(slug,stack,arch) !duplicate-global
-⚡ CLAUDE.md-Gewicht=BYTES !Zeilen: `wc -c`≤40KB UND längste-Zeile≤4KB(`LC_ALL=C awk '{print length}'|sort -rn|head -1` — LC_ALL=C zwingend, gawk zählt sonst ZEICHEN statt Bytes und meldet deutsche Dateien ~26% zu klein). Zeilenzahl ist blind für Chronik die in Zeilen-LÄNGE wächst (gemessen: 212 Zeilen=163KB, 53 Zeilen=32KB/80% in 1 Zeile). Datei lädt in JEDE Session + JEDEN Subagent-Fork
-⚡ Status/Chronik in CLAUDE.md = GENAU 1 Eintrag (aktuell, voll) + Zeiger `History→mx_search(doc_type='session_note')`. Vorgänger wird ENTFERNT !eingedampft (trägt eigenen note#, SSoT ist die Note). !Top-N-Regel — N 1-Zeiler sind wieder Duplikat + Eindampfen pro Save = Drift
+⚡ CLAUDE.md weight=BYTES !lines: `wc -c`≤40KB AND longest-line≤4KB(`LC_ALL=C awk '{print length}'|sort -rn|head -1` — LC_ALL=C mandatory, otherwise gawk counts CHARACTERS instead of bytes and reports non-ASCII files ~26% too small). Line count is blind to a chronicle that grows in line LENGTH (measured: 212 lines=163KB, 53 lines=32KB/80% in 1 line). File loads into EVERY session + EVERY subagent fork
+⚡ Status/chronicle in CLAUDE.md = EXACTLY 1 entry (current, full) + pointer `History→mx_search(doc_type='session_note')`. Predecessor is REMOVED !condensed (carries its own note#, the note is SSoT). !Top-N-rule — N one-liners are duplicates again + condensing per save = drift
 docs/reference/=on-demand. mx*-skills→auto-generate !manual-create
 
 ## Superpowers→mx* Bridge (mx* priority in docs/-projects)

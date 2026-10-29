@@ -198,7 +198,7 @@ When inserting new members into existing classes:
 - `var` parameters CANNOT be captured in anonymous methods
 
 ```pascal
-// PROBLEM: i wird captured, aber als Referenz!
+// PROBLEM: i is captured, but by reference!
 for i := 0 to 9 do
   List.Add(procedure begin DoSomething(i) end);
 // Alle Closures sehen dasselbe i (= 10 nach Loop)
@@ -366,7 +366,7 @@ unit MyUnit;
 
 interface
 uses
-  // Nur was im Interface gebraucht wird
+  // Only what the interface needs
 
 type
   // Typen, Klassen, Interfaces
@@ -379,7 +379,7 @@ var
 
 implementation
 uses
-  // Nur was in der Implementation gebraucht wird
+  // Only what the implementation needs
 ```
 
 ### Anti-Patterns

@@ -75,7 +75,7 @@ Per-item: `{label, verdict, evidence}` where:
 
 ## doc_type applicability
 
-| doc_type | FS-anchor-fähig? | Reason |
+| doc_type | FS-anchor-capable? | Reason |
 |---|---|---|
 | `plan` | yes | Task lines `- [ ] <action>` carry implementation targets |
 | `spec` | yes | Acceptance Criteria `- [ ] <ac>` + Interfaces/Data section |
@@ -85,5 +85,5 @@ Per-item: `{label, verdict, evidence}` where:
 | `feature_request` | no | User-direktive, not impl-target |
 | `decision` | no | Records choice, not impl-target |
 
-Callers MUST filter to fähig doc_types before invoking the helper. Excluded
+Callers MUST filter to capable doc_types before invoking the helper. Excluded
 doc_types just keep their MCP status as-is.
