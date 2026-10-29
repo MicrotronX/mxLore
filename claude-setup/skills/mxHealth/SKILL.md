@@ -56,7 +56,7 @@ Per-check details (trigger, what is checked, severity, persistence target) →
 | P12 | AI-Steno Format Check          | WARNING          |
 | P13 | Skill Evolution Metrics        | WARNING/INFO     |
 | P14 | AI-Batch Status                | WARNING/INFO     |
-| P15 | Backlog Hygiene + done-in-plan (read-only) | WARNING/INFO     |
+| P15 | Backlog Hygiene (read-only)    | WARNING/INFO     |
 
 ERROR vs WARNING is binding: ERROR = invariant violation (must fix); WARNING
 = drift/risk (should fix); INFO = advisory (no persistence).

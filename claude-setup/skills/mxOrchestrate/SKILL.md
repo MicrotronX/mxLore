@@ -89,6 +89,7 @@ Empty stack → MINI (steps 5 = no-op); stack-pop / ID → HEAVY subagent. Init 
 2. `mx_search(project, doc_type='plan,spec', status='active', limit=10)` → title+doc_id only.
 3. status.md "Known open items" all bullets + "Next steps" only `- [ ]`; ⚡ drop items already archived in MCP.
 4. List: dedup, Bug→TODO→Feature→Opt→Other, max 30. Items tagged `fixed-pending-verify` (1 extra `mx_search(tag=…)` in step 1's parallel batch) → own section `verify/close` ABOVE the list (auto-close rules: `~/.claude/skills/_shared/backlog-hygiene.md`). ⚡ Aging marker BEFORE truncation: `days_since_content_change` > 7 → suffix `(>7d — re-audit claims before build)` (NOT `updated_at`; field missing → no marker).
+5. **Backlog re-audit (background, throttled 7d per project, explicit resume only):** rules + agent contract → `~/.claude/skills/_shared/backlog-hygiene.md` → section `Backlog re-audit`. Spawn, then continue; print the rows when the result arrives. mxSave picks the ids up.
 
 ## Mode 6: Status
 Workflow stack (ID|Name|Step|Status), ad-hoc tasks (Note|Origin|Created), team agents (Task|Status|Origin), last 10 events, active MCP docs `mx_search(project, doc_type='workflow_log,plan,spec', status='active')`, recently archived (same, `status='archived', limit=5`), open items (MCP active notes + status.md, dedup), save-signal line.
