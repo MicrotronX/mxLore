@@ -2061,6 +2061,9 @@
     term.loadAddon(fitAddon);
     // OSC 52: Claude Code writes its copies here; without this addon xterm drops them and nothing reaches the clipboard.
     term.loadAddon(new ClipboardAddon.ClipboardAddon());
+    // Unicode 11 widths: emoji take two columns, as Claude Code assumes; the v6 default shifts the rest of the line.
+    term.loadAddon(new Unicode11Addon.Unicode11Addon());
+    term.unicode.activeVersion = "11";
     term.attachCustomKeyEventHandler((ev) => {
       // Ctrl+V / Ctrl+Shift+V: leave it to the browser so the paste event fires.
       if (ev.ctrlKey && !ev.altKey && !ev.metaKey && ev.code === "KeyV") return false;
@@ -2236,13 +2239,15 @@
   // Page-wide file drop: anywhere outside the project/tab reorder zones goes to the active
   // terminal; without this the browser opens the dropped file in a new tab.
   const hasFiles = (ev) => !!(ev.dataTransfer && Array.from(ev.dataTransfer.types).includes("Files"));
-  document.addEventListener("dragover", (ev) => { if (hasFiles(ev)) { ev.preventDefault(); ev.dataTransfer.dropEffect = "copy"; } });
+  // Capture phase, so no inner handler can let the browser open a dropped file.
+  window.addEventListener("dragover", (ev) => { if (hasFiles(ev)) { ev.preventDefault(); ev.dataTransfer.dropEffect = "copy"; } }, true);
+  window.addEventListener("drop", (ev) => { if (hasFiles(ev)) ev.preventDefault(); }, true);
   document.addEventListener("drop", async (ev) => {
     if (!hasFiles(ev)) return;
-    ev.preventDefault();
     const v = state.views.get(state.active);
+    if (!v) { toast("Open a terminal tab first, then drop the file onto it.", true); return; }
     const files = Array.from(ev.dataTransfer.files);
-    if (!v || !files.length) { if (!v) toast("Open a terminal tab first, then drop the file onto it.", true); return; }
+    if (!files.length) { toast("The dropped item carried no file data. Try dragging it again.", true); return; }
     await dropFilesInto(v, files);
   });
   async function dropFilesInto(v, files) {

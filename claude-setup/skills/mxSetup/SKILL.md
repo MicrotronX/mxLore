@@ -81,6 +81,16 @@ ReadTimeout=120000
 Polling=1
 PollInterval=15
 ```
+4. **Orchestrator (opt-in, Windows only).** mx_ping has `orchestrator_download_url` AND `orchestrator_sha256` AND `uname` = MINGW/MSYS/CYGWIN → else skip silently (no message). AskUserQuestion once: "Use the mxLore Orchestrator web UI for Claude Code tabs?" No → skip. Yes →
+```bash
+ORCH_URL="<orchestrator_download_url>" ORCH_SHA256="<orchestrator_sha256>" \
+bash ~/.claude/skills/mxSetup/scripts/install-orchestrator.sh
+```
+   Script: download → `.new`, SHA256 check (mismatch → `.new` deleted, warn, abort this step only), existing exe → `.old`, `.new` → `~/.claude/mxLoreOrchestrator.exe`; leftover `.old` deleted when unlocked. Then ask: desktop shortcut? Yes →
+```bash
+powershell -NoProfile -Command '$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath("Desktop")+"\mxLore Orchestrator.lnk");$s.TargetPath="$env:USERPROFILE\.claude\mxLoreOrchestrator.exe";$s.Save()'
+```
+   Tell the user: start = run the exe (no service), open https://localhost:8443; first sign-in = setup code from `%LOCALAPPDATA%\mxLoreOrchestrator\setup-code.txt` + an mxLore key, then 2FA setup.
 
 ### Phase 4: Switch MCP to Proxy
 
@@ -203,7 +213,7 @@ Optional: /mxSetup --with-superpowers installs the superpowers bridge plugin
 ## Update Modes
 
 ### `--update` (full refresh)
-Runs Phase 2 (skills + hooks + reference from GitHub), Phase 5 (config + `~/.claude/CLAUDE.md` mx-rules marker block), and proxy version-check (same flow as Phase 3, download only if version differs). Use after upstream `mxLore-skills` changes or when several things are out of date.
+Runs Phase 2 (skills + hooks + reference from GitHub), Phase 5 (config + `~/.claude/CLAUDE.md` mx-rules marker block), and proxy version-check (same flow as Phase 3, download only if version differs), and orchestrator refresh: same mx_ping/Windows gate as Phase 3 step 4, `MODE=update` + same env → script updates only if `~/.claude/mxLoreOrchestrator.exe` exists AND its SHA256 differs; not installed → skip, !ask again. !kill the running orchestrator (terminal sessions die) — exit 0 → tell the user to restart it. Use after upstream `mxLore-skills` changes or when several things are out of date.
 
 ⚡ **Ordering: proxy before retired-hook removal.** `mx_ping` exposes proxy *download URLs* (`proxy_download_url`, `proxy_download_url_darwin_arm64`, `proxy_download_url_darwin_amd64` — see Phase 3), NOT a version number to diff against the locally installed proxy, so an installed-vs-server version compare is not currently possible from `mx_ping` alone. Given that gap, treat the installed proxy as potentially older than 1.0.9 by default: run Phase 3 (proxy update) BEFORE Phase 5b-Retired (hook removal) in every `--update`. Reason: a proxy older than 1.0.9 still writes `agent_inbox_<slug>.json` files (the old buffer protocol); if the retired hook is removed first, nothing reads that buffer any more and messages sit pending until the next manual `mx_agent_inbox` call. Skills-without-proxy update is degraded (delayed delivery), never lost (the buffer still accumulates) — but the order still matters to avoid the degraded window.
 

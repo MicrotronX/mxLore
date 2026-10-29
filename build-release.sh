@@ -65,6 +65,9 @@ cp "${SRCDIR}"/admin/www/js/*.js   "${OUTDIR}/admin/www/js/"
 # js/*.js glob above does NOT recurse, so they must be copied explicitly or
 # the 3D Knowledge Graph breaks in distributed builds (Spec#7677).
 cp "${SRCDIR}"/admin/www/js/lib/*.js "${OUTDIR}/admin/www/js/lib/"
+mkdir -p "${OUTDIR}/admin/www/js/lib/postproc"
+cp "${SRCDIR}"/admin/www/js/lib/postproc/*.js "${OUTDIR}/admin/www/js/lib/postproc/"
+cp "${SRCDIR}/admin/www/js/lib/THIRD-PARTY-NOTICES.txt" "${OUTDIR}/admin/www/js/lib/"
 
 # claude-setup (skills, hooks, reference — served by mx_onboard_developer)
 cp -r "${SRCDIR}/claude-setup/skills" "${OUTDIR}/claude-setup/skills"

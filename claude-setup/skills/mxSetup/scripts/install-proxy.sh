@@ -76,11 +76,15 @@ mkdir -p "$CLAUDE_HOME"
 echo "Platform: $PLATFORM/$UNAME_M  ->  $DEST"
 
 # --- Staged download (write to .new, swap on success) -----------------------
-# HTTPS proto-pin blocks any accidental http:// fallback or redirect. An
-# http:// URL is only valid for the localhost admin_port (Windows internal
-# fallback); to allow it, the caller may override via CURL_EXTRA, but the
-# default refuses unencrypted binary downloads.
-curl -fL --proto '=https' --proto-redir '=https' --retry 3 --max-time 300 --connect-timeout 10 -o "$DEST_NEW" "$RESOLVED_URL" \
+# HTTPS proto-pin blocks any accidental http:// fallback or redirect. Plain
+# http:// is accepted only for the localhost admin_port (server without an
+# external admin URL); redirects stay https-only.
+case "$RESOLVED_URL" in
+  *@*) PROTO='=https' ;;
+  http://localhost:[0-9]*/*|http://127.0.0.1:[0-9]*/*) PROTO='=http,https' ;;
+  *) PROTO='=https' ;;
+esac
+curl -fL --proto "$PROTO" --proto-redir '=https' --retry 3 --max-time 300 --connect-timeout 10 -o "$DEST_NEW" "$RESOLVED_URL" \
   || { rm -f "$DEST_NEW"; echo "ERROR: proxy download failed from $RESOLVED_URL" >&2; exit 1; }
 
 # --- Integrity check --------------------------------------------------------
