@@ -1340,7 +1340,29 @@ begin
     end;
   except
     on E: Exception do
-      FLogger.Log(mlWarning, 'Auto-migrate check skipped: ' + E.Message);
+      FLogger.Log(mlError, 'Auto-migrate failed: ' + E.Message);
+  end;
+
+  // Spec#19960: without these objects the ACL denies every project, also for
+  // admins. Stop here instead of running a server that refuses all access.
+  try
+    var CheckCtx := FPool.AcquireContext;
+    var CheckQry := CheckCtx.CreateQuery(
+      'SELECT p.is_private, (SELECT COUNT(*) FROM access_audit WHERE 1 = 0) ' +
+      'FROM projects p WHERE 1 = 0');
+    try
+      CheckQry.Open;
+    finally
+      CheckQry.Free;
+    end;
+  except
+    on E: Exception do
+    begin
+      FLogger.Log(mlError, 'Schema incomplete after auto-migrate. The database ' +
+        'user needs CREATE and ALTER rights: ' + E.Message);
+      FHost.OnError('Schema incomplete after auto-migrate: ' + E.Message);
+      raise;
+    end;
   end;
 
   // 5c. Ensure SelfSlug project exists in DB

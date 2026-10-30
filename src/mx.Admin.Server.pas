@@ -47,6 +47,13 @@ type
     constructor Create(const ABaseUri, AWwwPath: string); reintroduce;
   end;
 
+  // Browsers must revalidate: after an update, a cached script next to a fresh
+  // index.html breaks the page until a hard reload.
+  TMxAdminStaticModule = class(TStaticModule)
+  protected
+    procedure ProcessRequest(const C: THttpServerContext); override;
+  end;
+
   TMxAdminServer = class
   private
     FServer: THttpSysServer;
@@ -1199,6 +1206,14 @@ begin
   C.Response.Close(Bytes);
 end;
 
+{ TMxAdminStaticModule }
+
+procedure TMxAdminStaticModule.ProcessRequest(const C: THttpServerContext);
+begin
+  C.Response.Headers.SetValue('Cache-Control', 'no-cache');
+  inherited;
+end;
+
 { TMxAdminServer }
 
 constructor TMxAdminServer.Create(APool: TMxConnectionPool; AConfig: TMxConfig;
@@ -1229,7 +1244,7 @@ begin
   FServer.AddModule(TMxConnectPageModule.Create(BaseUrl + 'connect', WwwPath));
 
   // Static file module for admin/www/
-  FServer.AddModule(TStaticModule.Create(BaseUrl, WwwPath));
+  FServer.AddModule(TMxAdminStaticModule.Create(BaseUrl, WwwPath));
 
   FLogger.Log(mlDebug, 'Admin server configured on port ' + IntToStr(FPort) +
     ', www: ' + WwwPath);
