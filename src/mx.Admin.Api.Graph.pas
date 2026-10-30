@@ -150,6 +150,12 @@ begin
         MxSendError(C, 404, 'project_not_found');
         Exit;
       end;
+      if AdminBlockedFromProject(APool, ASession, ProjId, False) then
+      begin
+        Json.Free;
+        MxSendError(C, 403, 'forbidden');
+        Exit;
+      end;
 
       // 2) Total node count (for the truncated/"N of T" hint).
       TotalNodes := 0;
@@ -281,6 +287,7 @@ begin
         'FROM projects p ' +
         'LEFT JOIN documents d ON d.project_id = p.id AND d.status <> ''deleted'' ' +
         'WHERE p.is_active = 1 AND p.deleted_at IS NULL ' +
+        PrivateProjectExclusion('p.id', ASession.DeveloperId) +
         'GROUP BY p.id, p.slug, p.name ' +
         'ORDER BY doc_count DESC');
       try
@@ -333,7 +340,10 @@ begin
         'JOIN projects sp ON pr.source_project_id = sp.id ' +
         '  AND sp.is_active = 1 AND sp.deleted_at IS NULL ' +
         'JOIN projects tp ON pr.target_project_id = tp.id ' +
-        '  AND tp.is_active = 1 AND tp.deleted_at IS NULL');
+        '  AND tp.is_active = 1 AND tp.deleted_at IS NULL ' +
+        'WHERE 1 = 1' +
+        PrivateProjectExclusion('sp.id', ASession.DeveloperId) +
+        PrivateProjectExclusion('tp.id', ASession.DeveloperId));
       try
         Qry.Open;
         while not Qry.Eof do
@@ -622,6 +632,7 @@ begin
         'FROM projects p ' +
         'LEFT JOIN documents d ON d.project_id = p.id AND d.status <> ''deleted'' ' +
         'WHERE p.is_active = 1 AND p.deleted_at IS NULL ' +
+        PrivateProjectExclusion('p.id', ASession.DeveloperId) +
         'GROUP BY p.id, p.slug, p.name ' +
         'ORDER BY docs DESC');
       try
@@ -650,6 +661,9 @@ begin
         'FROM (' + string.Join(' UNION ALL ', Branches) + ') x ' +
         'JOIN projects sp ON sp.id = x.s AND sp.is_active = 1 AND sp.deleted_at IS NULL ' +
         'JOIN projects tp ON tp.id = x.t AND tp.is_active = 1 AND tp.deleted_at IS NULL ' +
+        'WHERE 1 = 1' +
+        PrivateProjectExclusion('sp.id', ASession.DeveloperId) +
+        PrivateProjectExclusion('tp.id', ASession.DeveloperId) +
         'GROUP BY x.s, x.t, x.typ, ym';
       Qry := Ctx.CreateQuery(Sql);
       try
@@ -744,6 +758,12 @@ begin
   if (S <= 0) or (T <= 0) or (S = T) or not FlowIsType(Typ) then
   begin
     MxSendError(C, 400, 'invalid_params');
+    Exit;
+  end;
+  if AdminBlockedFromProject(APool, ASession, S, False) or
+     AdminBlockedFromProject(APool, ASession, T, False) then
+  begin
+    MxSendError(C, 403, 'forbidden');
     Exit;
   end;
 

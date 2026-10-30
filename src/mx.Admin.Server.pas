@@ -80,6 +80,7 @@ implementation
 uses
   System.DateUtils,
   mx.Net.ClientIp,  // MxGetClientIp (BR#19105)
+  mx.Logic.AccessWrite,
   mx.Admin.Api.Auth, mx.Admin.Api.Developer,
   mx.Admin.Api.Keys, mx.Admin.Api.Projects,
   mx.Admin.Api.Global, mx.Admin.Api.Skills,
@@ -393,12 +394,51 @@ begin
     RouteRequest(C, Segments, Session);
 
   except
+    on E: EMxAccessWriteDenied do
+    begin
+      // Spec#19960: logged here, after the handler's rollback.
+      try
+        var DeniedCtx := FPool.AcquireContext;
+        WriteAccessDenied(DeniedCtx, Session.DeveloperId, E.ProjectId,
+          E.TargetDeveloperId, E.Source);
+      except
+        on LogErr: Exception do
+          FLogger.Log(mlError, 'access_audit denied row failed: ' + LogErr.Message);
+      end;
+      MxSendError(C, 403, 'private_project');
+    end;
     on E: Exception do
     begin
       FLogger.Log(mlError, 'Admin API error: ' + E.Message);
       MxSendError(C, 500, 'internal_error');
     end;
   end;
+end;
+
+// Spec#19960 section 11: true = 403 sent. AKeyId>0 resolves the key's developer.
+function KeyWriteRefused(const C: THttpServerContext; APool: TMxConnectionPool;
+  AActorId, ADevId, AKeyId: Integer): Boolean;
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+begin
+  Result := False;
+  Ctx := APool.AcquireContext;
+  if AKeyId > 0 then
+  begin
+    Qry := Ctx.CreateQuery('SELECT developer_id FROM client_keys WHERE id = :id');
+    try
+      Qry.ParamByName('id').AsInteger := AKeyId;
+      Qry.Open;
+      if Qry.IsEmpty then Exit;
+      ADevId := Qry.FieldByName('developer_id').AsInteger;
+    finally
+      Qry.Free;
+    end;
+  end;
+  Result := KeyIssueDenied(Ctx, AActorId, ADevId, 'admin:key-write');
+  if Result then
+    MxSendError(C, 403, 'private_project');
 end;
 
 procedure TMxAdminApiModule.RouteRequest(const C: THttpServerContext;
@@ -461,7 +501,7 @@ begin
     if (Len = 2) and SameText(ASegments[1], 'merge') and
        (C.Request.MethodType = THttpMethod.Post) then
     begin
-      mx.Admin.Api.Developer.HandleMergeDevelopers(C, FPool, FLogger);
+      mx.Admin.Api.Developer.HandleMergeDevelopers(C, FPool, ASession.DeveloperId, FLogger);
       Exit;
     end;
 
@@ -479,7 +519,7 @@ begin
       if (Len = 2) and (C.Request.MethodType = THttpMethod.Delete) then
       begin
         mx.Admin.Api.Developer.HandleDeleteDeveloper(C, FPool, Id,
-          Pos('hard=true', LowerCase(C.Request.Uri.Query)) > 0, FLogger);
+          Pos('hard=true', LowerCase(C.Request.Uri.Query)) > 0, ASession.DeveloperId, FLogger);
         Exit;
       end;
 
@@ -495,6 +535,7 @@ begin
       if (Len = 3) and SameText(ASegments[2], 'keys') and
          (C.Request.MethodType = THttpMethod.Post) then
       begin
+        if KeyWriteRefused(C, FPool, ASession.DeveloperId, Id, 0) then Exit;
         mx.Admin.Api.Keys.HandleCreateKey(C, FPool, Id, FLogger);
         Exit;
       end;
@@ -503,7 +544,15 @@ begin
       if (Len = 3) and SameText(ASegments[2], 'projects') and
          (C.Request.MethodType = THttpMethod.Get) then
       begin
-        mx.Admin.Api.Projects.HandleGetDevProjects(C, FPool, Id, FLogger);
+        mx.Admin.Api.Projects.HandleGetDevProjects(C, FPool, Id, ASession.DeveloperId, FLogger);
+        Exit;
+      end;
+
+      // GET /developers/:id/audit
+      if (Len = 3) and SameText(ASegments[2], 'audit') and
+         (C.Request.MethodType = THttpMethod.Get) then
+      begin
+        mx.Admin.Api.Projects.HandleGetAccessAudit(C, FPool, 0, Id, ASession.DeveloperId);
         Exit;
       end;
 
@@ -512,7 +561,7 @@ begin
          (C.Request.MethodType = THttpMethod.Put) then
       begin
         if not RequireAdmin then Exit;
-        mx.Admin.Api.Projects.HandleUpdateDevProjects(C, FPool, Id, FLogger);
+        mx.Admin.Api.Projects.HandleUpdateDevProjects(C, FPool, Id, ASession.DeveloperId, FLogger);
         Exit;
       end;
 
@@ -546,6 +595,7 @@ begin
       // PUT /keys/:id (role change)
       if C.Request.MethodType = THttpMethod.Put then
       begin
+        if KeyWriteRefused(C, FPool, ASession.DeveloperId, 0, Id) then Exit;
         mx.Admin.Api.Keys.HandleUpdateKey(C, FPool, Id, FLogger);
         Exit;
       end;
@@ -566,6 +616,7 @@ begin
        and SameText(ASegments[2], 'rotate')
        and (C.Request.MethodType = THttpMethod.Post) then
     begin
+      if KeyWriteRefused(C, FPool, ASession.DeveloperId, 0, Id) then Exit;
       mx.Admin.Api.Keys.HandleRotateKey(C, FPool, Id, ASession.DeveloperId,
         FSettingsCache.Get('connect.trusted_proxies'), FLogger);
       Exit;
@@ -622,14 +673,14 @@ begin
     if (Len = 2) and SameText(ASegments[1], 'activity') and
        (C.Request.MethodType = THttpMethod.Get) then
     begin
-      mx.Admin.Api.Global.HandleGetActivity(C, FPool, FLogger);
+      mx.Admin.Api.Global.HandleGetActivity(C, FPool, ASession, FLogger);
       Exit;
     end;
 
     if (Len = 2) and SameText(ASegments[1], 'cleanup') and
        (C.Request.MethodType = THttpMethod.Post) then
     begin
-      mx.Admin.Api.Global.HandlePostCleanup(C, FPool, FLogger);
+      mx.Admin.Api.Global.HandlePostCleanup(C, FPool, ASession, FLogger);
       Exit;
     end;
 
@@ -643,14 +694,14 @@ begin
     if (Len = 2) and SameText(ASegments[1], 'access-log-stats') and
        (C.Request.MethodType = THttpMethod.Get) then
     begin
-      mx.Admin.Api.Global.HandleGetAccessLogStats(C, FPool, FLogger);
+      mx.Admin.Api.Global.HandleGetAccessLogStats(C, FPool, ASession, FLogger);
       Exit;
     end;
 
     if (Len = 2) and SameText(ASegments[1], 'prefetch') and
        (C.Request.MethodType = THttpMethod.Get) then
     begin
-      mx.Admin.Api.Global.HandleGetPrefetchStats(C, FPool, FLogger);
+      mx.Admin.Api.Global.HandleGetPrefetchStats(C, FPool, ASession, FLogger);
       Exit;
     end;
 
@@ -664,21 +715,21 @@ begin
     if (Len = 2) and SameText(ASegments[1], 'sessions') and
        (C.Request.MethodType = THttpMethod.Get) then
     begin
-      mx.Admin.Api.Global.HandleGetActiveSessions(C, FPool, FLogger);
+      mx.Admin.Api.Global.HandleGetActiveSessions(C, FPool, ASession, FLogger);
       Exit;
     end;
 
     if (Len = 2) and SameText(ASegments[1], 'skill-evolution') and
        (C.Request.MethodType = THttpMethod.Get) then
     begin
-      mx.Admin.Api.Global.HandleGetSkillEvolution(C, FPool, FLogger);
+      mx.Admin.Api.Global.HandleGetSkillEvolution(C, FPool, ASession, FLogger);
       Exit;
     end;
 
     if (Len = 2) and SameText(ASegments[1], 'recall-metrics') and
        (C.Request.MethodType = THttpMethod.Get) then
     begin
-      mx.Admin.Api.Global.HandleGetRecallMetrics(C, FPool, FLogger);
+      mx.Admin.Api.Global.HandleGetRecallMetrics(C, FPool, ASession, FLogger);
       Exit;
     end;
 
@@ -755,7 +806,7 @@ begin
     if (Len = 2) and SameText(ASegments[1], 'dashboard') and
        (C.Request.MethodType = THttpMethod.Get) then
     begin
-      mx.Admin.Api.Skills.HandleGetSkillsDashboard(C, FPool, FLogger);
+      mx.Admin.Api.Skills.HandleGetSkillsDashboard(C, FPool, ASession, FLogger);
       Exit;
     end;
 
@@ -785,18 +836,19 @@ begin
        (C.Request.MethodType = THttpMethod.Post) then
     begin
       if not RequireAdmin then Exit;
-      mx.Admin.Api.Projects.HandleMergeProjects(C, FPool, FLogger);
+      mx.Admin.Api.Projects.HandleMergeProjects(C, FPool, ASession.DeveloperId, FLogger);
       Exit;
     end;
 
     // /projects/:id
     if (Len >= 2) and TryStrToInt(ASegments[1], Id) then
     begin
-      // PUT /projects/:id  (admin-only — project meta edit)
+      // PUT /projects/:id  (admin or owner — project meta edit)
       if (Len = 2) and (C.Request.MethodType = THttpMethod.Put) then
       begin
-        if not RequireAdmin then Exit;
-        mx.Admin.Api.Projects.HandleUpdateProject(C, FPool, Id, FLogger);
+        if (not IsProjectOwner(FPool.AcquireContext, ASession.DeveloperId, Id)) and
+           (not RequireAdmin) then Exit;
+        mx.Admin.Api.Projects.HandleUpdateProject(C, FPool, Id, ASession.DeveloperId, FLogger);
         Exit;
       end;
 
@@ -805,7 +857,7 @@ begin
       begin
         if not RequireAdmin then Exit;
         mx.Admin.Api.Projects.HandleDeleteProject(C, FPool, Id,
-          Pos('hard=true', LowerCase(C.Request.Uri.Query)) > 0, FLogger);
+          Pos('hard=true', LowerCase(C.Request.Uri.Query)) > 0, ASession.DeveloperId, FLogger);
         Exit;
       end;
 
@@ -817,12 +869,41 @@ begin
         Exit;
       end;
 
-      // PUT /projects/:id/access  body: {developer_id, access_level}  (admin-only)
+      // POST /projects/:id/private  body: {private}  (owner only, checked inside)
+      if (Len = 3) and SameText(ASegments[2], 'private') and
+         (C.Request.MethodType = THttpMethod.Post) then
+      begin
+        mx.Admin.Api.Projects.HandleSetProjectPrivate(C, FPool, Id, ASession.DeveloperId, FLogger);
+        Exit;
+      end;
+
+      // PUT /projects/:id/access  body: {developer_id, access_level}  (admin or owner)
       if (Len = 3) and SameText(ASegments[2], 'access') and
          (C.Request.MethodType = THttpMethod.Put) then
       begin
-        if not RequireAdmin then Exit;
-        mx.Admin.Api.Projects.HandleSetProjectAccess(C, FPool, Id, FLogger);
+        if (not IsProjectOwner(FPool.AcquireContext, ASession.DeveloperId, Id)) and
+           (not RequireAdmin) then Exit;
+        mx.Admin.Api.Projects.HandleSetProjectAccess(C, FPool, Id, ASession.DeveloperId, FLogger);
+        Exit;
+      end;
+
+      // GET /projects/:id/developer-options  (admin or owner)
+      if (Len = 3) and SameText(ASegments[2], 'developer-options') and
+         (C.Request.MethodType = THttpMethod.Get) then
+      begin
+        if (not IsProjectOwner(FPool.AcquireContext, ASession.DeveloperId, Id)) and
+           (not RequireAdmin) then Exit;
+        mx.Admin.Api.Projects.HandleGetDeveloperOptions(C, FPool);
+        Exit;
+      end;
+
+      // GET /projects/:id/audit  (admin or owner)
+      if (Len = 3) and SameText(ASegments[2], 'audit') and
+         (C.Request.MethodType = THttpMethod.Get) then
+      begin
+        if (not IsProjectOwner(FPool.AcquireContext, ASession.DeveloperId, Id)) and
+           (not RequireAdmin) then Exit;
+        mx.Admin.Api.Projects.HandleGetAccessAudit(C, FPool, Id, 0, ASession.DeveloperId);
         Exit;
       end;
 
@@ -894,7 +975,7 @@ begin
       var RelId := StrToIntDef(ASegments[1], 0);
       if RelId > 0 then
       begin
-        mx.Admin.Api.Projects.HandleDeleteRelation(C, FPool, RelId, FLogger);
+        mx.Admin.Api.Projects.HandleDeleteRelation(C, FPool, RelId, ASession.DeveloperId, FLogger);
         Exit;
       end;
     end;
@@ -912,7 +993,7 @@ begin
       var PRelId := StrToIntDef(ASegments[1], 0);
       if PRelId > 0 then
       begin
-        mx.Admin.Api.Projects.HandleDeleteProjectRelation(C, FPool, PRelId, FLogger);
+        mx.Admin.Api.Projects.HandleDeleteProjectRelation(C, FPool, PRelId, ASession.DeveloperId, FLogger);
         Exit;
       end;
     end;
@@ -981,6 +1062,7 @@ begin
     end;
     if (Len = 1) and (C.Request.MethodType = THttpMethod.Post) then
     begin
+      // Spec#19960 section 11: the developer id is checked inside the handler.
       mx.Admin.Api.Invite.HandleCreateInvite(C, FPool, FSettingsCache,
         ASession.DeveloperId, FLogger);
       Exit;

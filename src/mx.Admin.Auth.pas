@@ -52,6 +52,17 @@ function DeveloperHasProjectAccess(APool: TMxConnectionPool;
 // otherwise a read-only dev can wipe docs via the Admin-UI Save-Button.
 function DeveloperHasProjectWriteAccess(APool: TMxConnectionPool;
   ADevId, AProjId: Integer): Boolean;
+// Spec#19960 — TRUE when an admin session must be refused on a private project:
+// neither owner nor an ACL row of sufficient level. FALSE for non-admin
+// sessions (they take the regular ACL gates) and for public projects.
+function AdminBlockedFromProject(APool: TMxConnectionPool;
+  const ASession: TMxAdminSession; AProjId: Integer; AWrite: Boolean): Boolean;
+function AdminBlockedFromDoc(APool: TMxConnectionPool;
+  const ASession: TMxAdminSession; ADocId: Integer; AWrite: Boolean): Boolean;
+// Spec#19960 — subquery: ids of private projects ADevId must not see.
+function PrivateHiddenProjectsSql(ADevId: Integer): string;
+// ' AND <AColumn> NOT IN (<hidden>)' for cross-project admin queries.
+function PrivateProjectExclusion(const AColumn: string; ADevId: Integer): string;
 
 // Cookie helpers
 function GetCookieValue(const ACookieHeader, AName: string): string;
@@ -332,7 +343,9 @@ begin
   Ctx := APool.AcquireContext;
   Qry := Ctx.CreateQuery(
     'SELECT 1 FROM developer_project_access ' +
-    'WHERE developer_id = :id LIMIT 1');
+    'WHERE developer_id = :id ' +
+    'UNION ALL SELECT 1 FROM projects ' +
+    'WHERE created_by_developer_id = :id LIMIT 1');
   try
     Qry.ParamByName('id').AsInteger := ADevId;
     Qry.Open;
@@ -353,7 +366,9 @@ begin
   Ctx := APool.AcquireContext;
   Qry := Ctx.CreateQuery(
     'SELECT 1 FROM developer_project_access ' +
-    'WHERE developer_id = :dev AND project_id = :pid LIMIT 1');
+    'WHERE developer_id = :dev AND project_id = :pid ' +
+    'UNION ALL SELECT 1 FROM projects ' +
+    'WHERE id = :pid AND created_by_developer_id = :dev LIMIT 1');
   try
     Qry.ParamByName('dev').AsInteger := ADevId;
     Qry.ParamByName('pid').AsInteger := AProjId;
@@ -362,6 +377,76 @@ begin
   finally
     Qry.Free;
   end;
+end;
+
+function PrivateHiddenProjectsSql(ADevId: Integer): string;
+begin
+  Result :=
+    'SELECT hp.id FROM projects hp WHERE hp.is_private = 1 ' +
+    'AND COALESCE(hp.created_by_developer_id, 0) <> ' + IntToStr(ADevId) + ' ' +
+    'AND hp.id NOT IN (SELECT ha.project_id FROM developer_project_access ha ' +
+    'WHERE ha.developer_id = ' + IntToStr(ADevId) + ' AND ha.access_level <> ''none'')';
+end;
+
+function PrivateProjectExclusion(const AColumn: string; ADevId: Integer): string;
+begin
+  Result := ' AND ' + AColumn + ' NOT IN (' + PrivateHiddenProjectsSql(ADevId) + ') ';
+end;
+
+function AdminBlockedFromProject(APool: TMxConnectionPool;
+  const ASession: TMxAdminSession; AProjId: Integer; AWrite: Boolean): Boolean;
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  Level: string;
+begin
+  Result := False;
+  if not ASession.IsAdmin then Exit;
+  Ctx := APool.AcquireContext;
+  Qry := Ctx.CreateQuery(
+    'SELECT p.created_by_developer_id, a.access_level ' +
+    'FROM projects p ' +
+    'LEFT JOIN developer_project_access a ' +
+    '  ON a.project_id = p.id AND a.developer_id = :dev ' +
+    'WHERE p.id = :pid AND p.is_private = 1');
+  try
+    Qry.ParamByName('dev').AsInteger := ASession.DeveloperId;
+    Qry.ParamByName('pid').AsInteger := AProjId;
+    Qry.Open;
+    if Qry.IsEmpty then Exit;
+    if (not Qry.FieldByName('created_by_developer_id').IsNull) and
+       (Qry.FieldByName('created_by_developer_id').AsInteger = ASession.DeveloperId) then
+      Exit;
+    Level := Qry.FieldByName('access_level').AsString;
+    if AWrite then
+      Result := not (SameText(Level, 'read-write') or SameText(Level, 'write'))
+    else
+      Result := (Level = '') or SameText(Level, 'none');
+  finally
+    Qry.Free;
+  end;
+end;
+
+function AdminBlockedFromDoc(APool: TMxConnectionPool;
+  const ASession: TMxAdminSession; ADocId: Integer; AWrite: Boolean): Boolean;
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  ProjId: Integer;
+begin
+  Result := False;
+  if not ASession.IsAdmin then Exit;
+  Ctx := APool.AcquireContext;
+  Qry := Ctx.CreateQuery('SELECT project_id FROM documents WHERE id = :id');
+  try
+    Qry.ParamByName('id').AsInteger := ADocId;
+    Qry.Open;
+    if Qry.IsEmpty then Exit;
+    ProjId := Qry.FieldByName('project_id').AsInteger;
+  finally
+    Qry.Free;
+  end;
+  Result := AdminBlockedFromProject(APool, ASession, ProjId, AWrite);
 end;
 
 function DeveloperHasProjectWriteAccess(APool: TMxConnectionPool;
@@ -376,7 +461,9 @@ begin
   Qry := Ctx.CreateQuery(
     'SELECT 1 FROM developer_project_access ' +
     'WHERE developer_id = :dev AND project_id = :pid ' +
-    '  AND access_level IN (''read-write'', ''write'') LIMIT 1');
+    '  AND access_level IN (''read-write'', ''write'') ' +
+    'UNION ALL SELECT 1 FROM projects ' +
+    'WHERE id = :pid AND created_by_developer_id = :dev LIMIT 1');
   try
     Qry.ParamByName('dev').AsInteger := ADevId;
     Qry.ParamByName('pid').AsInteger := AProjId;

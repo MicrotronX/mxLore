@@ -27,7 +27,7 @@ implementation
 
 uses
   mx.Tool.Write,
-  mx.Logic.AccessControl;
+  mx.Logic.AccessControl, mx.Logic.AccessWrite;
 
 // ---------------------------------------------------------------------------
 // mx_init_project — Register a project
@@ -152,15 +152,8 @@ begin
         if not Qry.IsEmpty then
         begin
           Qry.Close;
-          Qry.SQL.Text :=
-            'INSERT INTO developer_project_access ' +
-            '(developer_id, project_id, access_level) ' +
-            'VALUES (:dev_id, :proj_id, :level) ' +
-            'ON DUPLICATE KEY UPDATE developer_id = developer_id';
-          Qry.ParamByName('dev_id').AsInteger := CallerDevId;
-          Qry.ParamByName('proj_id').AsInteger := ProjectId;
-          Qry.ParamByName('level').AsWideString := 'read-write';
-          Qry.ExecSQL;
+          GrantProjectAccessIfAbsent(AContext, CallerDevId, ProjectId,
+            CallerDevId, 'read-write', cAccessSrcInitProject);
         end
         else
         begin
@@ -246,6 +239,10 @@ begin
     finally
       Qry.Free;
     end;
+
+    // Spec#19960: admin-only tool, but no admin bypass on private projects.
+    if not AContext.AccessControl.CheckProject(ProjectId, alReadWrite) then
+      raise EMxAccessDenied.Create(Slug, alReadWrite);
 
     Changed := False;
     if Restore then

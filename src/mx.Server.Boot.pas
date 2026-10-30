@@ -47,7 +47,7 @@ implementation
 uses
   System.IOUtils, System.DateUtils, System.Types,
   FireDAC.Comp.Client, FireDAC.Phys.MySQL,
-  mx.Admin.Api.Global, mx.Tool.Fetch, mx.Logic.SelfUpdate;
+  mx.Admin.Api.Global, mx.Tool.Fetch, mx.Logic.SelfUpdate, mx.Logic.AccessWrite;
 
 var
   GShutdownEvent: TEvent = nil;
@@ -575,18 +575,11 @@ begin
       // silently default-denied (alNone) at runtime. Executing the ALTER alone is
       // insufficient; the data-migration must happen before access checks run.
       // Log row-count for audit trail.
-      MigQry := MigCtx.CreateQuery(
-        'UPDATE developer_project_access SET access_level = ''read-write'' ' +
-        'WHERE access_level = ''write''');
-      try
-        MigQry.ExecSQL;
-        if MigQry.RowsAffected > 0 then
-          FLogger.Log(mlInfo, Format(
-            'Auto-migrate: sql/046 step 2 — %d row(s) migrated from access_level=''write'' to ''read-write''',
-            [MigQry.RowsAffected]));
-      finally
-        MigQry.Free;
-      end;
+      var Normalized := mx.Logic.AccessWrite.NormalizeLegacyWriteLevel(MigCtx);
+      if Normalized > 0 then
+        FLogger.Log(mlInfo, Format(
+          'Auto-migrate: sql/046 step 2 — %d row(s) migrated from access_level=''write'' to ''read-write''',
+          [Normalized]));
 
       // FR#2936/Plan#3266 M1.10 — Boot-Time Sanity-Check for access_level rows.
       // Warns (does not fail boot) if any developer_project_access row has a
@@ -1280,6 +1273,64 @@ begin
             'ADD COLUMN IF NOT EXISTS last_seen_proxy_version VARCHAR(32) DEFAULT NULL AFTER last_seen_device_id');
           try DdlQry.ExecSQL; finally DdlQry.Free; end;
           FLogger.Log(mlInfo, 'Auto-migrate: sql/053 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // sql/054: access_audit (Spec#19960, Plan#19964 M1). Append-only log of
+      // project access changes, written by mx.Logic.AccessWrite.pas. Sentinel =
+      // the table; CREATE TABLE IF NOT EXISTS keeps a re-run harmless.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.tables ' +
+        'WHERE table_schema = :db AND table_name = ''access_audit''');
+      try
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/054 — CREATE access_audit');
+          var DdlQry := MigCtx.CreateQuery(
+            'CREATE TABLE IF NOT EXISTS access_audit (' +
+            '  id BIGINT NOT NULL AUTO_INCREMENT,' +
+            '  created_at_utc DATETIME(3) NOT NULL,' +
+            '  actor_developer_id INT DEFAULT NULL,' +
+            '  project_id INT NOT NULL,' +
+            '  target_developer_id INT DEFAULT NULL,' +
+            '  action VARCHAR(20) NOT NULL,' +
+            '  level_before VARCHAR(30) NOT NULL DEFAULT '''',' +
+            '  level_after VARCHAR(30) NOT NULL DEFAULT '''',' +
+            '  source VARCHAR(50) NOT NULL DEFAULT '''',' +
+            '  PRIMARY KEY (id),' +
+            '  KEY idx_audit_project (project_id, created_at_utc),' +
+            '  KEY idx_audit_target (target_developer_id, created_at_utc),' +
+            '  KEY idx_audit_actor (actor_developer_id, created_at_utc)' +
+            ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/054 done');
+        end;
+      finally
+        MigQry.Free;
+      end;
+
+      // sql/055: projects.is_private (Spec#19960, Plan#19964 M2.1). Sentinel =
+      // the column; default 0 keeps every existing project public.
+      MigQry := MigCtx.CreateQuery(
+        'SELECT 1 FROM information_schema.columns ' +
+        'WHERE table_schema = :db AND table_name = ''projects'' ' +
+        '  AND column_name = ''is_private''');
+      try
+        MigQry.ParamByName('db').AsWideString :=FConfig.DBDatabase;
+        MigQry.Open;
+        if MigQry.IsEmpty then
+        begin
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/055 — ADD projects.is_private');
+          var DdlQry := MigCtx.CreateQuery(
+            'ALTER TABLE projects ' +
+            'ADD COLUMN IF NOT EXISTS is_private TINYINT(1) NOT NULL DEFAULT 0 ' +
+            'AFTER is_active');
+          try DdlQry.ExecSQL; finally DdlQry.Free; end;
+          FLogger.Log(mlInfo, 'Auto-migrate: sql/055 done');
         end;
       finally
         MigQry.Free;

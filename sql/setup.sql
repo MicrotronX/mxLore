@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS `projects` (
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `is_private` tinyint(1) NOT NULL DEFAULT 0,
   `deleted_at` datetime DEFAULT NULL,
   `created_by` varchar(100) DEFAULT NULL,
   `created_by_developer_id` int(11) DEFAULT NULL,
@@ -127,6 +128,24 @@ CREATE TABLE IF NOT EXISTS `developer_project_access` (
   KEY `fk_dpa_project` (`project_id`),
   CONSTRAINT `fk_dpa_developer` FOREIGN KEY (`developer_id`) REFERENCES `developers` (`id`),
   CONSTRAINT `fk_dpa_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- sql/054: log of project access changes, append-only, no FKs (history
+-- survives hard deletes). Written only by mx.Logic.AccessWrite.pas.
+CREATE TABLE IF NOT EXISTS `access_audit` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `created_at_utc` datetime(3) NOT NULL,
+  `actor_developer_id` int(11) DEFAULT NULL,
+  `project_id` int(11) NOT NULL,
+  `target_developer_id` int(11) DEFAULT NULL,
+  `action` varchar(20) NOT NULL,
+  `level_before` varchar(30) NOT NULL DEFAULT '',
+  `level_after` varchar(30) NOT NULL DEFAULT '',
+  `source` varchar(50) NOT NULL DEFAULT '',
+  PRIMARY KEY (`id`),
+  KEY `idx_audit_project` (`project_id`, `created_at_utc`),
+  KEY `idx_audit_target` (`target_developer_id`, `created_at_utc`),
+  KEY `idx_audit_actor` (`actor_developer_id`, `created_at_utc`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `developer_environments` (

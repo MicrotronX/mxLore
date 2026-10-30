@@ -37,6 +37,9 @@ type
     // regardless of global role, and Authorize surfaces AR_DB_CHECK_DEGRADED
     // on denial so the caller sees a distinct reason code (not "no access").
     FDegraded: Boolean;
+    // Spec#19960: caller's level per private project (see LoadPrivateLevels).
+    FPrivateLevels: TDictionary<Integer, TAccessLevel>;
+    FPrivateLookupFailed: Boolean;
     procedure LoadPermissions(AConnection: TFDConnection);
     procedure LoadGlobalProjectId(AConnection: TFDConnection);
     function EffectiveLevel(AProjLevel: TAccessLevel): TAccessLevel;
@@ -98,9 +101,15 @@ type
     FClientKeyId: Integer;   // Spec#13053: 0 in bypass/ACL-off scenarios
     FDeveloperName: string;
     FIsAdmin: Boolean;
+    // Spec#19960: private projects are enforced in every ACL mode.
+    FPrivateLevels: TDictionary<Integer, TAccessLevel>;
+    FPrivateLookupFailed: Boolean;
   public
+    // AConnection=nil: unauthenticated internal context, no private check.
     constructor Create(ADeveloperId, AClientKeyId: Integer;
-      const ADeveloperName: string; AIsAdmin: Boolean);
+      const ADeveloperName: string; AIsAdmin: Boolean;
+      AConnection: TFDConnection; ALogger: IMxLogger);
+    destructor Destroy; override;
     function GetDeveloperId: Integer;
     function GetClientKeyId: Integer;
     function GetDeveloperName: string;
@@ -114,6 +123,60 @@ implementation
 
 uses
   System.JSON;
+
+// Spec#19960: fills ALevels with the caller's level on every private project:
+// owner = alReadWrite, ACL row = its level, neither = alNone. Admins get no
+// bypass here. False = lookup failed, the caller must fail closed because it
+// cannot tell which projects are private.
+function LoadPrivateLevels(AConnection: TFDConnection; ADeveloperId: Integer;
+  ALogger: IMxLogger; ALevels: TDictionary<Integer, TAccessLevel>): Boolean;
+const
+  DB_CHECK_TIMEOUT_MS = 500;
+var
+  Qry: TFDQuery;
+  Level: TAccessLevel;
+begin
+  Result := False;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := AConnection;
+    Qry.ResourceOptions.CmdExecTimeout := DB_CHECK_TIMEOUT_MS;
+    Qry.SQL.Text :=
+      'SELECT p.id, p.created_by_developer_id, a.access_level ' +
+      'FROM projects p ' +
+      'LEFT JOIN developer_project_access a ' +
+      '  ON a.project_id = p.id AND a.developer_id = :dev_id ' +
+      'WHERE p.is_private = 1';
+    Qry.ParamByName('dev_id').AsInteger := ADeveloperId;
+    try
+      Qry.Open;
+      while not Qry.Eof do
+      begin
+        if (not Qry.FieldByName('created_by_developer_id').IsNull) and
+           (Qry.FieldByName('created_by_developer_id').AsInteger = ADeveloperId) then
+          Level := alReadWrite
+        else if Qry.FieldByName('access_level').IsNull then
+          Level := alNone
+        else
+          Level := StringToAccessLevel(Qry.FieldByName('access_level').AsString);
+        ALevels.AddOrSetValue(Qry.FieldByName('id').AsInteger, Level);
+        Qry.Next;
+      end;
+      Result := True;
+    except
+      on E: Exception do
+      begin
+        ALevels.Clear;
+        if Assigned(ALogger) then
+          ALogger.Log(mlWarning, Format(
+            'Private project lookup failed (dev_id=%d): %s - denying project access',
+            [ADeveloperId, E.Message]));
+      end;
+    end;
+  finally
+    Qry.Free;
+  end;
+end;
 
 // FR#2936/Plan#3266 M1.7: Master-Map Tool -> MinRole.
 // Default-Deny: tools not listed here are rejected by Authorize() with UNKNOWN_TOOL.
@@ -295,10 +358,21 @@ begin
     Exit;
   end;
 
-  // Step 3: Admin-Bypass — admins always allowed for known tools.
+  // Step 3: Admin-Bypass — admins allowed for known tools, except on private
+  // projects (Spec#19960): CheckProject applies no bypass there.
   if ACL.IsAdmin then
   begin
-    Result.Allowed := True;
+    if Ord(ACtx.RequiredLevel) > Ord(MinLevel) then
+      MinLevel := ACtx.RequiredLevel;
+    if (ACtx.ProjectId = 0) or ACL.CheckProject(ACtx.ProjectId, MinLevel) then
+    begin
+      Result.Allowed := True;
+      Exit;
+    end;
+    Result.DenialCode := 'PRIVATE_PROJECT';
+    Result.DenialReason := Format(
+      'Project %d is private: admin bypass does not apply', [ACtx.ProjectId]);
+    LogDenial;
     Exit;
   end;
 
@@ -404,6 +478,9 @@ begin
   FLogger := ALogger;
   FDegraded := False; // M3.12: explicit, prevents silent reliance on Delphi zero-init
   FProjectAccess := TDictionary<Integer, TAccessLevel>.Create;
+  FPrivateLevels := TDictionary<Integer, TAccessLevel>.Create;
+  FPrivateLookupFailed := not LoadPrivateLevels(AConnection, ADeveloperId,
+    ALogger, FPrivateLevels);
   LoadGlobalProjectId(AConnection);
   if not FIsAdmin then
     LoadPermissions(AConnection);
@@ -412,6 +489,7 @@ end;
 destructor TMxAccessControl.Destroy;
 begin
   FProjectAccess.Free;
+  FPrivateLevels.Free;
   inherited;
 end;
 
@@ -538,6 +616,13 @@ var
   Effective: TAccessLevel;
   LogData: TJSONObject;
 begin
+  // Spec#19960: private projects first. No admin bypass, no audit-mode allow,
+  // no degraded read fallback; a failed lookup denies every project.
+  if FPrivateLookupFailed then
+    Exit(ALevel = alNone);
+  if FPrivateLevels.TryGetValue(AProjectId, ProjLevel) then
+    Exit(IsAtLeast(EffectiveLevel(ProjLevel), ALevel));
+
   // Admin bypasses all checks
   if FIsAdmin then
     Exit(True);
@@ -639,13 +724,24 @@ end;
 { TMxNullAccessControl }
 
 constructor TMxNullAccessControl.Create(ADeveloperId, AClientKeyId: Integer;
-  const ADeveloperName: string; AIsAdmin: Boolean);
+  const ADeveloperName: string; AIsAdmin: Boolean;
+  AConnection: TFDConnection; ALogger: IMxLogger);
 begin
   inherited Create;
   FDeveloperId := ADeveloperId;
   FClientKeyId := AClientKeyId;
   FDeveloperName := ADeveloperName;
   FIsAdmin := AIsAdmin;
+  FPrivateLevels := TDictionary<Integer, TAccessLevel>.Create;
+  if AConnection <> nil then
+    FPrivateLookupFailed := not LoadPrivateLevels(AConnection, ADeveloperId,
+      ALogger, FPrivateLevels);
+end;
+
+destructor TMxNullAccessControl.Destroy;
+begin
+  FPrivateLevels.Free;
+  inherited;
 end;
 
 function TMxNullAccessControl.GetDeveloperId: Integer;
@@ -670,7 +766,14 @@ end;
 
 function TMxNullAccessControl.CheckProject(AProjectId: Integer;
   ALevel: TAccessLevel): Boolean;
+var
+  ProjLevel: TAccessLevel;
 begin
+  // Spec#19960: private projects are enforced even with ACL off.
+  if FPrivateLookupFailed then
+    Exit(ALevel = alNone);
+  if FPrivateLevels.TryGetValue(AProjectId, ProjLevel) then
+    Exit(IsAtLeast(ProjLevel, ALevel));
   Result := True; // No enforcement
 end;
 

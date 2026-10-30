@@ -32,6 +32,17 @@ type
 function MxIssueAdminKey(const AConfigPath, ATarget: string;
   const AOutput: TMxRecoveryOutput): Integer;
 
+/// <summary>
+///   Core handler for --break-glass (Spec#19960 Req 7). Rescues a private
+///   project through host access only, there is no HTTP path.
+///   AAction = 'public'      -> lift the private flag.
+///   AAction = 'owner'       -> set ADeveloperId as owner, with read-write.
+///   Writes a break_glass row to access_audit. Returns 0 = ok, 1 = config/DB
+///   error, 2 = bad arguments or unknown project/developer.
+/// </summary>
+function MxBreakGlassProject(const AConfigPath, ASlug, AAction: string;
+  ADeveloperId: Integer; const AOutput: TMxRecoveryOutput): Integer;
+
 /// <summary>Console convenience wrapper: routes every line to WriteLn (stdout).</summary>
 function MxRunIssueAdminKeyCli(const AConfigPath, ATarget: string): Integer;
 
@@ -40,7 +51,7 @@ implementation
 uses
   System.SysUtils, System.DateUtils,
   FireDAC.Comp.Client,
-  mx.Types, mx.Config, mx.Data.Pool, mx.Crypto;
+  mx.Types, mx.Config, mx.Data.Pool, mx.Crypto, mx.Logic.AccessWrite;
 
 // Recovery keys get the same 180-day default expiry as an admin key created via
 // the Admin-UI (mx.Admin.Api.Keys HandleCreateKey M3.3), so a recovery key is
@@ -72,7 +83,7 @@ begin
       Inc(Count);
       AOutput(Format('  %3d | %-6s | %10d | %s',
         [Qry.FieldByName('id').AsInteger,
-         BoolToStr(Qry.FieldByName('is_active').AsInteger <> 0, True),
+         BoolToStr(Qry.FieldByName('is_active').AsBoolean, True),
          Qry.FieldByName('admin_keys').AsInteger,
          Qry.FieldByName('name').AsString]));
       Qry.Next;
@@ -125,7 +136,7 @@ begin
       Inc(MatchCount);
       DevId := Qry.FieldByName('id').AsInteger;
       DevName := Qry.FieldByName('name').AsString;
-      DevActive := Qry.FieldByName('is_active').AsInteger <> 0;
+      DevActive := Qry.FieldByName('is_active').AsBoolean;
       Qry.Next;
     end;
   finally
@@ -155,19 +166,29 @@ begin
   KeyHash := MxHashKey(RawKey);
   KeyName := 'cli-recovery-' + FormatDateTime('yyyymmdd-hhnn', Now);
 
-  Qry := Ctx.CreateQuery(
-    'INSERT INTO client_keys (developer_id, name, key_hash, key_prefix, ' +
-    '  permissions, is_active, created_at, expires_at) ' +
-    'VALUES (:d, :n, :h, :p, ''admin'', TRUE, NOW(), :exp)');
+  // Key and audit row in one transaction: no admin key without a trace.
+  // Not tied to a project, so project_id = 0.
+  Ctx.StartTransaction;
   try
-    Qry.ParamByName('d').AsInteger := DevId;
-    Qry.ParamByName('n').AsWideString := KeyName;
-    Qry.ParamByName('h').AsWideString := KeyHash;
-    Qry.ParamByName('p').AsWideString := Copy(RawKey, 1, 12);
-    Qry.ParamByName('exp').AsDateTime := IncDay(Now, ADMIN_KEY_EXPIRY_DAYS);
-    Qry.ExecSQL;
-  finally
-    Qry.Free;
+    Qry := Ctx.CreateQuery(
+      'INSERT INTO client_keys (developer_id, name, key_hash, key_prefix, ' +
+      '  permissions, is_active, created_at, expires_at) ' +
+      'VALUES (:d, :n, :h, :p, ''admin'', TRUE, NOW(), :exp)');
+    try
+      Qry.ParamByName('d').AsInteger := DevId;
+      Qry.ParamByName('n').AsWideString := KeyName;
+      Qry.ParamByName('h').AsWideString := KeyHash;
+      Qry.ParamByName('p').AsWideString := Copy(RawKey, 1, 12);
+      Qry.ParamByName('exp').AsDateTime := IncDay(Now, ADMIN_KEY_EXPIRY_DAYS);
+      Qry.ExecSQL;
+    finally
+      Qry.Free;
+    end;
+    WriteAccessEvent(Ctx, 0, 0, DevId, 'break_glass', '', 'admin-key', 'server-cli');
+    Ctx.Commit;
+  except
+    Ctx.Rollback;
+    raise;
   end;
 
   AOutput('');
@@ -220,6 +241,90 @@ begin
       end;
     end;
   finally
+    Pool.Free;
+    Config.Free;
+  end;
+end;
+
+function MxBreakGlassProject(const AConfigPath, ASlug, AAction: string;
+  ADeveloperId: Integer; const AOutput: TMxRecoveryOutput): Integer;
+var
+  Config: TMxConfig;
+  Pool: TMxConnectionPool;
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  ProjectId: Integer;
+  ToOwner: Boolean;
+begin
+  ToOwner := SameText(AAction, 'owner');
+  if (ASlug = '') or not (ToOwner or SameText(AAction, 'public')) or
+     (ToOwner and (ADeveloperId <= 0)) then
+  begin
+    AOutput('usage: --break-glass <project-slug> public');
+    AOutput('       --break-glass <project-slug> owner <developer-id>');
+    Exit(2);
+  end;
+
+  Config := nil;
+  Pool := nil;
+  try
+    try
+      Config := TMxConfig.Create(AConfigPath);
+      Pool := TMxConnectionPool.Create(Config);
+      Ctx := Pool.AcquireContext;
+
+      Qry := Ctx.CreateQuery('SELECT id FROM projects WHERE slug = :slug');
+      try
+        Qry.ParamByName('slug').AsWideString := ASlug;
+        Qry.Open;
+        if Qry.IsEmpty then
+        begin
+          AOutput('break-glass: unknown project: ' + ASlug);
+          Exit(2);
+        end;
+        ProjectId := Qry.FieldByName('id').AsInteger;
+      finally
+        Qry.Free;
+      end;
+
+      if ToOwner then
+      begin
+        Qry := Ctx.CreateQuery('SELECT 1 FROM developers WHERE id = :id');
+        try
+          Qry.ParamByName('id').AsInteger := ADeveloperId;
+          Qry.Open;
+          if Qry.IsEmpty then
+          begin
+            AOutput('break-glass: unknown developer: ' + IntToStr(ADeveloperId));
+            Exit(2);
+          end;
+        finally
+          Qry.Free;
+        end;
+      end;
+
+      Ctx.StartTransaction;
+      try
+        if ToOwner then
+          BreakGlassSetOwner(Ctx, ProjectId, ADeveloperId)
+        else
+          BreakGlassMakePublic(Ctx, ProjectId);
+        Ctx.Commit;
+      except
+        Ctx.Rollback;
+        raise;
+      end;
+      AOutput('break-glass: done for ' + ASlug + ', recorded in access_audit.');
+      Result := 0;
+    except
+      on E: Exception do
+      begin
+        AOutput('break-glass: failed: ' + E.Message);
+        Result := 1;
+      end;
+    end;
+  finally
+    Ctx := nil;
     Pool.Free;
     Config.Free;
   end;

@@ -52,7 +52,7 @@ uses
   Data.DB, FireDAC.Comp.Client,
   mx.Admin.Server,    // MxSendJson/Error, MxParseBody, MxDateStr
   mx.Net.ClientIp,    // MxGetClientIp
-  mx.Data.Invite, mx.Logic.Invite;
+  mx.Data.Invite, mx.Logic.Invite, mx.Logic.AccessWrite;
 
 // --- helpers ------------------------------------------------------------
 
@@ -206,6 +206,11 @@ begin
       Mode := 'external';
 
     Ctx := APool.AcquireContext;
+    if KeyIssueDenied(Ctx, ACreatedBy, DeveloperId, 'admin:invite') then
+    begin
+      MxSendError(C, 403, 'private_project');
+      Exit;
+    end;
     try
       if not TMxInviteLogic.CreateInviteWithNewKey(Ctx, DeveloperId, KeyName,
         KeyPerms, Mode, ExpiresHours, ACreatedBy,

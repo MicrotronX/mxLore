@@ -141,6 +141,10 @@ const Api = (function () {
     return request('PUT', '/projects/' + id, data);
   }
 
+  function setProjectPrivate(id, value) {
+    return request('POST', '/projects/' + id + '/private', { private: value });
+  }
+
   function getProjectDashboard(id) {
     return request('GET', '/projects/' + id + '/dashboard');
   }
@@ -226,6 +230,18 @@ const Api = (function () {
 
   function getDeveloperProjects(developerId) {
     return request('GET', '/developers/' + developerId + '/projects');
+  }
+
+  function getDeveloperAudit(developerId) {
+    return request('GET', '/developers/' + developerId + '/audit');
+  }
+
+  function getProjectDeveloperOptions(projectId) {
+    return request('GET', '/projects/' + projectId + '/developer-options');
+  }
+
+  function getProjectAudit(projectId) {
+    return request('GET', '/projects/' + projectId + '/audit');
   }
 
   function updateDeveloperProjects(developerId, projects) {
@@ -333,6 +349,7 @@ const Api = (function () {
     deleteEnvironment: deleteEnvironment,
     getProjects: getProjects,
     updateProject: updateProject,
+    setProjectPrivate: setProjectPrivate,
     getProjectDashboard: getProjectDashboard,
     setProjectAccess: setProjectAccess,
     listProjectDocs: listProjectDocs,
@@ -360,6 +377,9 @@ const Api = (function () {
     postCleanup: postCleanup,
     postBackup: postBackup,
     getDeveloperProjects: getDeveloperProjects,
+    getDeveloperAudit: getDeveloperAudit,
+    getProjectAudit: getProjectAudit,
+    getProjectDeveloperOptions: getProjectDeveloperOptions,
     updateDeveloperProjects: updateDeveloperProjects,
 
     // --- Notes ---

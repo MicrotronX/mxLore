@@ -150,7 +150,7 @@ uses
   System.DateUtils, System.NetEncoding, System.Zip, System.IOUtils,
   System.Hash, System.StrUtils,
   Data.DB, FireDAC.Comp.Client,
-  mx.Crypto, mx.Data.Params;
+  mx.Crypto, mx.Data.Params, mx.Logic.AccessWrite;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -542,13 +542,21 @@ begin
   CreatorDevId := RemapDeveloperId(ASession,
     JsonInt(ARow, 'created_by_developer_id', 0), ACreatorFallback);
   if CreatorDevId = -1 then CreatorDevId := ACreatorFallback;
+  // Spec#19960: a private project stays private and belongs to the importer;
+  // it never takes over an owner from the bundle.
+  if JsonBool(ARow, 'is_private', False) then
+    CreatorDevId := ACreatorFallback;
 
   Qry := AContext.CreateQuery(
     'INSERT INTO projects (slug, name, path, svn_url, briefing, dna, ' +
-    'project_rules, is_active, created_by, created_by_developer_id) ' +
+    'project_rules, is_active, is_private, created_by, created_by_developer_id) ' +
     'VALUES (:slug, :name, :path, :svn_url, :briefing, :dna, :rules, ' +
-    ':is_active, :created_by, :creator_dev)');
+    ':is_active, :is_private, :created_by, :creator_dev)');
   try
+    if JsonBool(ARow, 'is_private', False) then
+      Qry.ParamByName('is_private').AsInteger := 1
+    else
+      Qry.ParamByName('is_private').AsInteger := 0;
     Qry.ParamByName('slug').AsString := Slug;
     Qry.ParamByName('name').AsWideString := JsonStr(ARow, 'name', '');
     Qry.ParamByName('path').AsString := JsonStr(ARow, 'path', '');
@@ -578,6 +586,14 @@ procedure TMxProjectImporter.UpdateProject(AContext: IMxDbContext;
 var
   Qry: TFDQuery;
 begin
+  // A private bundle must not land readable on a public project.
+  if JsonBool(ARow, 'is_private', False) then
+  begin
+    if not IsProjectOwner(AContext, ACreatorFallback, ALocalId) then
+      raise EMxAccessWriteDenied.Create(ALocalId, 0, cAccessSrcImport);
+    SetProjectPrivate(AContext, ACreatorFallback, ALocalId, True, cAccessSrcImport);
+  end;
+
   Qry := AContext.CreateQuery(
     'UPDATE projects SET name = :name, path = :path, svn_url = :svn_url, ' +
     'briefing = :briefing, dna = :dna, project_rules = :rules ' +
@@ -768,6 +784,9 @@ begin
             end;
             crOverwrite:
             begin
+              // Spec#19960: only the owner overwrites a private project.
+              if not CanWriteProjectAccess(Ctx, AImportingDevId, Conflict.LocalId) then
+                raise EMxAccessWriteDenied.Create(Conflict.LocalId, 0, cAccessSrcImport);
               UpdateProject(Ctx, Conflict.LocalId, Row, AImportingDevId, ASession);
               ProjMap.AddOrSetValue(SourceId, Conflict.LocalId);
               Inc(Result.ProjectsUpdated);
@@ -937,18 +956,30 @@ begin
           Continue;
         end;
 
-        Qry := Ctx.CreateQuery(
-          'INSERT IGNORE INTO developer_project_access (developer_id, ' +
-          'project_id, access_level) VALUES (:d, :p, :a)');
+        // A bundle row must not abort the import (former INSERT IGNORE
+        // semantics): unknown level or developer -> skipped, not stored.
+        if not IsGrantableLevel(JsonStr(Row, 'access_level', 'read')) then
+        begin
+          Inc(Result.AclSkipped);
+          Continue;
+        end;
+        Qry := Ctx.CreateQuery('SELECT 1 FROM developers WHERE id = :d');
         try
           Qry.ParamByName('d').AsInteger := DevId;
-          Qry.ParamByName('p').AsInteger := LocalPid;
-          Qry.ParamByName('a').AsString := JsonStr(Row, 'access_level', 'read');
-          Qry.ExecSQL;
-          Inc(Result.AclInserted);
+          Qry.Open;
+          if Qry.IsEmpty then
+          begin
+            Inc(Result.AclSkipped);
+            Continue;
+          end;
         finally
           Qry.Free;
         end;
+
+        // Existing rows on this server win (former INSERT IGNORE semantics).
+        if GrantProjectAccessIfAbsent(Ctx, AImportingDevId, LocalPid, DevId,
+             JsonStr(Row, 'access_level', 'read'), cAccessSrcImport) then
+          Inc(Result.AclInserted);
       end;
 
       // --- Env Vars ---

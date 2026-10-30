@@ -12,25 +12,41 @@ uses
 procedure HandleGetProjects(const C: THttpServerContext;
   APool: TMxConnectionPool; const ASession: TMxAdminSession;
   ALogger: IMxLogger);
+// AActorId = developer acting (session DeveloperId), recorded in access_audit.
 procedure HandleUpdateProject(const C: THttpServerContext;
-  APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; AProjId, AActorId: Integer; ALogger: IMxLogger);
 procedure HandleDeleteProject(const C: THttpServerContext;
-  APool: TMxConnectionPool; AProjId: Integer; AHard: Boolean; ALogger: IMxLogger);
+  APool: TMxConnectionPool; AProjId: Integer; AHard: Boolean; AActorId: Integer;
+  ALogger: IMxLogger);
 procedure HandleMergeProjects(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; AActorId: Integer; ALogger: IMxLogger);
 
 procedure HandleGetDevProjects(const C: THttpServerContext;
-  APool: TMxConnectionPool; ADevId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ADevId, AViewerId: Integer; ALogger: IMxLogger);
 procedure HandleUpdateDevProjects(const C: THttpServerContext;
-  APool: TMxConnectionPool; ADevId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ADevId, AActorId: Integer; ALogger: IMxLogger);
+
+// Active developers, id + name only: what an owner needs to pick a team member.
+procedure HandleGetDeveloperOptions(const C: THttpServerContext;
+  APool: TMxConnectionPool);
+
+// access_audit, newest first, max 200 (Spec#19960). Exactly one of AProjId and
+// ADevId is > 0. Entries of a private project reach only its owner and the
+// developers named in the entry.
+procedure HandleGetAccessAudit(const C: THttpServerContext;
+  APool: TMxConnectionPool; AProjId, ADevId, AViewerId: Integer);
 
 procedure HandleGetDashboard(const C: THttpServerContext;
   APool: TMxConnectionPool; AProjId: Integer;
   const ASession: TMxAdminSession; ALogger: IMxLogger);
 
+// Spec#19960: POST /projects/:id/private { private }. Owner only, admin or not.
+procedure HandleSetProjectPrivate(const C: THttpServerContext;
+  APool: TMxConnectionPool; AProjId, AActorId: Integer; ALogger: IMxLogger);
+
 // FR#3353 Phase A Gap#2: PUT /projects/:id/access { developer_id, access_level }
 procedure HandleSetProjectAccess(const C: THttpServerContext;
-  APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; AProjId, AActorId: Integer; ALogger: IMxLogger);
 
 // FR#3353 Phase C: GET /projects/:id/documents?type=&q=&status=&limit=&offset=
 // FR#4006 / Plan#4007 M2: non-admin callers need project-ACL read (row presence).
@@ -60,11 +76,11 @@ procedure HandleUpdateDocAdmin(const C: THttpServerContext;
 
 // FR#3353 Phase C: DELETE /relations/:id — remove single doc_relations row
 procedure HandleDeleteRelation(const C: THttpServerContext;
-  APool: TMxConnectionPool; ARelId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ARelId, AActorId: Integer; ALogger: IMxLogger);
 
 // FR#3353 Phase C: DELETE /project-relations/:id — remove project_relations row
 procedure HandleDeleteProjectRelation(const C: THttpServerContext;
-  APool: TMxConnectionPool; ARelId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ARelId, AActorId: Integer; ALogger: IMxLogger);
 
 // FR#3472 A (SPEC#3583): GET /docs/:id/thread — hierarchischer Review-Thread
 // ausgehend von Doc :id, via WITH RECURSIVE CTE ueber doc_relations.review-on.
@@ -89,7 +105,7 @@ uses
   System.SysUtils, System.StrUtils, System.JSON, System.Math,
   System.Net.URLClient,
   Data.DB, FireDAC.Comp.Client,
-  mx.Admin.Server, mx.Logic.Projects;
+  mx.Admin.Server, mx.Logic.Projects, mx.Logic.AccessWrite;
 
 procedure HandleGetProjects(const C: THttpServerContext;
   APool: TMxConnectionPool; const ASession: TMxAdminSession;
@@ -106,11 +122,14 @@ begin
   // developer_project_access membership (row-presence, any level).
   SQL :=
     'SELECT id, slug, name, is_active, doc_count, developer_count, ' +
-    '  last_activity, created_at, deleted_at, created_by_developer_id, created_by_name ' +
+    '  last_activity, created_at, deleted_at, created_by_developer_id, created_by_name, ' +
+    '  id IN (SELECT pp.id FROM projects pp WHERE pp.is_private = 1) AS is_private, ' +
+    '  id IN (' + PrivateHiddenProjectsSql(ASession.DeveloperId) + ') AS is_hidden ' +
     'FROM v_admin_project_overview ';
   if not ASession.IsAdmin then
     SQL := SQL +
-      'WHERE id IN (SELECT project_id FROM developer_project_access ' +
+      'WHERE created_by_developer_id = :dev_id ' +
+      '   OR id IN (SELECT project_id FROM developer_project_access ' +
       '             WHERE developer_id = :dev_id) ';
   SQL := SQL + 'ORDER BY name';
   Qry := Ctx.CreateQuery(SQL);
@@ -126,9 +145,22 @@ begin
       Obj.AddPair('slug', Qry.FieldByName('slug').AsString);
       Obj.AddPair('name', Qry.FieldByName('name').AsString);
       Obj.AddPair('is_active', TJSONBool.Create(Qry.FieldByName('is_active').AsBoolean));
-      Obj.AddPair('doc_count', TJSONNumber.Create(Qry.FieldByName('doc_count').AsInteger));
-      Obj.AddPair('developer_count', TJSONNumber.Create(Qry.FieldByName('developer_count').AsInteger));
-      if Qry.FieldByName('last_activity').IsNull then
+      // Spec#19960: foreign private project = name + owner + flag only.
+      var Hidden := Qry.FieldByName('is_hidden').AsInteger <> 0;
+      Obj.AddPair('is_private', TJSONBool.Create(Qry.FieldByName('is_private').AsInteger <> 0));
+      Obj.AddPair('is_owner', TJSONBool.Create((ASession.DeveloperId > 0) and
+        (Qry.FieldByName('created_by_developer_id').AsInteger = ASession.DeveloperId)));
+      if Hidden then
+      begin
+        Obj.AddPair('doc_count', TJSONNumber.Create(0));
+        Obj.AddPair('developer_count', TJSONNumber.Create(0));
+      end
+      else
+      begin
+        Obj.AddPair('doc_count', TJSONNumber.Create(Qry.FieldByName('doc_count').AsInteger));
+        Obj.AddPair('developer_count', TJSONNumber.Create(Qry.FieldByName('developer_count').AsInteger));
+      end;
+      if Hidden or Qry.FieldByName('last_activity').IsNull then
         Obj.AddPair('last_activity', TJSONNull.Create)
       else
         Obj.AddPair('last_activity', MxDateStr(Qry.FieldByName('last_activity')));
@@ -160,7 +192,7 @@ begin
 end;
 
 procedure HandleUpdateProject(const C: THttpServerContext;
-  APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; AProjId, AActorId: Integer; ALogger: IMxLogger);
 var
   Body, Json: TJSONObject;
   Mgr: TMxProjectManager;
@@ -181,12 +213,19 @@ begin
       Exit;
     end;
 
+    // Spec#19960: name and owner of a private project belong to its owner.
+    if not CanWriteProjectAccess(APool.AcquireContext, AActorId, AProjId) then
+      raise EMxAccessWriteDenied.Create(AProjId, 0, cAccessSrcCreatorChange);
+
     Mgr := TMxProjectManager.Create(APool, ALogger);
+    Mgr.ActorId := AActorId;
     try
       try
         Mgr.UpdateProject(AProjId, Name,
           Body.GetValue<Integer>('created_by_developer_id', -1));
       except
+        on E: EMxAccessWriteDenied do
+          raise;
         on E: Exception do
         begin
           if E.Message = 'project_not_found' then
@@ -214,7 +253,8 @@ begin
 end;
 
 procedure HandleDeleteProject(const C: THttpServerContext;
-  APool: TMxConnectionPool; AProjId: Integer; AHard: Boolean; ALogger: IMxLogger);
+  APool: TMxConnectionPool; AProjId: Integer; AHard: Boolean; AActorId: Integer;
+  ALogger: IMxLogger);
 var
   Mgr: TMxProjectManager;
   Ctx: IMxDbContext;
@@ -235,6 +275,10 @@ begin
   finally
     Qry.Free;
   end;
+
+  // Spec#19960: a private project is deleted by its owner only.
+  if not CanWriteProjectAccess(Ctx, AActorId, AProjId) then
+    raise EMxAccessWriteDenied.Create(AProjId, 0, cAccessSrcProjectDelete);
 
   if AHard then
   begin
@@ -260,8 +304,7 @@ begin
       Qry := Ctx.CreateQuery('DELETE FROM documents WHERE project_id = :id');
       try Qry.ParamByName('id').AsInteger := AProjId; Qry.ExecSQL; finally Qry.Free; end;
 
-      Qry := Ctx.CreateQuery('DELETE FROM developer_project_access WHERE project_id = :id');
-      try Qry.ParamByName('id').AsInteger := AProjId; Qry.ExecSQL; finally Qry.Free; end;
+      RevokeAllForProject(Ctx, AActorId, AProjId, cAccessSrcProjectDelete);
 
       Qry := Ctx.CreateQuery('DELETE FROM developer_environments WHERE project_id = :id');
       try Qry.ParamByName('id').AsInteger := AProjId; Qry.ExecSQL; finally Qry.Free; end;
@@ -318,7 +361,7 @@ begin
 end;
 
 procedure HandleMergeProjects(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; AActorId: Integer; ALogger: IMxLogger);
 var
   Body, Json, ConflictObj: TJSONObject;
   Mgr: TMxProjectManager;
@@ -368,7 +411,17 @@ begin
       Exit;
     end;
 
+    // Spec#19960: a merge would move private content; checked before the
+    // conflict list, which names documents.
+    var MergeCtx := APool.AcquireContext;
+    if not CanWriteProjectAccess(MergeCtx, AActorId, TargetId) then
+      raise EMxAccessWriteDenied.Create(TargetId, 0, cAccessSrcProjectMerge);
+    for I := 0 to High(Ids) do
+      if not CanWriteProjectAccess(MergeCtx, AActorId, Ids[I]) then
+        raise EMxAccessWriteDenied.Create(Ids[I], 0, cAccessSrcProjectMerge);
+
     Mgr := TMxProjectManager.Create(APool, ALogger);
+    Mgr.ActorId := AActorId;
     try
       // Check for conflicts first
       Conflicts := Mgr.CheckMergeConflicts(Ids, TargetId);
@@ -419,7 +472,7 @@ end;
 // === Developer-Project Assignments (unchanged) ===
 
 procedure HandleGetDevProjects(const C: THttpServerContext;
-  APool: TMxConnectionPool; ADevId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ADevId, AViewerId: Integer; ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
@@ -431,7 +484,8 @@ begin
     'SELECT dpa.project_id, p.name, p.slug, dpa.access_level ' +
     'FROM developer_project_access dpa ' +
     'JOIN projects p ON dpa.project_id = p.id ' +
-    'WHERE dpa.developer_id = :dev_id ORDER BY p.name');
+    'WHERE dpa.developer_id = :dev_id' +
+    PrivateProjectExclusion('p.id', AViewerId) + 'ORDER BY p.name');
   try
     Qry.ParamByName('dev_id').AsInteger := ADevId;
     Qry.Open;
@@ -460,15 +514,130 @@ begin
   end;
 end;
 
+procedure HandleGetDeveloperOptions(const C: THttpServerContext;
+  APool: TMxConnectionPool);
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  Arr: TJSONArray;
+  Obj, Json: TJSONObject;
+begin
+  Ctx := APool.AcquireContext;
+  Qry := Ctx.CreateQuery(
+    'SELECT id, name FROM developers WHERE is_active = TRUE ORDER BY name');
+  try
+    Qry.Open;
+    Arr := TJSONArray.Create;
+    while not Qry.Eof do
+    begin
+      Obj := TJSONObject.Create;
+      Obj.AddPair('id', TJSONNumber.Create(Qry.FieldByName('id').AsInteger));
+      Obj.AddPair('name', Qry.FieldByName('name').AsString);
+      Arr.AddElement(Obj);
+      Qry.Next;
+    end;
+
+    Json := TJSONObject.Create;
+    try
+      Json.AddPair('developers', Arr);
+      MxSendJson(C, 200, Json);
+    finally
+      Json.Free;
+    end;
+  finally
+    Qry.Free;
+  end;
+end;
+
+procedure HandleGetAccessAudit(const C: THttpServerContext;
+  APool: TMxConnectionPool; AProjId, ADevId, AViewerId: Integer);
+
+  procedure AddNullableId(AObj: TJSONObject; const AName: string; AField: TField);
+  begin
+    if AField.IsNull then
+      AObj.AddPair(AName, TJSONNull.Create)
+    else
+      AObj.AddPair(AName, TJSONNumber.Create(AField.AsInteger));
+  end;
+
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+  Arr: TJSONArray;
+  Obj, Json: TJSONObject;
+  Scope: string;
+begin
+  if AProjId > 0 then
+    Scope := 'a.project_id = :id'
+  else
+    Scope := '(a.target_developer_id = :id OR a.actor_developer_id = :id)';
+
+  Ctx := APool.AcquireContext;
+  // LEFT JOINs: the history outlives hard-deleted developers and projects.
+  Qry := Ctx.CreateQuery(
+    'SELECT a.id, DATE_FORMAT(a.created_at_utc, ''%Y-%m-%dT%H:%i:%sZ'') AS at_utc, ' +
+    '  a.actor_developer_id, actor.name AS actor_name, ' +
+    '  a.project_id, p.name AS project_name, ' +
+    '  a.target_developer_id, target.name AS target_name, ' +
+    '  a.action, a.level_before, a.level_after, a.source ' +
+    'FROM access_audit a ' +
+    'LEFT JOIN projects p ON p.id = a.project_id ' +
+    'LEFT JOIN developers actor ON actor.id = a.actor_developer_id ' +
+    'LEFT JOIN developers target ON target.id = a.target_developer_id ' +
+    'WHERE ' + Scope + ' AND (COALESCE(p.is_private, 0) = 0 ' +
+    '  OR p.created_by_developer_id = :viewer ' +
+    '  OR a.target_developer_id = :viewer OR a.actor_developer_id = :viewer) ' +
+    'ORDER BY a.created_at_utc DESC, a.id DESC LIMIT 200');
+  try
+    if AProjId > 0 then
+      Qry.ParamByName('id').AsInteger := AProjId
+    else
+      Qry.ParamByName('id').AsInteger := ADevId;
+    Qry.ParamByName('viewer').AsInteger := AViewerId;
+    Qry.Open;
+
+    Arr := TJSONArray.Create;
+    while not Qry.Eof do
+    begin
+      Obj := TJSONObject.Create;
+      Obj.AddPair('id', TJSONNumber.Create(Qry.FieldByName('id').AsLargeInt));
+      Obj.AddPair('at', Qry.FieldByName('at_utc').AsString);
+      AddNullableId(Obj, 'actor_id', Qry.FieldByName('actor_developer_id'));
+      Obj.AddPair('actor_name', Qry.FieldByName('actor_name').AsString);
+      Obj.AddPair('project_id', TJSONNumber.Create(Qry.FieldByName('project_id').AsInteger));
+      Obj.AddPair('project_name', Qry.FieldByName('project_name').AsString);
+      AddNullableId(Obj, 'target_id', Qry.FieldByName('target_developer_id'));
+      Obj.AddPair('target_name', Qry.FieldByName('target_name').AsString);
+      Obj.AddPair('action', Qry.FieldByName('action').AsString);
+      Obj.AddPair('level_before', Qry.FieldByName('level_before').AsString);
+      Obj.AddPair('level_after', Qry.FieldByName('level_after').AsString);
+      Obj.AddPair('source', Qry.FieldByName('source').AsString);
+      Arr.AddElement(Obj);
+      Qry.Next;
+    end;
+
+    Json := TJSONObject.Create;
+    try
+      Json.AddPair('entries', Arr);
+      MxSendJson(C, 200, Json);
+    finally
+      Json.Free;
+    end;
+  finally
+    Qry.Free;
+  end;
+end;
+
 procedure HandleUpdateDevProjects(const C: THttpServerContext;
-  APool: TMxConnectionPool; ADevId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ADevId, AActorId: Integer; ALogger: IMxLogger);
 var
   Body, Json, ProjObj: TJSONObject;
   Ctx: IMxDbContext;
-  Qry: TFDQuery;
+  WantedIds: TArray<Integer>;
+  WantedLevels: TArray<string>;
   ProjectsArr: TJSONArray;
   ProjectsVal: TJSONValue;
-  I, ProjId: Integer;
+  I, J, ProjId: Integer;
   Level: string;
 begin
   Body := MxParseBody(C);
@@ -490,20 +659,25 @@ begin
       Exit;
     end;
 
+    // A project listed twice has no defined level.
+    for I := 0 to ProjectsArr.Count - 1 do
+      for J := 0 to I - 1 do
+        if (ProjectsArr.Items[I] is TJSONObject) and
+           (ProjectsArr.Items[J] is TJSONObject) and
+           (TJSONObject(ProjectsArr.Items[I]).GetValue<Integer>('project_id', 0) <> 0) and
+           (TJSONObject(ProjectsArr.Items[I]).GetValue<Integer>('project_id', 0) =
+            TJSONObject(ProjectsArr.Items[J]).GetValue<Integer>('project_id', 0)) then
+        begin
+          MxSendError(C, 400, 'duplicate_project_id');
+          Exit;
+        end;
+
     Ctx := APool.AcquireContext;
     Ctx.StartTransaction;
     try
-      // Delete old assignments
-      Qry := Ctx.CreateQuery(
-        'DELETE FROM developer_project_access WHERE developer_id = :dev_id');
-      try
-        Qry.ParamByName('dev_id').AsInteger := ADevId;
-        Qry.ExecSQL;
-      finally
-        Qry.Free;
-      end;
-
-      // Insert new assignments
+      // The body is the full wanted list; ReplaceDeveloperAccess writes only
+      // the differences (Plan#19964 M1.7), so unchanged rows keep granted_at
+      // and every real change gets its audit row.
       for I := 0 to ProjectsArr.Count - 1 do
       begin
         if not (ProjectsArr.Items[I] is TJSONObject) then
@@ -520,22 +694,15 @@ begin
            not SameText(Level, 'read') and
            not SameText(Level, 'read-write') then
           Level := 'read';
-        // 'none' = skip insert (= no access row)
+        // 'none' = no access row
         if SameText(Level, 'none') then Continue;
 
-        Qry := Ctx.CreateQuery(
-          'INSERT INTO developer_project_access ' +
-          '  (developer_id, project_id, access_level) ' +
-          'VALUES (:dev_id, :proj_id, :level)');
-        try
-          Qry.ParamByName('dev_id').AsInteger := ADevId;
-          Qry.ParamByName('proj_id').AsInteger := ProjId;
-          Qry.ParamByName('level').AsWideString :=Level;
-          Qry.ExecSQL;
-        finally
-          Qry.Free;
-        end;
+        WantedIds := WantedIds + [ProjId];
+        WantedLevels := WantedLevels + [LowerCase(Level)];
       end;
+
+      ReplaceDeveloperAccess(Ctx, AActorId, ADevId, WantedIds, WantedLevels,
+        cAccessSrcDevPage);
 
       Ctx.Commit;
     except
@@ -557,12 +724,52 @@ begin
   end;
 end;
 
-procedure HandleSetProjectAccess(const C: THttpServerContext;
-  APool: TMxConnectionPool; AProjId: Integer; ALogger: IMxLogger);
+procedure HandleSetProjectPrivate(const C: THttpServerContext;
+  APool: TMxConnectionPool; AProjId, AActorId: Integer; ALogger: IMxLogger);
 var
   Body, Json: TJSONObject;
   Ctx: IMxDbContext;
-  Qry: TFDQuery;
+  Value: Boolean;
+begin
+  Body := MxParseBody(C);
+  if Body = nil then
+  begin
+    MxSendError(C, 400, 'invalid_body');
+    Exit;
+  end;
+  try
+    if not Body.TryGetValue<Boolean>('private', Value) then
+    begin
+      MxSendError(C, 400, 'missing_private');
+      Exit;
+    end;
+    Ctx := APool.AcquireContext;
+    Ctx.StartTransaction;
+    try
+      SetProjectPrivate(Ctx, AActorId, AProjId, Value, 'admin:project-private');
+      Ctx.Commit;
+    except
+      Ctx.Rollback;
+      raise;
+    end;
+    Json := TJSONObject.Create;
+    try
+      Json.AddPair('ok', TJSONBool.Create(True));
+      Json.AddPair('is_private', TJSONBool.Create(Value));
+      MxSendJson(C, 200, Json);
+    finally
+      Json.Free;
+    end;
+  finally
+    Body.Free;
+  end;
+end;
+
+procedure HandleSetProjectAccess(const C: THttpServerContext;
+  APool: TMxConnectionPool; AProjId, AActorId: Integer; ALogger: IMxLogger);
+var
+  Body, Json: TJSONObject;
+  Ctx: IMxDbContext;
   DevId: Integer;
   Level: string;
 begin
@@ -591,37 +798,15 @@ begin
       Exit;
     end;
 
+    // 'none' revokes; the change and its audit row commit together.
     Ctx := APool.AcquireContext;
-    if SameText(Level, 'none') then
-    begin
-      // Remove access
-      Qry := Ctx.CreateQuery(
-        'DELETE FROM developer_project_access ' +
-        'WHERE developer_id = :dev_id AND project_id = :proj_id');
-      try
-        Qry.ParamByName('dev_id').AsInteger := DevId;
-        Qry.ParamByName('proj_id').AsInteger := AProjId;
-        Qry.ExecSQL;
-      finally
-        Qry.Free;
-      end;
-    end
-    else
-    begin
-      // Upsert
-      Qry := Ctx.CreateQuery(
-        'INSERT INTO developer_project_access ' +
-        '  (developer_id, project_id, access_level) ' +
-        'VALUES (:dev_id, :proj_id, :level) ' +
-        'ON DUPLICATE KEY UPDATE access_level = VALUES(access_level)');
-      try
-        Qry.ParamByName('dev_id').AsInteger := DevId;
-        Qry.ParamByName('proj_id').AsInteger := AProjId;
-        Qry.ParamByName('level').AsWideString :=LowerCase(Level);
-        Qry.ExecSQL;
-      finally
-        Qry.Free;
-      end;
+    Ctx.StartTransaction;
+    try
+      SetProjectAccess(Ctx, AActorId, AProjId, DevId, Level, cAccessSrcProjectTeam);
+      Ctx.Commit;
+    except
+      Ctx.Rollback;
+      raise;
     end;
 
     ALogger.Log(mlInfo, Format(
@@ -652,8 +837,9 @@ var
 begin
   // FR#4006 / Plan#4007 M2: non-admin must hold an ACL row for this
   // project, else 403. Admin bypasses.
-  if (not ASession.IsAdmin) and
-     (not DeveloperHasProjectAccess(APool, ASession.DeveloperId, AProjId)) then
+  if ((not ASession.IsAdmin) and
+      (not DeveloperHasProjectAccess(APool, ASession.DeveloperId, AProjId))) or
+     AdminBlockedFromProject(APool, ASession, AProjId, False) then
   begin
     MxSendError(C, 403, 'forbidden');
     Exit;
@@ -854,8 +1040,9 @@ var
   FilterDocId, Lim, Off: Integer;
 begin
   // FR#4006 / Plan#4007 M2: non-admin ACL gate (read-level suffices — listing).
-  if (not ASession.IsAdmin) and
-     (not DeveloperHasProjectAccess(APool, ASession.DeveloperId, AProjId)) then
+  if ((not ASession.IsAdmin) and
+      (not DeveloperHasProjectAccess(APool, ASession.DeveloperId, AProjId))) or
+     AdminBlockedFromProject(APool, ASession, AProjId, False) then
   begin
     MxSendError(C, 403, 'forbidden');
     Exit;
@@ -1000,6 +1187,11 @@ begin
   // Security: for non-admin callers we collapse 404 (not-exists) to 403 so
   // attackers cannot probe for document existence via response-code delta.
   // Admins still get legitimate 404 to debug input errors.
+  if AdminBlockedFromDoc(APool, ASession, ADocId, False) then
+  begin
+    MxSendError(C, 403, 'forbidden');
+    Exit;
+  end;
   if not ASession.IsAdmin then
   begin
     Ctx := APool.AcquireContext;
@@ -1174,6 +1366,11 @@ begin
   // project_id first, then 403 for foreign or non-existent (info-leak
   // guard — do not reveal existence to non-admin). Admin path returns 404
   // on non-existent for legitimate input-error debugging.
+  if AdminBlockedFromDoc(APool, ASession, ADocId, True) then
+  begin
+    MxSendError(C, 403, 'forbidden');
+    Exit;
+  end;
   if not ASession.IsAdmin then
   begin
     Ctx := APool.AcquireContext;
@@ -1264,6 +1461,11 @@ begin
   // parse so we 403 before we bother parsing the body.
   // Info-leak guard: non-admin sees 403 even for non-existent docs so the
   // response-code delta cannot be used to probe existence.
+  if AdminBlockedFromDoc(APool, ASession, ADocId, True) then
+  begin
+    MxSendError(C, 403, 'forbidden');
+    Exit;
+  end;
   if not ASession.IsAdmin then
   begin
     Ctx := APool.AcquireContext;
@@ -1448,8 +1650,32 @@ end;
 // FR#3353 Phase C — Delete single relation row
 // DELETE /relations/:id
 // ===========================================================================
+// Spec#19960: both ends of a relation must be writable for the actor.
+// ASql yields the end projects as pid.
+procedure RequireRelationWrite(APool: TMxConnectionPool;
+  const ASql: string; ARelId, AActorId: Integer; const ASource: string);
+var
+  Ctx: IMxDbContext;
+  Qry: TFDQuery;
+begin
+  Ctx := APool.AcquireContext;
+  Qry := Ctx.CreateQuery(ASql);
+  try
+    Qry.ParamByName('id').AsInteger := ARelId;
+    Qry.Open;
+    while not Qry.Eof do
+    begin
+      if not CanWriteProjectAccess(Ctx, AActorId, Qry.FieldByName('pid').AsInteger) then
+        raise EMxAccessWriteDenied.Create(Qry.FieldByName('pid').AsInteger, 0, ASource);
+      Qry.Next;
+    end;
+  finally
+    Qry.Free;
+  end;
+end;
+
 procedure HandleDeleteRelation(const C: THttpServerContext;
-  APool: TMxConnectionPool; ARelId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ARelId, AActorId: Integer; ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
@@ -1460,6 +1686,10 @@ begin
     MxSendError(C, 400, 'invalid_id');
     Exit;
   end;
+  RequireRelationWrite(APool,
+    'SELECT d.project_id AS pid FROM doc_relations r ' +
+    'JOIN documents d ON d.id IN (r.source_doc_id, r.target_doc_id) ' +
+    'WHERE r.id = :id', ARelId, AActorId, 'admin:relation-delete');
   try
     Ctx := APool.AcquireContext;
     Qry := Ctx.CreateQuery(
@@ -1498,7 +1728,7 @@ end;
 // DELETE /project-relations/:id
 // ===========================================================================
 procedure HandleDeleteProjectRelation(const C: THttpServerContext;
-  APool: TMxConnectionPool; ARelId: Integer; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ARelId, AActorId: Integer; ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
@@ -1509,6 +1739,10 @@ begin
     MxSendError(C, 400, 'invalid_id');
     Exit;
   end;
+  RequireRelationWrite(APool,
+    'SELECT p.id AS pid FROM project_relations r ' +
+    'JOIN projects p ON p.id IN (r.source_project_id, r.target_project_id) ' +
+    'WHERE r.id = :id', ARelId, AActorId, 'admin:project-relation-delete');
   try
     Ctx := APool.AcquireContext;
     Qry := Ctx.CreateQuery(
@@ -1572,6 +1806,11 @@ begin
   // FR#4006 / Plan#4007 M2: ACL pre-check — non-admin callers collapse
   // 404 (not-exists) to 403 so attackers cannot probe doc existence via
   // response-code delta. Same pattern as HandleGetDocDetail.
+  if AdminBlockedFromDoc(APool, ASession, ADocId, False) then
+  begin
+    MxSendError(C, 403, 'forbidden');
+    Exit;
+  end;
   if not ASession.IsAdmin then
   begin
     Ctx := APool.AcquireContext;
@@ -1739,8 +1978,9 @@ begin
   end;
 
   // FR#4006 / Plan#4007 M2: non-admin ACL gate (read-level suffices).
-  if (not ASession.IsAdmin) and
-     (not DeveloperHasProjectAccess(APool, ASession.DeveloperId, AProjId)) then
+  if ((not ASession.IsAdmin) and
+      (not DeveloperHasProjectAccess(APool, ASession.DeveloperId, AProjId))) or
+     AdminBlockedFromProject(APool, ASession, AProjId, False) then
   begin
     MxSendError(C, 403, 'forbidden');
     Exit;

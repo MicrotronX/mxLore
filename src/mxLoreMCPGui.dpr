@@ -39,6 +39,7 @@ uses
   mx.Logic.ProjectExport in 'mx.Logic.ProjectExport.pas',
   mx.Logic.ProjectImport in 'mx.Logic.ProjectImport.pas',
   mx.Logic.Projects      in 'mx.Logic.Projects.pas',
+  mx.Logic.AccessWrite   in 'mx.Logic.AccessWrite.pas',
   mx.Logic.SelfUpdate    in 'mx.Logic.SelfUpdate.pas',
   mx.Logic.AdminRecovery in 'mx.Logic.AdminRecovery.pas',
   mx.Admin.Api.SelfUpdate in 'mx.Admin.Api.SelfUpdate.pas',
@@ -104,6 +105,27 @@ begin
         MB_OK or MB_ICONINFORMATION);
     finally
       IakOut.Free;
+    end;
+    Exit;
+  end;
+
+  // --break-glass <slug> public | owner <developer-id>: rescue a private
+  // project. Host access only, no HTTP path (Spec#19960 Req 7).
+  if (ParamCount >= 1) and SameText(ParamStr(1), '--break-glass') then
+  begin
+    var BgOut := TStringList.Create;
+    try
+      ExitCode := MxBreakGlassProject(
+        ExtractFilePath(ParamStr(0)) + 'mxLoreMCP.ini', ParamStr(2), ParamStr(3),
+        StrToIntDef(ParamStr(4), 0),
+        procedure(const ALine: string)
+        begin
+          BgOut.Add(ALine);
+        end);
+      MessageBox(0, PChar(BgOut.Text), 'mxLore - Break Glass',
+        MB_OK or MB_ICONINFORMATION);
+    finally
+      BgOut.Free;
     end;
     Exit;
   end;

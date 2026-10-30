@@ -169,7 +169,7 @@ begin
   Result := TJSONArray.Create;
   Qry := AContext.CreateQuery(
     'SELECT id, slug, name, path, svn_url, briefing, dna, project_rules, ' +
-    'is_active, created_at, updated_at, created_by, created_by_developer_id ' +
+    'is_active, is_private, created_at, updated_at, created_by, created_by_developer_id ' +
     'FROM projects WHERE id IN (' + IntArrayToCsv(AIds) + ')');
   try
     Qry.Open;
@@ -185,6 +185,7 @@ begin
       Row.AddPair('dna',        JsonNullableString(Qry.FieldByName('dna')));
       Row.AddPair('project_rules', JsonNullableString(Qry.FieldByName('project_rules')));
       Row.AddPair('is_active',  TJSONBool.Create(Qry.FieldByName('is_active').AsBoolean));
+      Row.AddPair('is_private', TJSONBool.Create(Qry.FieldByName('is_private').AsBoolean));
       Row.AddPair('created_at', JsonNullableDateTime(Qry.FieldByName('created_at')));
       Row.AddPair('updated_at', JsonNullableDateTime(Qry.FieldByName('updated_at')));
       Row.AddPair('created_by', JsonNullableString(Qry.FieldByName('created_by')));

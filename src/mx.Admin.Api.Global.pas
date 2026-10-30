@@ -4,37 +4,37 @@ interface
 
 uses
   Sparkle.HttpServer.Context,
-  mx.Types, mx.Data.Pool, mx.Config;
+  mx.Types, mx.Data.Pool, mx.Config, mx.Admin.Auth;
 
 procedure HandleGetGlobalStats(const C: THttpServerContext;
   APool: TMxConnectionPool; AConfig: TMxConfig; ALogger: IMxLogger);
 
 procedure HandleGetActivity(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession; ALogger: IMxLogger);
 
 procedure HandlePostBackup(const C: THttpServerContext;
   AConfig: TMxConfig; ALogger: IMxLogger);
 
 procedure HandlePostCleanup(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession; ALogger: IMxLogger);
 
 procedure HandleGetAccessLogStats(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession; ALogger: IMxLogger);
 
 procedure HandleGetPrefetchStats(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession; ALogger: IMxLogger);
 
 procedure HandleGetHealth(const C: THttpServerContext;
   APool: TMxConnectionPool; AConfig: TMxConfig; ALogger: IMxLogger);
 
 procedure HandleGetActiveSessions(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession; ALogger: IMxLogger);
 
 procedure HandleGetSkillEvolution(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession; ALogger: IMxLogger);
 
 procedure HandleGetRecallMetrics(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession; ALogger: IMxLogger);
 
 procedure HandleGetGraphStats(const C: THttpServerContext;
   APool: TMxConnectionPool; ALogger: IMxLogger);
@@ -174,7 +174,7 @@ begin
 end;
 
 procedure HandleGetActivity(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession; ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
@@ -198,6 +198,7 @@ begin
       'JOIN projects p ON d.project_id = p.id ' +
       'WHERE dr.changed_at > NOW() - INTERVAL 7 DAY ' +
       '  AND p.is_active = TRUE ' +
+      PrivateProjectExclusion('p.id', ASession.DeveloperId) +
       'ORDER BY p.slug, dr.changed_at DESC ' +
       'LIMIT 50');
     try
@@ -417,7 +418,7 @@ begin
 end;
 
 procedure HandlePostCleanup(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession; ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
@@ -434,7 +435,8 @@ begin
       'SELECT d.id, d.content FROM documents d ' +
       'WHERE d.doc_type = ''session_note'' ' +
       '  AND d.status IN (''active'', ''draft'') ' +
-      '  AND d.updated_at < NOW() - INTERVAL 30 DAY');
+      '  AND d.updated_at < NOW() - INTERVAL 30 DAY' +
+      PrivateProjectExclusion('d.project_id', ASession.DeveloperId));
     try
       Qry.Open;
       while not Qry.Eof do
@@ -475,7 +477,7 @@ begin
 end;
 
 procedure HandleGetAccessLogStats(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession; ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
@@ -561,6 +563,7 @@ begin
       'FROM access_log al ' +
       'JOIN documents d ON d.id = al.doc_id ' +
       'WHERE al.doc_id > 0 AND al.tool_name = ''mx_detail'' ' +
+      PrivateProjectExclusion('d.project_id', ASession.DeveloperId) +
       'GROUP BY al.doc_id, d.title, d.doc_type ' +
       'ORDER BY in_sessions DESC, cnt DESC LIMIT 15');
     try
@@ -594,7 +597,7 @@ begin
 end;
 
 procedure HandleGetPrefetchStats(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession; ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry, TopQry: TFDQuery;
@@ -616,6 +619,7 @@ begin
       'SELECT p.slug, p.name, COUNT(*) AS candidate_count ' +
       'FROM access_patterns ap ' +
       'JOIN projects p ON ap.project_id = p.id ' +
+      'WHERE 1 = 1' + PrivateProjectExclusion('p.id', ASession.DeveloperId) +
       'GROUP BY ap.project_id, p.slug, p.name ' +
       'ORDER BY candidate_count DESC');
     try
@@ -773,7 +777,7 @@ begin
 end;
 
 procedure HandleGetActiveSessions(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession; ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
@@ -799,6 +803,7 @@ begin
       '  AND (s.last_heartbeat > NOW() - INTERVAL 2 HOUR ' +
       '       OR (s.last_heartbeat IS NULL ' +
       '           AND s.started_at > NOW() - INTERVAL 2 HOUR)) ' +
+      PrivateProjectExclusion('p.id', ASession.DeveloperId) +
       'ORDER BY s.started_at DESC');
     try
       Qry.Open;
@@ -848,7 +853,7 @@ end;
 // GET /global/skill-evolution — Skill Evolution Dashboard Stats
 // ---------------------------------------------------------------------------
 procedure HandleGetSkillEvolution(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession; ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
@@ -897,6 +902,7 @@ begin
       'FROM skill_findings f ' +
       'JOIN projects p ON p.id = f.project_id ' +
       'WHERE f.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) ' +
+      PrivateProjectExclusion('p.id', ASession.DeveloperId) +
       'ORDER BY f.created_at DESC LIMIT 20');
     try
       Qry.Open;
@@ -926,6 +932,7 @@ begin
       '  sp.change_reason, sp.updated_at, p.slug AS project ' +
       'FROM skill_params sp ' +
       'JOIN projects p ON p.id = sp.project_id ' +
+      'WHERE 1 = 1' + PrivateProjectExclusion('p.id', ASession.DeveloperId) +
       'ORDER BY sp.updated_at DESC LIMIT 20');
     try
       Qry.Open;
@@ -962,7 +969,7 @@ end;
 // GET /global/recall-metrics — Recall effectiveness metrics (C6, Plan#1231)
 // ---------------------------------------------------------------------------
 procedure HandleGetRecallMetrics(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession; ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
@@ -1043,6 +1050,7 @@ begin
       'SELECT d.id, d.title, d.violation_count, d.success_count ' +
       'FROM documents d ' +
       'WHERE d.doc_type = ''lesson'' AND d.status != ''deleted'' ' +
+      PrivateProjectExclusion('d.project_id', ASession.DeveloperId) +
       'ORDER BY (d.violation_count + d.success_count) DESC LIMIT 10');
     try
       Qry.Open;

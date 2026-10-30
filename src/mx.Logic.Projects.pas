@@ -19,8 +19,11 @@ type
   private
     FPool: TMxConnectionPool;
     FLogger: IMxLogger;
+    FActorId: Integer;
   public
     constructor Create(APool: TMxConnectionPool; ALogger: IMxLogger);
+    /// Developer acting, recorded in access_audit (0 = none).
+    property ActorId: Integer read FActorId write FActorId;
     procedure UpdateProject(AId: Integer; const AName: string;
       ACreatorId: Integer = -1);
     procedure SoftDelete(AId: Integer);
@@ -33,7 +36,7 @@ type
 implementation
 
 uses
-  Data.DB;
+  Data.DB, mx.Logic.AccessWrite;
 
 { TMxProjectManager }
 
@@ -79,6 +82,37 @@ begin
       end;
     end;
 
+    // Before the UPDATE: on a private project only the current owner may grant,
+    // and the actor stops being owner once the row changes.
+    if (ACreatorId > 0) and (ACreatorId <> OldCreatorId) then
+    begin
+      DevExists := False;
+      Qry := Ctx.CreateQuery(
+        'SELECT 1 FROM developers WHERE id = :dev_id LIMIT 1');
+      try
+        Qry.ParamByName('dev_id').AsInteger := ACreatorId;
+        Qry.Open;
+        DevExists := not Qry.IsEmpty;
+      finally
+        Qry.Free;
+      end;
+
+      if DevExists then
+      begin
+        GrantProjectAccessIfAbsent(Ctx, FActorId, AId, ACreatorId,
+          'read-write', cAccessSrcCreatorChange);
+        WriteAccessEvent(Ctx, FActorId, AId, ACreatorId, 'owner_change',
+          IntToStr(OldCreatorId), IntToStr(ACreatorId), cAccessSrcCreatorChange);
+      end
+      else
+      begin
+        if Assigned(FLogger) then
+          FLogger.Log(mlWarning,
+            Format('Creator-change auto-grant skipped: dev %d not found (project %d)',
+                   [ACreatorId, AId]));
+      end;
+    end;
+
     SQL := 'UPDATE projects SET name = :name';
     if ACreatorId >= 0 then
       SQL := SQL + ', created_by_developer_id = :creator';
@@ -107,42 +141,7 @@ begin
     // deadlock still surface. Dev-exists pre-check defends against an
     // orphaned creator_id (dev soft-deleted) to avoid FK-violation
     // crash; silent-skip is logged via mlWarning for diagnosability.
-    if (ACreatorId > 0) and (ACreatorId <> OldCreatorId) then
-    begin
-      DevExists := False;
-      Qry := Ctx.CreateQuery(
-        'SELECT 1 FROM developers WHERE id = :dev_id LIMIT 1');
-      try
-        Qry.ParamByName('dev_id').AsInteger := ACreatorId;
-        Qry.Open;
-        DevExists := not Qry.IsEmpty;
-      finally
-        Qry.Free;
-      end;
-
-      if DevExists then
-      begin
-        Qry := Ctx.CreateQuery(
-          'INSERT INTO developer_project_access ' +
-          '(developer_id, project_id, access_level) ' +
-          'VALUES (:dev_id, :proj_id, ''read-write'') ' +
-          'ON DUPLICATE KEY UPDATE developer_id = developer_id');
-        try
-          Qry.ParamByName('dev_id').AsInteger := ACreatorId;
-          Qry.ParamByName('proj_id').AsInteger := AId;
-          Qry.ExecSQL;
-        finally
-          Qry.Free;
-        end;
-      end
-      else
-      begin
-        if Assigned(FLogger) then
-          FLogger.Log(mlWarning,
-            Format('Creator-change auto-grant skipped: dev %d not found (project %d)',
-                   [ACreatorId, AId]));
-      end;
-    end;
+    // (Runs above, before the UPDATE.)
 
     Ctx.Commit;
   except
@@ -297,45 +296,8 @@ begin
         Qry.Free;
       end;
 
-      // Merge project access (highest level wins).
-      // Subquery-wrap isolates the SELECT so MariaDB doesn't flag
-      // `access_level` ambiguous between source-table and UPDATE-target.
-      // 4-level ACL (FR#3360 build 110): read < comment < read-write.
-      // Legacy 'write' rows are treated as 'read-write' for the merge.
-      Qry := Ctx.CreateQuery(
-        'INSERT INTO developer_project_access ' +
-        '  (developer_id, project_id, access_level) ' +
-        'SELECT tmp.dev_id, :target, tmp.lvl FROM ( ' +
-        '  SELECT developer_id AS dev_id, access_level AS lvl ' +
-        '  FROM developer_project_access WHERE project_id = :source ' +
-        ') AS tmp ' +
-        'ON DUPLICATE KEY UPDATE access_level = ' +
-        '  CASE ' +
-        '    WHEN VALUES(access_level) IN (''read-write'', ''write'') ' +
-        '      OR developer_project_access.access_level IN (''read-write'', ''write'') ' +
-        '    THEN ''read-write'' ' +
-        '    WHEN VALUES(access_level) = ''comment'' ' +
-        '      OR developer_project_access.access_level = ''comment'' ' +
-        '    THEN ''comment'' ' +
-        '    ELSE ''read'' ' +
-        '  END');
-      try
-        Qry.ParamByName('target').AsInteger := ATargetId;
-        Qry.ParamByName('source').AsInteger := SourceId;
-        Qry.ExecSQL;
-      finally
-        Qry.Free;
-      end;
-
-      // Remove old project access
-      Qry := Ctx.CreateQuery(
-        'DELETE FROM developer_project_access WHERE project_id = :source');
-      try
-        Qry.ParamByName('source').AsInteger := SourceId;
-        Qry.ExecSQL;
-      finally
-        Qry.Free;
-      end;
+      // Merge project access (highest level wins), then drop the source rows.
+      MergeProjectAccess(Ctx, FActorId, SourceId, ATargetId, cAccessSrcProjectMerge);
 
       // Soft-delete source project
       Qry := Ctx.CreateQuery(

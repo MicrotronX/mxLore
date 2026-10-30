@@ -4,10 +4,10 @@ interface
 
 uses
   Sparkle.HttpServer.Context,
-  mx.Types, mx.Data.Pool;
+  mx.Types, mx.Data.Pool, mx.Admin.Auth;
 
 procedure HandleGetSkillsDashboard(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession; ALogger: IMxLogger);
 
 procedure HandlePostSkillFeedback(const C: THttpServerContext;
   APool: TMxConnectionPool; ALogger: IMxLogger);
@@ -24,7 +24,7 @@ uses
 // GET /skills/dashboard — Complete Skills Dashboard Data
 // ---------------------------------------------------------------------------
 procedure HandleGetSkillsDashboard(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; const ASession: TMxAdminSession; ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
@@ -163,6 +163,7 @@ begin
       '  f.created_at, f.reacted_at, p.slug AS project ' +
       'FROM skill_findings f ' +
       'JOIN projects p ON p.id = f.project_id ' +
+      'WHERE 1 = 1' + PrivateProjectExclusion('p.id', ASession.DeveloperId) +
       'ORDER BY f.created_at DESC LIMIT 50');
     try
       Qry.Open;
@@ -201,6 +202,7 @@ begin
       '  sp.previous_value, sp.change_reason, sp.updated_at, p.slug AS project ' +
       'FROM skill_params sp ' +
       'JOIN projects p ON p.id = sp.project_id ' +
+      'WHERE 1 = 1' + PrivateProjectExclusion('p.id', ASession.DeveloperId) +
       'ORDER BY sp.updated_at DESC LIMIT 30');
     try
       Qry.Open;

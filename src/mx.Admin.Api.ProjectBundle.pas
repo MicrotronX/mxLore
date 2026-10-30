@@ -47,6 +47,7 @@ uses
   System.NetEncoding, System.Generics.Collections, System.StrUtils,
   Data.DB, FireDAC.Comp.Client,
   mx.Admin.Server,
+  mx.Logic.AccessWrite,
   mx.Logic.ProjectExport, mx.Logic.ProjectImport,
   mx.Crypto.Bundle;
 
@@ -169,6 +170,12 @@ begin
       MxSendError(C, 400, 'no_project_ids');
       Exit;
     end;
+    for var ExportProjId in ProjectIds do
+      if AdminBlockedFromProject(APool, ASession, ExportProjId, False) then
+      begin
+        MxSendError(C, 403, 'forbidden');
+        Exit;
+      end;
 
     Opts := Default(TMxExportOptions);
     Opts.ProjectIds := ProjectIds;
@@ -482,6 +489,8 @@ begin
             ALogger.Log(mlWarning, '[Admin.ProjectBundle.Import] auth fail: ' + E.Message);
           MxSendError(C, 401, 'decrypt_failed');
         end;
+        on E: EMxAccessWriteDenied do
+          raise;  // admin router: 403 + 'denied' row
         on E: Exception do
         begin
           if Assigned(ALogger) then

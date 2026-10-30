@@ -13,15 +13,16 @@ procedure HandleCreateDeveloper(const C: THttpServerContext;
 procedure HandleUpdateDeveloper(const C: THttpServerContext;
   APool: TMxConnectionPool; ADevId: Integer; ALogger: IMxLogger);
 procedure HandleDeleteDeveloper(const C: THttpServerContext;
-  APool: TMxConnectionPool; ADevId: Integer; AHard: Boolean; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ADevId: Integer; AHard: Boolean; AActorId: Integer;
+  ALogger: IMxLogger);
 procedure HandleMergeDevelopers(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; AActorId: Integer; ALogger: IMxLogger);
 
 implementation
 
 uses
   System.SysUtils, System.JSON, Data.DB, FireDAC.Comp.Client,
-  mx.Admin.Server;
+  mx.Admin.Server, mx.Logic.AccessWrite;
 
 procedure HandleGetDevelopers(const C: THttpServerContext;
   APool: TMxConnectionPool; ALogger: IMxLogger);
@@ -331,7 +332,8 @@ begin
 end;
 
 procedure HandleDeleteDeveloper(const C: THttpServerContext;
-  APool: TMxConnectionPool; ADevId: Integer; AHard: Boolean; ALogger: IMxLogger);
+  APool: TMxConnectionPool; ADevId: Integer; AHard: Boolean; AActorId: Integer;
+  ALogger: IMxLogger);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
@@ -352,14 +354,7 @@ begin
         Qry.Free;
       end;
 
-      Qry := Ctx.CreateQuery(
-        'DELETE FROM developer_project_access WHERE developer_id = :id');
-      try
-        Qry.ParamByName('id').AsInteger := ADevId;
-        Qry.ExecSQL;
-      finally
-        Qry.Free;
-      end;
+      RevokeAllForDeveloper(Ctx, AActorId, ADevId, cAccessSrcDevDelete);
 
       Qry := Ctx.CreateQuery(
         'DELETE FROM invite_links WHERE developer_id = :id');
@@ -454,7 +449,7 @@ begin
 end;
 
 procedure HandleMergeDevelopers(const C: THttpServerContext;
-  APool: TMxConnectionPool; ALogger: IMxLogger);
+  APool: TMxConnectionPool; AActorId: Integer; ALogger: IMxLogger);
 var
   Body, Json: TJSONObject;
   Ctx: IMxDbContext;
@@ -462,6 +457,7 @@ var
   SourceIds: TJSONArray;
   SourceVal: TJSONValue;
   TargetId, SourceId, I: Integer;
+  Denied: Boolean;
 begin
   Body := MxParseBody(C);
   if Body = nil then
@@ -485,6 +481,18 @@ begin
     end;
 
     Ctx := APool.AcquireContext;
+
+    // Spec#19960 section 11: a merge moves keys, so it hands over identities.
+    // Same rule as issuing a key for either side.
+    Denied := KeyIssueDenied(Ctx, AActorId, TargetId, cAccessSrcDevMerge);
+    for I := 0 to SourceIds.Count - 1 do
+      Denied := KeyIssueDenied(Ctx, AActorId, SourceIds.Items[I].AsType<Integer>,
+        cAccessSrcDevMerge) or Denied;
+    if Denied then
+    begin
+      MxSendError(C, 403, 'private_project');
+      Exit;
+    end;
 
     // Validate target developer exists
     Qry := Ctx.CreateQuery(
@@ -523,45 +531,8 @@ begin
           Qry.Free;
         end;
 
-        // Merge project access (highest level wins).
-        // Subquery-wrap isolates the SELECT so MariaDB doesn't flag
-        // `access_level` ambiguous between source-table and UPDATE-target.
-        // 4-level ACL (FR#3360 build 110): read < comment < read-write.
-        // Legacy 'write' rows are normalized to 'read-write'.
-        Qry := Ctx.CreateQuery(
-          'INSERT INTO developer_project_access ' +
-          '  (developer_id, project_id, access_level) ' +
-          'SELECT :target, tmp.proj_id, tmp.lvl FROM ( ' +
-          '  SELECT project_id AS proj_id, access_level AS lvl ' +
-          '  FROM developer_project_access WHERE developer_id = :source ' +
-          ') AS tmp ' +
-          'ON DUPLICATE KEY UPDATE access_level = ' +
-          '  CASE ' +
-          '    WHEN VALUES(access_level) IN (''read-write'', ''write'') ' +
-          '      OR developer_project_access.access_level IN (''read-write'', ''write'') ' +
-          '    THEN ''read-write'' ' +
-          '    WHEN VALUES(access_level) = ''comment'' ' +
-          '      OR developer_project_access.access_level = ''comment'' ' +
-          '    THEN ''comment'' ' +
-          '    ELSE ''read'' ' +
-          '  END');
-        try
-          Qry.ParamByName('target').AsInteger := TargetId;
-          Qry.ParamByName('source').AsInteger := SourceId;
-          Qry.ExecSQL;
-        finally
-          Qry.Free;
-        end;
-
-        // Remove old project access
-        Qry := Ctx.CreateQuery(
-          'DELETE FROM developer_project_access WHERE developer_id = :source');
-        try
-          Qry.ParamByName('source').AsInteger := SourceId;
-          Qry.ExecSQL;
-        finally
-          Qry.Free;
-        end;
+        // Merge project access (highest level wins), then drop the source rows.
+        MergeDeveloperAccess(Ctx, AActorId, SourceId, TargetId, cAccessSrcDevMerge);
 
         // Move admin sessions
         Qry := Ctx.CreateQuery(

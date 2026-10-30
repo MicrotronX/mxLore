@@ -341,12 +341,25 @@
           <span class="detail-card__title">
             <i data-lucide="folder" class="icon-sm"></i> Project assignments
           </span>
-          <button id="btn-save-access" class="btn btn--primary btn--small">
-            <i data-lucide="save" class="icon-xs"></i> Save assignments
+          <button id="btn-save-access" class="btn btn--primary btn--small" disabled>
+            <i data-lucide="save" class="icon-xs"></i> No changes
           </button>
         </div>
+        <div class="access-toolbar">
+          <input id="access-filter" type="search" class="form-input" placeholder="Filter projects by name or slug" aria-label="Filter projects">
+        </div>
+        <div id="access-review" class="access-review" hidden></div>
         <div id="access-grid" class="access-grid">
         </div>
+      </div>
+      <div class="detail-card">
+        <div class="detail-card__header">
+          <span class="detail-card__title">
+            <i data-lucide="history" class="icon-sm"></i> Access log
+          </span>
+          <select id="dev-audit-filter" class="form-input audit-filter" aria-label="Filter by action"></select>
+        </div>
+        <div id="dev-audit" class="data-table-wrap"></div>
       </div>
     </div>
 
@@ -525,6 +538,10 @@
             <option value="">&mdash; loading &mdash;</option>
           </select>
         </label>
+        <span id="proj-private-state" class="badge" hidden>
+          <i data-lucide="lock" class="icon-xs" aria-hidden="true"></i> Private
+        </span>
+        <button type="button" id="btn-project-private" class="btn btn--small" hidden></button>
         <button type="submit" class="btn btn--primary btn--small pd-info-strip__save" data-admin-only>
           <i data-lucide="save" class="icon-xs"></i> Save
         </button>
@@ -566,6 +583,7 @@
         <div class="detail-card__header">
           <span class="detail-card__title">
             <i data-lucide="users" class="icon-sm"></i> Member assignments
+            <span id="pd-owner-missing" class="pd-owner-missing" hidden>No owner set. Choose a creator above.</span>
           </span>
           <button type="button" id="btn-add-member" class="pd-add-btn"
                   onclick="App.toggleAddMember()" title="Add member to project">
@@ -607,6 +625,15 @@
             <tbody id="pd-devs-body"></tbody>
           </table>
         </div>
+      </div>
+      <div class="detail-card">
+        <div class="detail-card__header">
+          <span class="detail-card__title">
+            <i data-lucide="history" class="icon-sm"></i> Access log
+          </span>
+          <select id="pd-audit-filter" class="form-input audit-filter" aria-label="Filter by action"></select>
+        </div>
+        <div id="pd-audit" class="data-table-wrap"></div>
       </div>
     </div>
 

@@ -72,10 +72,14 @@ function TMxDbContext.GetAccessControl: IAccessControl;
 begin
   if FAccessControl = nil then
   begin
-    if (FAclMode = amOff) or (not FAuthResult.Valid) then
+    if not FAuthResult.Valid then
       FAccessControl := TMxNullAccessControl.Create(
         FAuthResult.DeveloperId, FAuthResult.KeyId,
-        FAuthResult.DeveloperName, FAuthResult.IsAdmin)
+        FAuthResult.DeveloperName, FAuthResult.IsAdmin, nil, FLogger)
+    else if FAclMode = amOff then
+      FAccessControl := TMxNullAccessControl.Create(
+        FAuthResult.DeveloperId, FAuthResult.KeyId,
+        FAuthResult.DeveloperName, FAuthResult.IsAdmin, FConnection, FLogger)
     else
       FAccessControl := TMxAccessControl.Create(
         FAuthResult.DeveloperId, FAuthResult.KeyId,

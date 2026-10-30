@@ -333,6 +333,7 @@ var App = (function () {
 
     loadKeys(id);
     loadProjectAccess(id);
+    loadAuditLog(function () { return Api.getDeveloperAudit(id); }, 'dev-audit', 'dev-audit-filter', true);
     loadSettings(id);
   }
 
@@ -714,6 +715,64 @@ var App = (function () {
   }
 
   // --- Project Access ---
+  function canManageTeam(projectId) {
+    if (window.AclHelper && AclHelper.isAdmin()) return true;
+    var proj = projectCache.find(function (p) { return p.id === projectId; });
+    return !!(proj && proj.is_owner);
+  }
+
+  async function loadAuditLog(load, tableId, filterId, showProject) {
+    var box = $('#' + tableId);
+    var filter = $('#' + filterId);
+    box.innerHTML = '<div style="text-align:center;padding:16px"><span class="spinner"></span></div>';
+    var entries;
+    try {
+      entries = (await load()).entries || [];
+    } catch (e) {
+      if (e && e.message === 'session_expired') return;
+      box.innerHTML = '<p class="audit-empty">Could not load the access log.</p>';
+      filter.hidden = true;
+      return;
+    }
+
+    function who(id, name) {
+      if (id === null) return 'server';
+      return escapeHtml(name || ('#' + id));
+    }
+    function render() {
+      var rows = entries.filter(function (e) {
+        return !filter.value || e.action === filter.value;
+      });
+      if (!rows.length) {
+        box.innerHTML = '<p class="audit-empty">No entries.</p>';
+        return;
+      }
+      box.innerHTML = '<table class="data-table"><thead><tr><th>When (UTC)</th><th>Action</th><th>By</th>' +
+        (showProject ? '<th>Project</th>' : '') + '<th>Developer</th><th>Before</th><th>After</th><th>Source</th></tr></thead><tbody>' +
+        rows.map(function (e) {
+          return '<tr><td class="mono">' + escapeHtml(e.at.replace('T', ' ').replace('Z', '')) + '</td>' +
+            '<td>' + escapeHtml(e.action) + '</td>' +
+            '<td>' + who(e.actor_id, e.actor_name) + '</td>' +
+            (showProject ? '<td>' + escapeHtml(e.project_name || (e.project_id ? '#' + e.project_id : '-')) + '</td>' : '') +
+            '<td>' + (e.target_id === null ? '-' : who(e.target_id, e.target_name)) + '</td>' +
+            '<td>' + escapeHtml(e.level_before || '-') + '</td>' +
+            '<td>' + escapeHtml(e.level_after || '-') + '</td>' +
+            '<td class="mono">' + escapeHtml(e.source) + '</td></tr>';
+        }).join('') + '</tbody></table>';
+    }
+
+    var actions = [];
+    entries.forEach(function (e) {
+      if (actions.indexOf(e.action) < 0) actions.push(e.action);
+    });
+    filter.hidden = false;
+    filter.innerHTML = '<option value="">All actions</option>' + actions.sort().map(function (a) {
+      return '<option value="' + escapeHtml(a) + '">' + escapeHtml(a) + '</option>';
+    }).join('');
+    filter.onchange = render;
+    render();
+  }
+
   async function loadProjectAccess(developerId) {
     var container = $('#access-grid');
     container.innerHTML = '<div style="text-align:center;padding:16px"><span class="spinner"></span></div>';
@@ -730,55 +789,234 @@ var App = (function () {
       var accessMap = {};
       assigned.forEach(function (a) { accessMap[a.project_id] = a.access_level; });
 
+      accessOriginal = {};
+      allProjects.forEach(function (p) { accessOriginal[p.id] = accessMap[p.id] || ''; });
+      $('#access-filter').value = '';
+      hideAccessReview();
+
       if (allProjects.length === 0) {
         container.innerHTML = '<div class="empty-state">No projects yet</div>';
+        updateAccessSaveButton();
         return;
       }
 
-      container.innerHTML = allProjects.map(function (p) {
-        var level = accessMap[p.id] || '';
-        // 4-Level ACL (none/comment/read/read-write)
-        return '<div class="access-row" data-project-id="' + p.id + '">' +
-          '<div class="access-row__project">' + escHtml(p.name) + '<span class="slug">' + escHtml(p.slug) + '</span></div>' +
-          '<select class="form-input access-select" data-project-id="' + p.id + '">' +
-            '<option value=""'           + (level === ''           ? ' selected' : '') + '>Kein Zugriff</option>' +
-            '<option value="comment"'    + (level === 'comment'    ? ' selected' : '') + '>Comment</option>' +
-            '<option value="read"'       + (level === 'read'       ? ' selected' : '') + '>Read</option>' +
-            '<option value="read-write"' + (level === 'read-write' ? ' selected' : '') + '>Read/Write</option>' +
-          '</select>' +
-        '</div>';
-      }).join('');
+      var byName = function (a, b) { return String(a.name).localeCompare(String(b.name)); };
+      var withAccess = allProjects.filter(function (p) { return accessOriginal[p.id]; }).sort(byName);
+      var without = allProjects.filter(function (p) { return !accessOriginal[p.id]; }).sort(byName);
+
+      container.innerHTML =
+        '<div class="data-table-wrap"><table class="data-table access-table">' +
+          '<thead><tr><th>Project</th><th>Slug</th><th class="access-table__level">Access</th></tr></thead>' +
+          '<tbody>' +
+            '<tr class="access-group-row"><th colspan="3" scope="rowgroup">With access ' +
+              '<span class="access-group__count">' + withAccess.length + '</span></th></tr>' +
+            (withAccess.length ? renderOwnerGroups(withAccess) :
+              '<tr><td colspan="3" class="access-group__empty">This member has no project access yet. Open the list below to grant some.</td></tr>') +
+          '</tbody>' +
+          '<tbody>' +
+            '<tr class="access-group-row"><th colspan="3" scope="rowgroup">' +
+              '<button type="button" class="access-fold-toggle" id="access-fold-toggle" aria-expanded="false" aria-controls="access-fold">' +
+                'No access <span class="access-group__count">' + without.length + '</span></button></th></tr>' +
+          '</tbody>' +
+          '<tbody id="access-fold" hidden>' + renderOwnerGroups(without) + '</tbody>' +
+          '<tbody><tr id="access-nomatch" hidden><td colspan="3" class="access-group__empty">No project matches this filter.</td></tr></tbody>' +
+        '</table></div>';
+
+      $('#access-fold-toggle').addEventListener('click', function () {
+        setAccessFold(this.getAttribute('aria-expanded') !== 'true');
+      });
+
+      $$('.access-select').forEach(function (sel) {
+        sel.addEventListener('change', function () {
+          var row = sel.closest('.access-row');
+          row.classList.toggle('access-row--changed', sel.value !== accessOriginal[sel.dataset.projectId]);
+          hideAccessReview();
+          updateAccessSaveButton();
+        });
+      });
+      updateAccessSaveButton();
     } catch (err) { /* handled by session check */ }
   }
 
-  function initSaveAccess() {
-    $('#btn-save-access').addEventListener('click', async function () {
-      if (!currentDeveloper) return;
-      var btn = this;
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span> Saving...';
+  var accessOriginal = {};
+  var ACCESS_LEVELS = [
+    { value: '',           label: 'No access',  rank: 0 },
+    { value: 'comment',    label: 'Comment',    rank: 1 },
+    { value: 'read',       label: 'Read',       rank: 2 },
+    { value: 'read-write', label: 'Read/Write', rank: 3 }
+  ];
 
-      var projects = [];
-      $$('.access-select').forEach(function (sel) {
-        var level = sel.value;
-        if (level) {
-          projects.push({
-            project_id: parseInt(sel.dataset.projectId),
-            access_level: level
-          });
-        }
-      });
+  function accessLevelInfo(value) {
+    return ACCESS_LEVELS.filter(function (l) { return l.value === value; })[0] ||
+      { value: value, label: value, rank: 3 };
+  }
 
-      try {
-        await Api.updateDeveloperProjects(currentDeveloper, projects);
-        showAlert('detail-alert', 'success', 'Assignments saved.');
-      } catch (err) {
-        showAlert('detail-alert', 'error', 'Error: ' + err.message);
-      } finally {
-        btn.disabled = false;
-        btn.innerHTML = 'Save assignments';
+  function privateLock(p) {
+    return p.is_private
+      ? ' <i data-lucide="lock" class="icon-xs" role="img" aria-label="Private" title="Private"></i>'
+      : '';
+  }
+
+  function renderAccessRow(p) {
+    var level = accessOriginal[p.id];
+    var owner = p.created_by_name || '';
+    var locked = p.is_private && !p.is_owner;
+    return '<tr class="access-row" data-project-id="' + p.id + '" data-search="' +
+        escHtml((p.name + ' ' + p.slug + ' ' + owner).toLowerCase()) + '">' +
+      '<td class="access-row__project">' + escHtml(p.name) + privateLock(p) + '</td>' +
+      '<td class="slug">' + escHtml(p.slug) + '</td>' +
+      '<td class="access-table__level">' +
+        '<select class="form-input access-select" data-project-id="' + p.id + '" aria-label="Access level for ' + escHtml(p.name) + '"' +
+          (locked ? ' disabled title="Private. Only the owner can change access."' : '') + '>' +
+          ACCESS_LEVELS.map(function (l) {
+            return '<option value="' + l.value + '"' + (level === l.value ? ' selected' : '') + '>' + l.label + '</option>';
+          }).join('') +
+        '</select>' +
+      '</td>' +
+    '</tr>';
+  }
+
+  function renderOwnerGroups(list) {
+    var groups = {};
+    list.forEach(function (p) {
+      var owner = p.created_by_name || '';
+      (groups[owner] = groups[owner] || []).push(p);
+    });
+    var owners = Object.keys(groups).sort(function (a, b) {
+      if (!a) return 1;
+      if (!b) return -1;
+      return a.localeCompare(b);
+    });
+    return owners.map(function (owner) {
+      return '<tr class="access-owner-row"><td colspan="3">' +
+          '<i data-lucide="user" class="icon-xs" aria-hidden="true"></i>' +
+          escHtml(owner || 'Unknown owner') +
+          '<span class="access-group__count">' + groups[owner].length + '</span>' +
+        '</td></tr>' +
+        groups[owner].map(renderAccessRow).join('');
+    }).join('');
+  }
+
+  function setAccessFold(open) {
+    var toggle = $('#access-fold-toggle');
+    if (!toggle) return;
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    $('#access-fold').hidden = !open;
+  }
+
+  function collectAccessChanges() {
+    var changes = [];
+    $$('.access-select').forEach(function (sel) {
+      var before = accessOriginal[sel.dataset.projectId] || '';
+      if (sel.value === before) return;
+      var p = allProjects.filter(function (x) { return String(x.id) === sel.dataset.projectId; })[0] || {};
+      changes.push({ name: p.name || sel.dataset.projectId, slug: p.slug || '',
+        from: accessLevelInfo(before), to: accessLevelInfo(sel.value) });
+    });
+    return changes;
+  }
+
+  function updateAccessSaveButton() {
+    var btn = $('#btn-save-access');
+    var n = collectAccessChanges().length;
+    btn.disabled = n === 0;
+    btn.innerHTML = '<i data-lucide="list-checks" class="icon-xs"></i> ' +
+      (n === 0 ? 'No changes' : 'Review ' + n + (n === 1 ? ' change' : ' changes'));
+    if (window.lucide) lucide.createIcons();
+  }
+
+  function hideAccessReview() {
+    var panel = $('#access-review');
+    panel.hidden = true;
+    panel.innerHTML = '';
+  }
+
+  function applyAccessFilter() {
+    var q = $('#access-filter').value.trim().toLowerCase();
+    var fold = $('#access-fold');
+    var visible = 0, visibleFolded = 0;
+    $$('.access-row').forEach(function (row) {
+      var hit = !q || row.dataset.search.indexOf(q) !== -1;
+      row.hidden = !hit;
+      if (hit) {
+        visible++;
+        if (fold && fold.contains(row)) visibleFolded++;
       }
     });
+    $$('.access-owner-row').forEach(function (ownerRow) {
+      var any = false;
+      for (var r = ownerRow.nextElementSibling; r && !r.classList.contains('access-owner-row'); r = r.nextElementSibling) {
+        if (!r.hidden) { any = true; break; }
+      }
+      ownerRow.hidden = !any;
+    });
+    if (fold && q) setAccessFold(visibleFolded > 0);
+    var nomatch = $('#access-nomatch');
+    if (nomatch) nomatch.hidden = visible > 0;
+  }
+
+  function showAccessReview(changes) {
+    var panel = $('#access-review');
+    var grants = changes.filter(function (c) { return c.to.rank > c.from.rank; }).length;
+    var revokes = changes.length - grants;
+    var summary = [];
+    if (grants) summary.push(grants + ' more access');
+    if (revokes) summary.push(revokes + ' less access');
+    panel.innerHTML =
+      '<div class="access-review__title">Check before saving: ' + summary.join(', ') + '</div>' +
+      '<ul class="access-review__list">' +
+        changes.map(function (c) {
+          var up = c.to.rank > c.from.rank;
+          return '<li class="access-review__item access-review__item--' + (up ? 'up' : 'down') + '">' +
+            '<span class="access-review__project">' + escHtml(c.name) + '<span class="slug">' + escHtml(c.slug) + '</span></span>' +
+            '<span class="access-review__shift"><span class="access-review__from">' + escHtml(c.from.label) + '</span>' +
+            '<i data-lucide="arrow-right" class="icon-xs" aria-hidden="true"></i>' +
+            '<span class="access-review__to">' + escHtml(c.to.label) + '</span></span>' +
+          '</li>';
+        }).join('') +
+      '</ul>' +
+      '<div class="access-review__actions">' +
+        '<button type="button" class="btn btn--ghost btn--small" id="btn-access-back">Keep editing</button>' +
+        '<button type="button" class="btn btn--primary btn--small" id="btn-access-confirm">Save ' + changes.length +
+          (changes.length === 1 ? ' change' : ' changes') + '</button>' +
+      '</div>';
+    panel.hidden = false;
+    if (window.lucide) lucide.createIcons();
+    $('#btn-access-back').addEventListener('click', hideAccessReview);
+    $('#btn-access-confirm').addEventListener('click', saveAccessAssignments);
+    $('#btn-access-confirm').focus();
+  }
+
+  async function saveAccessAssignments() {
+    if (!currentDeveloper) return;
+    var btn = $('#btn-access-confirm');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Saving...';
+
+    var projects = [];
+    $$('.access-select').forEach(function (sel) {
+      if (sel.value) {
+        projects.push({ project_id: parseInt(sel.dataset.projectId), access_level: sel.value });
+      }
+    });
+
+    try {
+      await Api.updateDeveloperProjects(currentDeveloper, projects);
+      showAlert('detail-alert', 'success', 'Assignments saved.');
+      await loadProjectAccess(currentDeveloper);
+    } catch (err) {
+      showAlert('detail-alert', 'error', 'Error: ' + err.message);
+      btn.disabled = false;
+      btn.innerHTML = 'Try saving again';
+    }
+  }
+
+  function initSaveAccess() {
+    $('#btn-save-access').addEventListener('click', function () {
+      var changes = collectAccessChanges();
+      if (changes.length) showAccessReview(changes);
+    });
+    $('#access-filter').addEventListener('input', applyAccessFilter);
   }
 
   // Set navbar active-state without loading a page (for detail views)
@@ -1565,14 +1803,14 @@ var App = (function () {
       }
       return '<tr data-id="' + p.id + '" data-creator="' + escHtml(p.created_by_name || '') + '">' +
         '<td><input type="checkbox" class="row-check proj-merge-check" data-id="' + p.id + '" data-name="' + escHtml(p.name) + '"' + (mergeDisabled ? ' disabled' : '') + '></td>' +
-        '<td><span class="cell-link" onclick="App.openProject(' + p.id + ')">' + escHtml(p.name) + '</span></td>' +
+        '<td><span class="cell-link" onclick="App.openProject(' + p.id + ')">' + escHtml(p.name) + '</span><span class="proj-lock">' + privateLock(p) + '</span></td>' +
         '<td class="mono text-secondary">' + escHtml(p.slug) + '</td>' +
         '<td class="cell-stat">' + (p.doc_count || 0) + '</td>' +
         '<td class="cell-stat">' + (p.developer_count || 0) + '</td>' +
         '<td class="text-secondary" style="font-size:0.82rem">' + escHtml(p.created_by_name || '\u2014') + '</td>' +
         '<td class="text-secondary" style="font-size:0.82rem">' + lastAct + '</td>' +
         '<td><span class="badge badge--' + statusClass + '">' + statusText + '</span></td>' +
-        '<td>' + actions + '</td>' +
+        '<td>' + privateAction(p) + actions + '</td>' +
       '</tr>';
     }).join('');
 
@@ -1729,11 +1967,12 @@ var App = (function () {
     // non-admin has no Team-Tab access (admin-only
     // /api/developers endpoints return 403). Land on Docs instead.
     // fail-closed: missing AclHelper = non-admin, so land on Docs.
-    var _defaultTab = (!window.AclHelper || !AclHelper.isAdmin()) ? 'docs' : 'team';
+    var _defaultTab = canManageTeam(id) ? 'team' : 'docs';
     switchProjectTab(_defaultTab, true);
 
     // Fill data
     $('#proj-detail-title').textContent = proj.name;
+    renderProjectPrivacy(proj);
     $('#proj-detail-name').value = proj.name;
     $('#proj-detail-slug').value = proj.slug;
 
@@ -1753,7 +1992,7 @@ var App = (function () {
     // the inputs so non-admin sees a read-only info-strip. Save-button
     // visibility is handled via data-admin-only + applyAdminNavVisibility.
     // fail-closed: missing AclHelper = non-admin.
-    var _pdIsAdmin = (typeof AclHelper !== 'undefined') && AclHelper.isAdmin();
+    var _pdIsAdmin = canManageTeam(id);
     ['proj-detail-name', 'proj-detail-slug', 'proj-detail-creator'].forEach(function (elId) {
       var el = document.getElementById(elId);
       if (!el) return;
@@ -1770,6 +2009,15 @@ var App = (function () {
     // Re-apply admin-only visibility now that the project-detail page is
     // mounted (the Team tab/panel + Save-button carry data-admin-only).
     applyAdminNavVisibility();
+    if (_pdIsAdmin) {
+      $$('.pd-tab[data-tab="team"], .pd-tab-panel[data-panel="team"], .pd-info-strip__save').forEach(function (el) {
+        el.style.display = '';
+      });
+    }
+    $('#pd-owner-missing').hidden = !_pdIsAdmin || !!proj.created_by_developer_id;
+    $('#pd-owner-missing').textContent = proj.is_private
+      ? 'Owner missing. Only a server administrator can restore access.'
+      : 'No owner set. Choose a creator above.';
 
     Icons.render();
 
@@ -1777,9 +2025,55 @@ var App = (function () {
     loadProjectDashboard(id, proj);
   }
 
+  function privateAction(p) {
+    if (!p.is_owner) return '';
+    var label = p.is_private ? 'Make public' : 'Make private';
+    return '<button type="button" class="btn btn--small" title="' + label + '" aria-label="' + label +
+      '" onclick="App.toggleProjectPrivate(' + p.id + ', this)">' +
+      '<i data-lucide="' + (p.is_private ? 'lock' : 'lock-open') + '" class="icon-xs" aria-hidden="true"></i></button> ';
+  }
+
+  async function toggleProjectPrivate(id, btn) {
+    var proj = projectCache.find(function (p) { return p.id === id; });
+    if (!proj) return;
+    try {
+      await Api.setProjectPrivate(id, !proj.is_private);
+      proj.is_private = !proj.is_private;
+      // In place, so the list keeps its scroll position and filters.
+      var row = btn.closest('tr');
+      row.querySelector('.proj-lock').innerHTML = privateLock(proj);
+      btn.outerHTML = privateAction(proj);
+      Icons.render();
+    } catch (err) {
+      showAlert('proj-list-alert', 'error', 'Error: ' + err.message);
+    }
+  }
+
+  function renderProjectPrivacy(proj) {
+    $('#proj-private-state').hidden = !proj.is_private;
+    var btn = $('#btn-project-private');
+    btn.hidden = !proj.is_owner;
+    btn.textContent = proj.is_private ? 'Make public' : 'Make private';
+  }
+
   function initProjectDetail() {
     $('#btn-back-proj').addEventListener('click', function () {
       navigateTo('projects');
+    });
+
+    $('#btn-project-private').addEventListener('click', async function () {
+      var proj = projectCache.find(function (p) { return p.id === currentProjectId; });
+      if (!proj) return;
+      try {
+        await Api.setProjectPrivate(proj.id, !proj.is_private);
+        proj.is_private = !proj.is_private;
+        renderProjectPrivacy(proj);
+        showAlert('proj-detail-alert', 'success', proj.is_private
+          ? 'Project is private. Only you and its members can open it. Admins see its name and owner.'
+          : 'Project is public again.');
+      } catch (err) {
+        showAlert('proj-detail-alert', 'error', 'Error: ' + err.message);
+      }
     });
 
     $('#proj-detail-form').addEventListener('submit', async function (e) {
@@ -3057,14 +3351,12 @@ var App = (function () {
       // 403 for non-admin. Skip that call to avoid crashing the whole
       // dashboard render (doc-type chips + relations live here too).
       // fail-closed: missing AclHelper = treat as non-admin.
-      var _dashIsAdmin = (typeof AclHelper !== 'undefined') && AclHelper.isAdmin();
+      var _dashIsAdmin = canManageTeam(projId);
       var _calls = [Api.getProjectDashboard(projId)];
-      if (_dashIsAdmin) _calls.push(Api.getDevelopers());
+      if (_dashIsAdmin) _calls.push(Api.getProjectDeveloperOptions(projId));
       var results = await Promise.all(_calls);
       var dash = results[0];
-      var allDevs = _dashIsAdmin
-        ? ((results[1].developers || []).filter(function (d) { return d.is_active; }))
-        : [];
+      var allDevs = _dashIsAdmin ? (results[1].developers || []) : [];
       var docTypes = dash.doc_types || {};
       var devs = dash.developers || [];
 
@@ -3246,7 +3538,7 @@ var App = (function () {
     // guard hash-restore + direct calls: non-admin
     // must never land on Team (endpoints 403 -> endless spinner).
     // fail-closed: missing AclHelper = treat as non-admin.
-    if (tabName === 'team' && (!window.AclHelper || !AclHelper.isAdmin())) {
+    if (tabName === 'team' && !canManageTeam(currentProjectId)) {
       tabName = 'docs';
     }
     $$('.pd-tab').forEach(function (btn) {
@@ -3268,6 +3560,10 @@ var App = (function () {
     // Lazy load per-tab content
     if (tabName === 'docs') loadDocsList();
     if (tabName === 'reviews') loadProjectReviews();
+    if (tabName === 'team' && currentProjectId) {
+      var auditProjectId = currentProjectId;
+      loadAuditLog(function () { return Api.getProjectAudit(auditProjectId); }, 'pd-audit', 'pd-audit-filter', false);
+    }
   }
 
   // Project-Detail Reviews-Tab
@@ -3918,7 +4214,7 @@ var App = (function () {
     // non-admin via data-admin-only, but block the public API too in case
     // something still wires into it (hash, console, extension, ...).
     // fail-closed: missing AclHelper = deny.
-    if (!window.AclHelper || !AclHelper.isAdmin()) return;
+    if (!canManageTeam(currentProjectId)) return;
     var panel = $('#pd-add-member');
     var btn   = $('#btn-add-member');
     if (!panel) return;
@@ -3949,12 +4245,12 @@ var App = (function () {
     try {
       var results = await Promise.all([
         Api.getProjectDashboard(currentProjectId),
-        Api.getDevelopers()
+        Api.getProjectDeveloperOptions(currentProjectId)
       ]);
       var assigned = {};
       (results[0].developers || []).forEach(function (d) { assigned[d.id] = true; });
       var unassigned = (results[1].developers || []).filter(function (d) {
-        return d.is_active && !assigned[d.id];
+        return !assigned[d.id];
       });
       if (unassigned.length === 0) {
         devSel.innerHTML = '<option value="" disabled selected>&mdash; all developers assigned &mdash;</option>';
@@ -4231,6 +4527,7 @@ var App = (function () {
     loadDeveloperList: loadDeveloperList,
     loadProjectList: loadProjectList,
     openProject: openProject,
+    toggleProjectPrivate: toggleProjectPrivate,
     confirmDeleteProject: confirmDeleteProject,
     onAclChange: onAclChange,
     switchProjectTab: switchProjectTab,

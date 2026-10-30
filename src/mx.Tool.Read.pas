@@ -724,8 +724,9 @@ begin
     end;
   end;
 
-  // For scope=all with non-admin, post-filter results by allowed projects
-  NeedFilter := (ProjectSlug = '') and (not ACL.IsAdmin);
+  // For scope=all, post-filter results by allowed projects. Admins too:
+  // CheckProject denies them private projects (Spec#19960).
+  NeedFilter := ProjectSlug = '';
 
   // M2.9 Draft-Filter X2: when caller is exactly alReadOnly on the requested
   // project, exclude drafts from the result set. Cross-project (scope=all) is
