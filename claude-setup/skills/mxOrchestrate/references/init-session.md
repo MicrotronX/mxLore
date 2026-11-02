@@ -6,7 +6,7 @@
    - ⚡ **Explicit-trigger fail-OPEN:** input contains `<command-name>` OR `<command-message>` tag OR detection ambiguous → `mx_session_start` regardless of age (slash invocations need fresh briefing in fresh Claude process; live-confirmed tag injection at prompt position 0). Fresh briefing > stale ping.
    - hook-triggered (no command-tag) AND ∅`context_cleared_at` AND state.session_id present AND mode≠`init` AND age < 12h → mx_ping()→OK=MCP-mode | Error=Local
    - `context_cleared_at` present OR ∅session_id OR mode=`init` OR age ≥ 12h (STALE) → **Setup version:** `~/.claude/setup-version.json`→parse→`version`. ∅file→`''`
-     → `mx_session_start(project, include_briefing=true, setup_version=<version>)`→session_id (overwrite cached)+Response into state, `state.last_reconciliation ← now_utc` (`date -u +%Y-%m-%dT%H:%MZ`, Timestamp base), clear `context_cleared_at`/`context_cleared_source`
+     → `mx_session_start(project, include_briefing=true, setup_version=<version>)`→session_id (overwrite cached)+Response into state, `state.last_reconciliation ← now_utc` (`date -u +%Y-%m-%dT%H:%M:%SZ`, Timestamp base), clear `context_cleared_at`/`context_cleared_source`
      → Error=Local(`docs/ops/workflow-log.md`+warning)
    - ⚡ The hook must NEVER stamp `last_reconciliation` — that field means "reconciled against MCP", and JS hooks cannot reach MCP. Stamping it there resets the very signal the fallback reads.
 3a. Agent messages reach the session through the mxMCPProxy session-inbox delivery (proxy >= 1.0.9); nothing to arm client-side.

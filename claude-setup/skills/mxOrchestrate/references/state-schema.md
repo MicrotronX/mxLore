@@ -31,7 +31,7 @@ Covers `last_save`, `last_reconciliation`, `last_pruned`, `events_log[*].ts`,
 `workflow_stack[*].started`, `adhoc_tasks[*].created`, `team_agents[*].spawned`,
 `context_cleared_at`, `last_schema_repair`.
 
-Produce it, do not estimate it: `date -u +%Y-%m-%dT%H:%MZ`. The chat-visible clock and
+Produce it, do not estimate it: `date -u +%Y-%m-%dT%H:%M:%SZ`. The chat-visible clock and
 plain `date` are local time; stamping those with a `Z` mislabels them.
 
 **Why this is load-bearing:** the tracker-gap guard passes `last_save` straight into
@@ -67,7 +67,8 @@ offset and rewrites, because a genuinely skewed clock is indistinguishable from 
 | `context_cleared_at` | ISO 8601 OR absent | absent | SessionStart hook (`orchestrate-reconcile.js`) writes, mxOrchestrate Init deletes | Set when SessionStart fires with `source ∈ {startup, clear, compact}` — the model has no prior conversation. `source=resume` does NOT set it. Init reads it as the PRIMARY staleness signal and deletes it after `mx_session_start`. The `age`-based check is only the fallback for hooks that predate this field. |
 | `context_cleared_source` | string OR absent | absent | same as above | The raw `source` value, kept for diagnosis. |
 | `last_schema_repair` | ISO 8601 OR absent | absent | SessionStart hook | When the hook last normalized fields. ⚡ Deliberately NOT `last_reconciliation`: JS hooks cannot reach MCP, so they must not stamp a field that asserts an MCP reconciliation happened. |
-| `subagent_ran_since_save` | bool OR absent | absent | SubagentStop hook (`orchestrate-subagent-flag.js`) sets, mxSave Step 4a deletes | Boolean, NOT a counter — the hook cannot know whether the subagent wrote to MCP (Explore agents only read). Consumers (mxSave Final Block, mxOrchestrate Mode 5/6) treat `true` like `deltas >= 1` and verify the real magnitude via `mx_session_delta`. Single-writer clear: only mxSave Step 4a removes it. |
+| `subagent_ran_since_save` | bool OR absent | absent | SubagentStop hook (`orchestrate-subagent-flag.js`) sets, mxSave Step 4a deletes | Boolean, NOT a counter — the hook cannot know whether the subagent wrote to MCP (Explore agents only read). Consumers (mxSave Final Block, mxOrchestrate Mode 5/6) treat `true` like `deltas >= 1` and verify the real magnitude via `mx_session_delta`. Clear: only mxSave removes it (Step 4a, Re-stamp mode). |
+| `last_save_session_id` | int OR absent | absent | mxSave Step 4b | Session that wrote `last_save_session_note_doc_id`. Re-stamp routing compares it with `session_id`; absent → full save. |
 
 ### Migration
 
@@ -99,4 +100,4 @@ Skills running with v2-aware-only code IGNORE the new fields. mxSave Step 4b.3 s
 
 - `loadState()`: Read + parse file. Corrupt/missing → return empty state + warning.
 - `saveState(state)`: JSON.stringify → write file.
-- `addEvent(type, wf, detail)`: Push event to `events_log` + `state_deltas++`. `ts` = `date -u +%Y-%m-%dT%H:%MZ` (Timestamp base rule).
+- `addEvent(type, wf, detail)`: Push event to `events_log` + `state_deltas++`. `ts` = `date -u +%Y-%m-%dT%H:%M:%SZ` (Timestamp base rule).

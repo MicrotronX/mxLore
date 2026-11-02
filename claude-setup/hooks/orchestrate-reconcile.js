@@ -230,7 +230,7 @@ try {
     console.log(
       `[Orchestrate] WARNING: ${futureFields.join(', ')} ${verb} in the future — not true UTC. ` +
       `The tracker-gap guard will report a false "nothing unsaved". ` +
-      `Stamp with \`date -u +%Y-%m-%dT%H:%MZ\`; the next /mxSave rewrites the field(s).`
+      `Stamp with \`date -u +%Y-%m-%dT%H:%M:%SZ\`; the next /mxSave rewrites the field(s).`
     );
   }
 
@@ -251,7 +251,7 @@ try {
     console.log(
       `[Orchestrate] WARNING: ${unlabelled.length} timestamp(s) without a \`Z\` suffix: ${shown}${more}. ` +
       `Unlabelled ISO strings parse as LOCAL time, so the future-check above cannot see them. ` +
-      `Stamp with \`date -u +%Y-%m-%dT%H:%MZ\`.`
+      `Stamp with \`date -u +%Y-%m-%dT%H:%M:%SZ\`.`
     );
   }
 

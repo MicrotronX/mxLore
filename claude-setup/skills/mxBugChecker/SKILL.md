@@ -4,6 +4,8 @@ description: Use when the user says "/bugcheck", "/mxBugChecker", "check for bug
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash
 context: fork
 agent: general-purpose
+model: sonnet
+effort: medium
 background: false
 ---
 

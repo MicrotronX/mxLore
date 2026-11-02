@@ -12,11 +12,11 @@ Central session manager: workflow stack (LIFO), ad-hoc tasks, team agents. Skill
 
 ## Weight routing ⚡ (decide BEFORE doing anything)
 - **MINI = Main-inline, NO spawn:** `start`, `track`, `park`, `resume` **with empty stack**, Auto-Invoke step-updates, Workflow Completion (1-3 MCP calls + 1 state edit). A spawn re-reads SKILL.md + references + full state (~70-142k tokens measured live 2026-07-10/14) for 2-3 calls.
-- **HEAVY = subagent** (`model: sonnet`): `init`, `resume` **with non-empty stack** (real reconciliation), `status`, `suggest`. Result max 20 lines.
+- **HEAVY = subagent** (`model: sonnet`, `effort: low`): `init`, `resume` **with non-empty stack** (real reconciliation), `status`, `suggest`. Result max 20 lines.
 - ⚡ **Init Pre-Routing always runs in Main, NEVER inside a HEAVY subagent** (subagent dropped the flag-clear and reported success, live 2026-07-14). Main does Init, THEN dispatches enrichment/reconciliation, passing `session_id` + cleared state.
 - ⚡ Tokens: mx_create_doc/mx_update_doc body >300 words → assemble in subagent, !echo to parent. mx_detail default 600 tokens.
 - ⚡ Tool budget: 0-2 MCP calls per mode, 1 Edit per state write, NEVER full-rewrite state from Main (full rewrite → background subagent).
-- ⚡ **Timestamps = true UTC** via `date -u +%Y-%m-%dT%H:%MZ` everywhere (event `ts`, WF content, `last_reconciliation`, `since`) — NEVER the chat clock (local-time-with-Z observed live 2026-07-10). Base → `references/state-schema.md` → Timestamp base.
+- ⚡ **Timestamps = true UTC** via `date -u +%Y-%m-%dT%H:%M:%SZ` everywhere (event `ts`, WF content, `last_reconciliation`, `since`) — NEVER the chat clock (local-time-with-Z observed live 2026-07-10). Base → `references/state-schema.md` → Timestamp base.
 
 ## Init (Pre-Routing, EVERY call)
 0. ⚡ MCP tools deferred? → load per `~/.claude/skills/_shared/mcp-tools-load.md` (tool-missing ≠ server-down; `Local` only after a real ping/session_start error).

@@ -4,6 +4,8 @@ description: Use when the user says "/designcheck", "/mxDesignChecker", "review 
 allowed-tools: Read, Write, Edit, Grep, Glob, Bash
 context: fork
 agent: general-purpose
+model: sonnet
+effort: medium
 background: false
 ---
 
