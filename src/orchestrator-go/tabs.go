@@ -257,12 +257,7 @@ func (t *Tab) readLoop(p *conpty.ConPty, gen int) {
 						p.Write(osc7501Reply)
 					}
 					if st != "" {
-						t.mu.Lock()
-						if t.gen == gen {
-							t.claudeState = st
-							t.stateSeq++
-						}
-						t.mu.Unlock()
+						t.noteClaudeState(st, gen)
 					}
 				}
 				t.broadcastGen(append([]byte(nil), buf[:n]...), gen)
@@ -800,6 +795,30 @@ func (t *Tab) setState(s string) {
 	t.mu.Unlock()
 }
 
+// noteClaudeState records an OSC 7501 report. The end of a turn also clears
+// save_timeout: the save ran long but is over, and the tab accepts work again.
+func (t *Tab) noteClaudeState(st string, gen int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.gen != gen {
+		return
+	}
+	t.claudeState = st
+	t.stateSeq++
+	if t.State == "save_timeout" && (st == "idle" || st == "done" || st == "error") {
+		t.State = "running"
+	}
+}
+
+// endSaving returns a running tab from "saving" to "running".
+func (t *Tab) endSaving() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.State == "saving" && t.Running {
+		t.State = "running"
+	}
+}
+
 func (t *Tab) outputMark() (int64, time.Time, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -985,16 +1004,13 @@ func (m *TabManager) RunAction(id string, a QuickAction) (*Tab, error) {
 				m.log("action: %s (%s) %q stopped at step %d, claude waits for input", t.Title, t.ID, a.Name, i+1)
 				return
 			} else if !ok {
-				t.setState("save_timeout")
+				// Not an error: Claude may simply still be working. Later steps are dropped.
+				t.endSaving()
 				m.log("action: %s (%s) %q timed out at step %d, stopped", t.Title, t.ID, a.Name, i+1)
 				return
 			}
 		}
-		t.mu.Lock()
-		if t.State == "saving" && t.Running {
-			t.State = "running"
-		}
-		t.mu.Unlock()
+		t.endSaving()
 		m.log("action: %s (%s) %q done", t.Title, t.ID, a.Name)
 	}()
 	return t, nil
