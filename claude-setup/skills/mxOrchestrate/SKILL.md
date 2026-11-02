@@ -51,6 +51,7 @@ State schema v2, stack rules, internal ops → `references/state-schema.md`. `st
 
 ## Model Tiering ⚡ (Cost Discipline)
 Main on premium (Fable/Opus) → every spawn sets `model` to the cheapest sufficient tier: `haiku` = mechanical (state rewrites, copy/sync, log tails, body assembly, simple greps) | `sonnet` = **DEFAULT** (HEAVY modes, MCP CRUD, checkers standard scope, Explore, standard impl) | inherit = architecture/security/cross-cutting/ambiguous, needs 1-line justification in the spawn. Main already sonnet/haiku → omit `model`. Routing/escalation/interpretation stays in Main; diverged state or code-vs-doc conflict → STOP + ?user regardless of model.
+⚡ **Workflow/ultracode:** every `agent()` sets `model` + `effort` explicitly (overrides workflow-authoring "omit model" and ultracode "cost is not a constraint"). ⚡ Effort (Agent tool + Workflow): `low` = default, incl. all haiku + sonnet CRUD/search/fully specified steps | `medium` = sonnet implementation, finders, verifiers only, no question needed | anything above ONLY after ?user + explicit approval for that run, !self-escalate, !unattended. Print `role → model/effort → count` before the start.
 ⚡ **Loop rule:** >5 same-shaped MCP calls (`mx_ai_batch_log`, `mx_add_tags`, `mx_skill_feedback` rounds, tag sweeps, findings triage, AI-batch) NEVER in Main — ONE sonnet/haiku subagent with the full item list, Main gets ≤20-line tally. Full text + measurements → `references/model-tiering.md`.
 
 ## Mode 2: Start
