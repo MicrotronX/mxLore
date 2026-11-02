@@ -19,7 +19,15 @@ type
     /// Calls the configured embedding API and returns the vector.
     /// Returns nil on any error (graceful, no exception).
     /// </summary>
-    function GetEmbedding(const AText: string): TArray<Single>;
+    function GetEmbedding(const AText: string): TArray<Single>; overload;
+
+    /// <summary>
+    /// Same as above. APermanent = True only when the API rejected the input
+    /// itself (HTTP 400/413/422) or it is empty; every other failure (network, timeout, auth, rate
+    /// limit, 5xx, bad response) is transient and worth a retry.
+    /// </summary>
+    function GetEmbedding(const AText: string;
+      out APermanent: Boolean): TArray<Single>; overload;
 
     /// <summary>
     /// Builds the embedding input string from title, tags, and content.
@@ -43,6 +51,14 @@ end;
 
 function TMxEmbeddingClient.GetEmbedding(const AText: string): TArray<Single>;
 var
+  Permanent: Boolean;
+begin
+  Result := GetEmbedding(AText, Permanent);
+end;
+
+function TMxEmbeddingClient.GetEmbedding(const AText: string;
+  out APermanent: Boolean): TArray<Single>;
+var
   Http: THTTPClient;
   ReqBody, RespStr: string;
   ReqStream: TStringStream;
@@ -52,8 +68,12 @@ var
   I: Integer;
 begin
   Result := nil;
+  APermanent := False;
   if AText.Trim.IsEmpty then
+  begin
+    APermanent := True;
     Exit;
+  end;
 
   Http := THTTPClient.Create;
   try
@@ -79,6 +99,9 @@ begin
 
         if Response.StatusCode <> 200 then
         begin
+          // 400/413/422 = the input itself was rejected (e.g. token limit)
+          APermanent := (Response.StatusCode = 400) or
+            (Response.StatusCode = 413) or (Response.StatusCode = 422);
           FLogger.Log(mlWarning,
             'Embedding API returned ' + IntToStr(Response.StatusCode) +
             ' (URL: ' + FConfig.EmbeddingUrl + ', input_chars=' +

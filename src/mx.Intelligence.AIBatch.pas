@@ -37,7 +37,7 @@ type
     FEmbeddingClient: TMxEmbeddingClient;
 
     // Embedding refresh
-    procedure RunEmbeddingRefreshJob;
+    procedure RunEmbeddingRefreshJob(AIncludeParked: Boolean = False);
 
     // Audit logging (for SQL-only jobs)
     procedure LogBatchResult(ACtx: IMxDbContext; AJobType: TMxAIJobType;
@@ -529,7 +529,8 @@ begin
           if DocId > 0 then
           begin
             UpdQry := Ctx.CreateQuery(
-              'UPDATE documents SET violation_count = violation_count + 1 ' +
+              'UPDATE documents SET violation_count = violation_count + 1, ' +
+              '  updated_at = updated_at ' +
               'WHERE id = :id AND doc_type = ''lesson''');
             try
               UpdQry.ParamByName('id').AsInteger := DocId;
@@ -1930,7 +1931,7 @@ begin
      FStats.Errors]));
 end;
 
-procedure TMxAIBatchRunner.RunEmbeddingRefreshJob;
+procedure TMxAIBatchRunner.RunEmbeddingRefreshJob(AIncludeParked: Boolean);
 var
   Ctx: IMxDbContext;
   Qry: TFDQuery;
@@ -1940,23 +1941,54 @@ var
   Processed, Errors: Integer;
   BlobStream: TMemoryStream;
   UpdQry: TFDQuery;
+  Permanent: Boolean;
+  TransientInRow: Integer;
 begin
   if not Assigned(FEmbeddingClient) then
     Exit;
 
   Ctx := FPool.AcquireContext;
+
+  // Claim (embedding_stale = 3) BEFORE reading: the update trigger sets 1 on a
+  // title/content change, so a doc edited after the claim fails the guard on
+  // both UPDATEs below and goes to the next run. The first statement returns
+  // claims left by an aborted run; only the timer thread runs this job.
+  // AIncludeParked (boot run): parked docs (2) get one new attempt, so docs
+  // parked by an earlier outage recover without a content change.
+  if AIncludeParked then
+    UpdQry := Ctx.CreateQuery(
+      'UPDATE documents SET embedding_stale = 1, updated_at = updated_at ' +
+      'WHERE embedding_stale IN (2, 3)')
+  else
+    UpdQry := Ctx.CreateQuery(
+      'UPDATE documents SET embedding_stale = 1, updated_at = updated_at ' +
+      'WHERE embedding_stale = 3');
+  try
+    UpdQry.ExecSQL;
+  finally
+    UpdQry.Free;
+  end;
+  UpdQry := Ctx.CreateQuery(
+    'UPDATE documents SET embedding_stale = 3, updated_at = updated_at ' +
+    'WHERE embedding_stale = 1 AND doc_type IN (''' +
+      StringReplace(FConfig.EmbeddingDocTypes, ',', ''',''', [rfReplaceAll]) +
+    ''') LIMIT ' + IntToStr(FConfig.EmbeddingBatchSize));
+  try
+    UpdQry.ExecSQL;
+  finally
+    UpdQry.Free;
+  end;
+
   Qry := Ctx.CreateQuery(
     'SELECT d.id, d.title, ' +
     '(SELECT GROUP_CONCAT(t.tag) FROM doc_tags t WHERE t.doc_id = d.id) AS tags, ' +
     'd.content FROM documents d ' +
-    'WHERE d.embedding_stale = 1 ' +
-    'AND d.doc_type IN (''' +
-      StringReplace(FConfig.EmbeddingDocTypes, ',', ''',''', [rfReplaceAll]) +
-    ''') LIMIT ' + IntToStr(FConfig.EmbeddingBatchSize));
+    'WHERE d.embedding_stale = 3');
   try
     Qry.Open;
 
     Processed := 0;
+    TransientInRow := 0;
     Errors := 0;
     while not Qry.Eof do
     begin
@@ -1968,20 +2000,41 @@ begin
       InputText := TMxEmbeddingClient.BuildEmbeddingInput(
         Title, Tags, Content, FConfig.EmbeddingMaxInputChars);
 
-      Embedding := FEmbeddingClient.GetEmbedding(InputText);
-      // Retry with hard-capped input on failure (token limit exceeded).
-      // Halving is not enough for number-dense content (~2 chars/token).
-      if (Length(Embedding) = 0) and (Length(InputText) > 8000) then
+      Embedding := FEmbeddingClient.GetEmbedding(InputText, Permanent);
+      // Retry with hard-capped input when the API rejected the input (token
+      // limit exceeded). Halving is not enough for number-dense content.
+      if (Length(Embedding) = 0) and Permanent and (Length(InputText) > 8000) then
       begin
         InputText := TMxEmbeddingClient.BuildEmbeddingInput(
           Title, Tags, Content, 8000);
-        Embedding := FEmbeddingClient.GetEmbedding(InputText);
+        Embedding := FEmbeddingClient.GetEmbedding(InputText, Permanent);
       end;
+      if (Length(Embedding) = 0) and not Permanent then
+      begin
+        // Transient failure (network, timeout, auth, rate limit, 5xx): the
+        // doc keeps its claim for the release below and is retried next run.
+        // Three in a row = API outage: stop the run.
+        Inc(Errors);
+        Inc(TransientInRow);
+        if TransientInRow >= 3 then
+        begin
+          FLogger.Log(mlWarning, Format(
+            'Embedding API unavailable (3 failures in a row, last doc_id=%d) - ' +
+            'run stopped, docs stay stale', [DocId]));
+          Break;
+        end;
+        FLogger.Log(mlWarning, Format(
+          'Embedding failed transiently for doc_id=%d - retried next run', [DocId]));
+        Qry.Next;
+        Continue;
+      end;
+      TransientInRow := 0;
       if Length(Embedding) > 0 then
       begin
         // Store embedding as binary VECTOR
         UpdQry := Ctx.CreateQuery(
-          'UPDATE documents SET embedding = :emb, embedding_stale = 0 WHERE id = :did');
+          'UPDATE documents SET embedding = :emb, embedding_stale = 0, ' +
+          '  updated_at = updated_at WHERE id = :did AND embedding_stale = 3');
         try
           UpdQry.ParamByName('emb').DataType := ftBlob;
           BlobStream := TMemoryStream.Create;
@@ -1994,10 +2047,11 @@ begin
           end;
           UpdQry.ParamByName('did').AsInteger := DocId;
           UpdQry.ExecSQL;
+          if UpdQry.RowsAffected > 0 then
+            Inc(Processed);
         finally
           UpdQry.Free;
         end;
-        Inc(Processed);
       end
       else
       begin
@@ -2008,7 +2062,8 @@ begin
         // Park: stale=2 is skipped by the batch query; the update trigger
         // resets it to 1 on the next title/content change.
         UpdQry := Ctx.CreateQuery(
-          'UPDATE documents SET embedding_stale = 2 WHERE id = :did');
+          'UPDATE documents SET embedding_stale = 2, updated_at = updated_at ' +
+          'WHERE id = :did AND embedding_stale = 3');
         try
           UpdQry.ParamByName('did').AsInteger := DocId;
           UpdQry.ExecSQL;
@@ -2018,6 +2073,16 @@ begin
       end;
 
       Qry.Next;
+    end;
+
+    // Release claims not finished in this run (outage stop) back to stale.
+    UpdQry := Ctx.CreateQuery(
+      'UPDATE documents SET embedding_stale = 1, updated_at = updated_at ' +
+      'WHERE embedding_stale = 3');
+    try
+      UpdQry.ExecSQL;
+    finally
+      UpdQry.Free;
     end;
 
     if Processed > 0 then
@@ -2072,7 +2137,7 @@ begin
       // First run immediately (non-blocking, runs in this thread)
       if EmbeddingOn then
       try
-        RunEmbeddingRefreshJob;
+        RunEmbeddingRefreshJob(True);
       except
         on E: Exception do
           Logger.Log(mlError, 'AI Batch initial embedding failed: ' + E.ClassName);
@@ -2095,7 +2160,8 @@ begin
         try
           Ctx := Pool.AcquireContext;
           Qry := Ctx.CreateQuery(
-            'SELECT COUNT(*) AS cnt FROM documents WHERE embedding_stale = 1 ' +
+            // 3 = claim left by an aborted run, recovered by the job itself
+            'SELECT COUNT(*) AS cnt FROM documents WHERE embedding_stale IN (1, 3) ' +
             // Same doc_type filter as RunEmbeddingRefreshJob - other types keep
             // stale=1 (column default) forever and must not count as backlog.
             'AND doc_type IN (''' +
