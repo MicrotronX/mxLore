@@ -20,6 +20,7 @@
     invalid_mode: "Unknown start mode. Reload the page and try again.",
     start_failed: "The console could not be started.",
     busy: "This session is already saving or closing. Wait for it to finish.",
+    not_saving: "Nothing to cancel: this session is no longer saving.",
     invalid_save_prompt: "The save command must be a single line of up to 200 characters.",
     invalid_save_idle_seconds: "Quiet time must be between 2 and 600 seconds.",
     invalid_save_timeout_minutes: "Save timeout must be between 1 and 240 minutes.",
@@ -191,6 +192,7 @@
 
   const loginMessages = {
     invalid_key: "That key is not valid. Use the mxLore key of the account linked to this orchestrator.",
+    key_wrong_account: "This key belongs to another account.",
     invalid_key_setup: "That mxLore key was rejected by the server. Check the key and the server address.",
     totp_required: "Enter the 6-digit code from your authenticator app.",
     mxlore_unreachable: "The mxLore server could not be reached. Check the address under Server settings.",
@@ -201,7 +203,14 @@
     rate_limited: errorText.rate_limited
   };
 
-  const pre = { info: null };
+  const pre = { info: null, keyShown: false };
+
+  $("useOtherKey").addEventListener("click", (ev) => {
+    ev.preventDefault();
+    pre.keyShown = true;
+    preRender();
+    $("loginKey").focus();
+  });
 
   function preRender() {
     const i = pre.info;
@@ -215,6 +224,10 @@
     $("preKeyRow").classList.toggle("hidden", i.setupMode);
     $("preTotpRow").classList.toggle("hidden", i.setupMode);
     $("totpRow").classList.toggle("hidden", !i.totpEnabled);
+    const keyOff = !!i.proxyKeyAvailable && !i.setupMode && !pre.keyShown;
+    $("loginKey").closest("label").classList.toggle("hidden", keyOff);
+    $("loginKey").required = !keyOff;
+    $("useOtherKey").classList.toggle("hidden", !keyOff);
     if (!i.mxLoreUrl) {
       showPreSettings(true);
       $("preUrl").focus();
@@ -305,7 +318,9 @@
   $("loginForm").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     $("loginError").textContent = "";
-    const body = { key: $("loginKey").value.trim() };
+    const body = {};
+    const keyVal = $("loginKey").value.trim();
+    if (keyVal) body.key = keyVal;
     const totp = $("loginTotp").value.trim();
     if (totp) body.totp = totp;
     const setupCode = $("loginSetupCode").value.trim();
@@ -327,6 +342,17 @@
         $("loginSetupCode").focus();
       }
       if (code === "mxlore_not_configured" || code === "mxlore_unreachable") showPreSettings(true);
+      if (code === "invalid_key" || code === "key_wrong_account") {
+        pre.keyShown = true;
+        preRender();
+      }
+      if (code === "key_wrong_account" && pre.info) {
+        const nm = pre.info.bound && pre.info.bound.name ? pre.info.bound.name : "another account";
+        let host = pre.info.mxLoreUrl || "";
+        try { host = new URL(host).host; } catch (x) { /* keep raw */ }
+        $("loginError").textContent = "This key belongs to another account. This orchestrator is linked to " + nm + " on " + host + ".";
+        return;
+      }
       const key = code === "invalid_key" && pre.info && pre.info.setupMode ? "invalid_key_setup" : code;
       $("loginError").textContent = loginMessages[key] || (e.status === 429 ? loginMessages.rate_limited : describe(e));
     }
@@ -929,7 +955,7 @@
   // A drop re-renders the rail, which can remove the source row before its dragend fires.
   document.addEventListener("drop", () => setTimeout(endDrag, 0));
   function endDrag() {
-    dragId = null; dragGroupId = null; disarmHoverOpen(); clearDrop();
+    dragId = null; dragGroupId = null; dragTabId = null; disarmHoverOpen(); clearDrop();
     for (const n of $("projectList").querySelectorAll(".new-jack")) n.remove();
   }
   function clearDrop() { for (const n of $("projectList").querySelectorAll(".drop-before, .drop-after, .drop-into")) n.classList.remove("drop-before", "drop-after", "drop-into"); }
@@ -1261,6 +1287,7 @@
   }
   $("emptyRestoreBtn").addEventListener("click", restoreWorkspace);
 
+  let tabBarSig = "";
   function syncTabs(tabs) {
     const ids = new Set(tabs.map((t) => t.id));
     for (const [id, v] of state.views) {
@@ -1278,7 +1305,11 @@
     state.mru = state.mru.filter((id) => ids.has(id));
     if (state.active && !ids.has(state.active)) state.active = state.mru[0] || null;
     if (!state.active && tabs.length) state.active = tabs[0].id;
-    renderTabs();
+    // Rebuild the bar only when something it shows changed: a rebuild replaces the tab
+    // elements, which ends a running tab drag and drops keyboard focus.
+    const sig = state.active + "|" + tabs.map((t) => [t.id, tabTitle(t), t.mode, lampOf(t), stateText(t)].join("\u0001")).join("\u0002");
+    if (sig !== tabBarSig || $("tabBar").children.length !== tabs.length) { tabBarSig = sig; renderTabs(); }
+    else renderStatus();
     showActive(false);
     if (before !== tabs.map((t) => t.id + lampOf(t)).join()) renderProjects();
   }
@@ -1370,6 +1401,7 @@
     const lamp = lampOf(t);
     $("sbLamp").className = "lamp " + lamp;
     $("sbState").textContent = stateText(t);
+    $("sbCancel").classList.toggle("hidden", !(t.running && t.state === "saving"));
     $("sbPath").textContent = p ? p.path : "";
     $("sbPath").title = p ? p.path : "";
     $("sbSid").textContent = t.sessionId ? t.sessionId.slice(0, 8) : "";
@@ -1676,6 +1708,16 @@
     } catch (e) { if (e && e.message === "stale_quick_action") loadQuickActions(); fail(e); }
     finally { const v = state.views.get(state.active); if (v && !overlayOpen()) v.term.focus(); }
   }
+  async function cancelSave(t) {
+    try {
+      const info = await api("POST", "/api/tabs/" + encodeURIComponent(t.id) + "/cancel");
+      if (info && info.id) setTab(info);
+      toast("Canceled in " + tabTitle(t) + ". Steps not sent yet are dropped. Press Esc to stop what Claude is doing now.");
+    } catch (e) { fail(e); }
+    finally { const v = state.views.get(state.active); if (v && !overlayOpen()) v.term.focus(); }
+  }
+  $("sbCancel").addEventListener("pointerdown", (ev) => ev.preventDefault());
+  $("sbCancel").addEventListener("click", () => { const t = activeTab(); if (t) cancelSave(t); });
   function quickToText(list) {
     return list.map((a) => a.name + ": " + a.steps.join(" | ")).join("\n");
   }
@@ -2232,7 +2274,9 @@
 
   if (document.fonts && document.fonts.load) {
     document.fonts.load('14px "JetBrains Mono"').then(() => {
-      for (const v of state.views.values()) { try { v.term.options.fontFamily = '"JetBrains Mono", Consolas, monospace'; } catch (e) {} fit(v); }
+      // The terminal ignores an unchanged option value, so switch away and back to make it
+      // measure the cell size again with the loaded font.
+      for (const v of state.views.values()) { try { v.term.options.fontFamily = "Consolas, monospace"; v.term.options.fontFamily = '"JetBrains Mono", Consolas, monospace'; } catch (e) {} fit(v); }
     }).catch(() => {});
   }
 
@@ -2240,8 +2284,24 @@
   // terminal; without this the browser opens the dropped file in a new tab.
   const hasFiles = (ev) => !!(ev.dataTransfer && Array.from(ev.dataTransfer.types).includes("Files"));
   // Capture phase, so no inner handler can let the browser open a dropped file.
-  window.addEventListener("dragover", (ev) => { if (hasFiles(ev)) { ev.preventDefault(); ev.dataTransfer.dropEffect = "copy"; } }, true);
-  window.addEventListener("drop", (ev) => { if (hasFiles(ev)) ev.preventDefault(); }, true);
+  // Every drag that did not start on a project, group or tab row is external: the browser
+  // must never handle it itself, even when it does not report "Files" for the source.
+  // A row drag never carries files; a file drag wins even if a row flag was left set.
+  const internalDrag = (ev) => !hasFiles(ev) && !!(dragId || dragGroupId || dragTabId);
+  const guardDrag = (ev) => {
+    if (internalDrag(ev)) return;
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = hasFiles(ev) ? "copy" : "none";
+  };
+  // A pressed pointer means no drag is running: clear a row flag whose dragend never came.
+  window.addEventListener("pointerdown", () => { dragId = null; dragGroupId = null; dragTabId = null; }, true);
+  window.addEventListener("dragenter", guardDrag, true);
+  window.addEventListener("dragover", guardDrag, true);
+  window.addEventListener("drop", (ev) => {
+    if (internalDrag(ev)) return;
+    ev.preventDefault();
+    if (!hasFiles(ev)) console.warn("drop without file data", ev.dataTransfer ? Array.from(ev.dataTransfer.types) : null);
+  }, true);
   document.addEventListener("drop", async (ev) => {
     if (!hasFiles(ev)) return;
     const v = state.views.get(state.active);
@@ -2350,6 +2410,7 @@
       updateOverlay(v);
     };
     ws.onmessage = (ev) => {
+      if (v.ws !== ws) return;
       if (typeof ev.data === "string") {
         let msg;
         try { msg = JSON.parse(ev.data); } catch (e) { return; }

@@ -188,8 +188,8 @@ func TestPreLoginURLBoundNeedsKeyAndTOTP(t *testing.T) {
 		t.Fatalf("totp only: %d %v", st, m)
 	}
 	// Wrong or foreign keys never reach the TOTP check (no global TOTP failures).
-	for _, k := range []string{"wrong", "dev9"} {
-		if st, m := route(t, s, "POST", "/api/setup/mxlore-url", "", `{"url":"http://127.0.0.1:9","key":"`+k+`","totp":"000000"}`); st != 403 || m["error"] != "invalid_key" {
+	for k, want := range map[string]string{"wrong": "invalid_key", "dev9": "key_wrong_account"} {
+		if st, m := route(t, s, "POST", "/api/setup/mxlore-url", "", `{"url":"http://127.0.0.1:9","key":"`+k+`","totp":"000000"}`); st != 403 || m["error"] != want {
 			t.Fatalf("key %s: %d %v", k, st, m)
 		}
 	}

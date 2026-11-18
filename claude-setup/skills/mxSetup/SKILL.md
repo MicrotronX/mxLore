@@ -84,9 +84,10 @@ PollInterval=15
 4. **Orchestrator (opt-in, Windows only).** mx_ping has `orchestrator_download_url` AND `orchestrator_sha256` AND `uname` = MINGW/MSYS/CYGWIN → else skip silently (no message). AskUserQuestion once: "Use the mxLore Orchestrator web UI for Claude Code tabs?" No → skip. Yes →
 ```bash
 ORCH_URL="<orchestrator_download_url>" ORCH_SHA256="<orchestrator_sha256>" \
+ORCH_FILES="<name>=<sha256> ..." \
 bash ~/.claude/skills/mxSetup/scripts/install-orchestrator.sh
 ```
-   Script: download → `.new`, SHA256 check (mismatch → `.new` deleted, warn, abort this step only), existing exe → `.old`, `.new` → `~/.claude/mxLoreOrchestrator.exe`; leftover `.old` deleted when unlocked. Then ask: desktop shortcut? Yes →
+   ⚡ `ORCH_FILES` = every pair of mx_ping `orchestrator_files` (conpty.dll, OpenConsole.exe, THIRD-PARTY-NOTICES.txt), space-separated; field missing (older server) → `ORCH_FILES=""`. !omit it when present: without conpty.dll the orchestrator silently uses the Windows ConPTY. Script: downloads every changed file → `.new`, SHA256 check (mismatch → all `.new` deleted, warn, abort this step only), then existing file → `.old`, `.new` into `~/.claude/`; leftover `.old` deleted when unlocked. Then ask: desktop shortcut? Yes →
 ```bash
 powershell -NoProfile -Command '$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath("Desktop")+"\mxLore Orchestrator.lnk");$s.TargetPath="$env:USERPROFILE\.claude\mxLoreOrchestrator.exe";$s.Save()'
 ```

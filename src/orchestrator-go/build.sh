@@ -10,3 +10,13 @@ mkdir -p "$(dirname "$OUT")"
 echo "Building mxLoreOrchestrator (windows/$(go env GOARCH))..."
 GOOS=windows go build -trimpath -ldflags "-s -w" -o "$OUT" .
 echo "Done: $OUT"
+
+# Dev/base machine: the local server delivers <server-dir>/orchestrator/ to
+# /mxSetup clients. Refresh it on every build so it never goes stale, and ship
+# the Microsoft ConPTY next to the EXE (without it Windows' ConPTY is used).
+SERVE_DIR="../../orchestrator"
+if [ -f "../../mxLoreMCP.exe" ] && [ -f bin/conpty.dll ] && [ -f bin/OpenConsole.exe ]; then
+  mkdir -p "$SERVE_DIR"
+  cp "$OUT" bin/conpty.dll bin/OpenConsole.exe THIRD-PARTY-NOTICES.txt "$SERVE_DIR/"
+  echo "Served copy refreshed: $SERVE_DIR (exe + conpty.dll + OpenConsole.exe + notices)"
+fi

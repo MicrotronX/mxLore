@@ -87,7 +87,7 @@ func main() {
 			fmt.Println("2FA disabled.")
 		}
 		if *enable2FA {
-			k, err := totp.Generate(totp.GenerateOpts{Issuer: "mxLoreOrchestrator", AccountName: "admin"})
+			k, err := totp.Generate(totp.GenerateOpts{Issuer: "mxLO", AccountName: otpLabel(c.MxLoreDeveloperName)})
 			if err != nil {
 				return err
 			}

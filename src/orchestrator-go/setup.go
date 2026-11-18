@@ -170,7 +170,8 @@ func (s *Server) handleSetupGet(w http.ResponseWriter, r *http.Request) {
 		path = s.auth.SetupCodePath()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"setupMode": setup, "mxLoreUrl": c.MxLoreURL, "bound": bound,
-		"totpEnabled": c.TOTPSecret != "", "setupCodePath": path})
+		"totpEnabled": c.TOTPSecret != "", "setupCodePath": path,
+		"proxyKeyAvailable": s.localClient(r) &&!setup && c.TOTPSecret != "" && s.auth.proxyKey != nil && s.auth.proxyKey() != ""})
 }
 
 // handleSetupURL changes the mxLore address before sign-in. In setup mode the
@@ -231,10 +232,11 @@ func (s *Server) handleSetupURL(w http.ResponseWriter, r *http.Request) {
 		// the bound developer's key.
 		d, code, st := s.whoamiFor(req.Key)
 		if code == "" && d.ID != boundID {
-			code, st = "invalid_key", http.StatusForbidden
+			s.auth.logf("setup: key_wrong_account (developer mismatch bound=%d got=%d) server=%s", boundID, d.ID, hostOf(u))
+			code, st = "key_wrong_account", http.StatusForbidden
 		}
 		if code != "" {
-			if code == "invalid_key" {
+			if code == "invalid_key" || code == "key_wrong_account" {
 				st = http.StatusForbidden
 			} else {
 				s.auth.releaseAttempt(ip, at)

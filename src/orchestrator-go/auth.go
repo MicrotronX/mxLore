@@ -41,6 +41,8 @@ type Auth struct {
 	dirty    bool                     // unsaved lastSeen/expiry changes
 	lastSave time.Time
 	logf     func(string, ...any)
+	// proxyKey returns the mxLore proxy key ("" = none); never sent to the browser.
+	proxyKey func() string
 	fails    map[string][]time.Time
 	// lastTOTPStep is the highest accepted TOTP time step; codes at or below it
 	// are rejected so a captured code cannot be replayed.
@@ -73,7 +75,7 @@ func NewAuth(store *Store, dir string) (*Auth, error) {
 		return nil, err
 	}
 	return &Auth{store: store, dir: dir, sessions: m, fails: map[string][]time.Time{},
-		loginSem: make(chan struct{}, 3), logf: func(string, ...any) {}}, nil
+		loginSem: make(chan struct{}, 3), logf: func(string, ...any) {}, proxyKey: readProxyKey}, nil
 }
 
 // saveLocked persists the sessions. Caller holds a.mu.
@@ -195,11 +197,19 @@ func (a *Auth) checkTOTP(code, secret string) string {
 // is required as well and the first successful login binds the developer.
 // Returns a session token or an error code.
 func (a *Auth) Login(key, code, setupCode string) (string, string) {
+	return a.LoginFrom(key, code, setupCode, true)
+}
+
+// LoginFrom is Login with the client origin: the stored proxy key stands in
+// for an empty key only for loopback clients.
+func (a *Auth) LoginFrom(key, code, setupCode string, loopback bool) (string, string) {
 	a.loginSem <- struct{}{}
 	defer func() { <-a.loginSem }()
 	now := time.Now()
 	if a.isRecoveryKey(key) {
-		e := &sessionEntry{CreatedAt: now, LastSeen: now, Kind: "recovery"}
+		// Same absolute cap as a key login: the session survives a restart but
+		// cannot slide past the configured session length.
+		e := &sessionEntry{CreatedAt: now, LastSeen: now, Kind: "recovery", MaxExpiresAt: now.Add(a.store.SessionTTL())}
 		e.ExpiresAt = e.slideExpiry(now, a.store.SessionTTL())
 		a.logf("login: signed in with the recovery key")
 		return a.addSession(e), ""
@@ -212,7 +222,13 @@ func (a *Auth) Login(key, code, setupCode string) (string, string) {
 	if mxURL == "" {
 		return "", "mxlore_not_configured"
 	}
+	if strings.TrimSpace(key) == "" && loopback && secret != "" && boundID != 0 && a.proxyKey != nil {
+		if key = a.proxyKey(); strings.TrimSpace(key) != "" && strings.TrimSpace(code) == "" {
+			return "", "totp_required"
+		}
+	}
 	if strings.TrimSpace(key) == "" {
+		a.logf("login: invalid_key (empty key) server=%s", hostOf(mxURL))
 		return "", "invalid_key"
 	}
 	d, err := mxLoreWhoami(mxURL, key)
@@ -220,9 +236,11 @@ func (a *Auth) Login(key, code, setupCode string) (string, string) {
 	case errors.Is(err, errMxLoreUnreachable):
 		return "", "mxlore_unreachable"
 	case err != nil:
+		a.logf("login: invalid_key (rejected by server as unauthorized) server=%s", mxURL)
 		return "", "invalid_key"
 	case boundID != 0 && d.ID != boundID:
-		return "", "invalid_key"
+		a.logf("login: key_wrong_account (developer mismatch bound=%d got=%d) server=%s", boundID, d.ID, mxURL)
+		return "", "key_wrong_account"
 	}
 	if boundID == 0 {
 		if strings.TrimSpace(setupCode) == "" {
@@ -282,7 +300,8 @@ func (a *Auth) bindDeveloper(dev *mxLoreDeveloper) string {
 		return nil
 	})
 	if errors.Is(err, errMxLoreUnauthorized) {
-		return "invalid_key"
+		a.logf("login: key_wrong_account (developer mismatch at binding, got=%d)", dev.ID)
+		return "key_wrong_account"
 	}
 	if err != nil {
 		a.logf("mxlore: saving the developer binding failed: %v", err)
@@ -407,6 +426,9 @@ func NewHostGuard(listen string, allowed ...string) *HostGuard {
 	}
 	return g
 }
+
+// proxied reports whether reverse-proxy host names are configured.
+func (g *HostGuard) proxied() bool { return len(g.proxy) > 0 }
 
 func (g *HostGuard) hostOK(hostport string) bool {
 	if hp := strings.ToLower(hostport); g.proxy[hp] || g.proxy[strings.TrimSuffix(hp, ":443")] {

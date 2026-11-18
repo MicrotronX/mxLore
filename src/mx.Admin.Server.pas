@@ -27,7 +27,8 @@ type
     procedure RouteRequest(const C: THttpServerContext;
       const ASegments: TArray<string>; const ASession: TMxAdminSession);
     procedure HandleProxyDownload(const C: THttpServerContext);
-    procedure HandleOrchestratorDownload(const C: THttpServerContext);
+    procedure HandleOrchestratorDownload(const C: THttpServerContext;
+      const AFile: string);
     function HasNoDevelopers: Boolean;
   protected
     procedure ProcessRequest(const C: THttpServerContext); override;
@@ -176,8 +177,9 @@ begin
   FSettingsCache := TMxSettingsCache.Create(APool);
   // 20 requests / 5 min (300 sec) rolling window — ADR#1755 + R3 Phase 2.7
   FInviteRateLimit := TMxRateLimit.Create(20, 300);
-  // Public exe downloads: 10 requests / 5 min per client IP
-  FDownloadRateLimit := TMxRateLimit.Create(10, 300);
+  // Public downloads: 30 requests / 5 min per client IP. One /mxSetup run
+  // needs 5 (proxy + orchestrator exe + 3 extra files, BR#20417).
+  FDownloadRateLimit := TMxRateLimit.Create(30, 300);
 end;
 
 destructor TMxAdminApiModule.Destroy;
@@ -275,7 +277,10 @@ begin
   MxStreamFileDownload(C, ExePath, 'mxMCPProxy.exe');
 end;
 
-procedure TMxAdminApiModule.HandleOrchestratorDownload(const C: THttpServerContext);
+// AFile = '' -> the EXE; else one name of ORCHESTRATOR_EXTRA_FILES (anything
+// else, incl. path separators, resolves to '' -> 404).
+procedure TMxAdminApiModule.HandleOrchestratorDownload(const C: THttpServerContext;
+  const AFile: string);
 
   // Own scope so the DB context (and its pooled connection) is released
   // before the file is streamed, not at the end of the handler.
@@ -304,13 +309,16 @@ begin
     MxSendError(C, 404, 'orchestrator_not_found');
     Exit;
   end;
-  ExePath := ResolveOrchestratorExePath;
+  if AFile = '' then
+    ExePath := ResolveOrchestratorExePath
+  else
+    ExePath := ResolveOrchestratorFilePath(AFile);
   if ExePath = '' then
   begin
     MxSendError(C, 404, 'orchestrator_not_found');
     Exit;
   end;
-  MxStreamFileDownload(C, ExePath, 'mxLoreOrchestrator.exe');
+  MxStreamFileDownload(C, ExePath, ExtractFileName(ExePath));
 end;
 
 procedure TMxAdminApiModule.ProcessRequest(const C: THttpServerContext);
@@ -347,7 +355,14 @@ begin
     if (Length(Segments) = 2) and SameText(Segments[0], 'download') and
        SameText(Segments[1], 'orchestrator') and (C.Request.MethodType = THttpMethod.Get) then
     begin
-      HandleOrchestratorDownload(C);
+      HandleOrchestratorDownload(C, '');
+      Exit;
+    end;
+    // /api/download/orchestrator/<name>: whitelisted extra files (BR#20417)
+    if (Length(Segments) = 3) and SameText(Segments[0], 'download') and
+       SameText(Segments[1], 'orchestrator') and (C.Request.MethodType = THttpMethod.Get) then
+    begin
+      HandleOrchestratorDownload(C, Segments[2]);
       Exit;
     end;
 

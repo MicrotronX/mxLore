@@ -60,6 +60,9 @@ func mxLoreWhoami(base, key string) (mxLoreDeveloper, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("Accept", "application/json")
+	if id := readDeviceID(); id != "" {
+		req.Header.Set("X-Device-Id", id)
+	}
 	resp, err := mxLoreClient.Do(req)
 	if err != nil {
 		return d, errMxLoreUnreachable

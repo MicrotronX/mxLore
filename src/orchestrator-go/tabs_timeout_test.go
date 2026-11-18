@@ -43,7 +43,7 @@ func TestEndSaving(t *testing.T) {
 	}
 	for _, c := range cases {
 		tab := &Tab{State: c.state, Running: c.running}
-		tab.endSaving()
+		tab.endSaving(0)
 		if tab.State != c.want {
 			t.Errorf("%s/%v: got %q, want %q", c.state, c.running, tab.State, c.want)
 		}

@@ -84,6 +84,7 @@ func (s *Server) Routes(static http.Handler) http.Handler {
 	mux.HandleFunc("POST /api/workspace/restore", s.requireEnrolled(s.handleWorkspaceRestore))
 	mux.HandleFunc("POST /api/tabs/{id}/save", s.requireEnrolled(s.handleTabSave))
 	mux.HandleFunc("POST /api/tabs/{id}/action/{n}", s.requireEnrolled(s.handleTabAction))
+	mux.HandleFunc("POST /api/tabs/{id}/cancel", s.requireEnrolled(s.handleTabCancel))
 	mux.HandleFunc("POST /api/workspace/save-all", s.requireEnrolled(s.handleSaveAll))
 	mux.HandleFunc("POST /api/workspace/save-close-all", s.requireEnrolled(s.handleSaveCloseAll))
 
@@ -127,7 +128,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, "bad_request")
 		return
 	}
-	tok, code := s.auth.Login(req.Key, req.TOTP, req.SetupCode)
+	tok, code := s.auth.LoginFrom(req.Key, req.TOTP, req.SetupCode, s.localClient(r))
 	switch code {
 	case "", "totp_required", "setup_code_required", "mxlore_not_configured", "mxlore_unreachable":
 		// Success, or a missing second factor after a correct key, or no server: not a guess.
@@ -554,6 +555,19 @@ func (s *Server) handleTabSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, t.info())
+}
+
+func (s *Server) handleTabCancel(w http.ResponseWriter, r *http.Request) {
+	t, err := s.tabs.CancelSave(r.PathValue("id"))
+	if t == nil {
+		apiErr(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if err != nil {
+		apiErr(w, http.StatusConflict, "not_saving")
+		return
+	}
+	writeJSON(w, http.StatusOK, t.info())
 }
 
 func (s *Server) handleSaveAll(w http.ResponseWriter, r *http.Request) {

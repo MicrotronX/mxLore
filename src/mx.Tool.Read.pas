@@ -34,6 +34,17 @@ function ResolveProxyExePath: string;
 // Shared with Admin orchestrator download (mx.Admin.Server).
 function ResolveOrchestratorExePath: string;
 
+// Files delivered next to the orchestrator EXE (Microsoft ConPTY + its MIT
+// notice). Without conpty.dll + OpenConsole.exe the EXE silently falls back to
+// the Windows ConPTY, which drops OSC 7501 (BR#20417).
+const
+  ORCHESTRATOR_EXTRA_FILES: array[0..2] of string =
+    ('conpty.dll', 'OpenConsole.exe', 'THIRD-PARTY-NOTICES.txt');
+
+// Resolves <ExeDir>\orchestrator\<AName> for a name in ORCHESTRATOR_EXTRA_FILES
+// (exact, case-insensitive); '' if not on the list or missing.
+function ResolveOrchestratorFilePath(const AName: string): string;
+
 // True when app_settings 'connect.offer_orchestrator' is 'true' (trimmed,
 // case-insensitive). Reads the DB directly (no settings cache) so mx_ping and
 // the Admin download route always give the same answer. False on DB error.
@@ -85,6 +96,19 @@ begin
     'mxLoreOrchestrator.exe';
   if not FileExists(Result) then
     Result := '';
+end;
+
+function ResolveOrchestratorFilePath(const AName: string): string;
+begin
+  Result := '';
+  for var N in ORCHESTRATOR_EXTRA_FILES do
+    if SameText(N, AName) then
+    begin
+      Result := ExtractFilePath(ParamStr(0)) + 'orchestrator' + PathDelim + N;
+      if not FileExists(Result) then
+        Result := '';
+      Exit;
+    end;
 end;
 
 function IsOrchestratorOffered(AContext: IMxDbContext): Boolean;
@@ -251,6 +275,15 @@ begin
           Data.AddPair('orchestrator_download_url',
             BuildDownloadUrl(ExtAdminUrl, '/api/download/orchestrator'));
           Data.AddPair('orchestrator_sha256', OrchSha);
+          // Extra files: name -> sha256, served at <download_url>/<name>
+          var OrchFiles := TJSONObject.Create;
+          Data.AddPair('orchestrator_files', OrchFiles);
+          for var N in ORCHESTRATOR_EXTRA_FILES do
+          begin
+            var FSha := GetFileSha256(ResolveOrchestratorFilePath(N));
+            if FSha <> '' then
+              OrchFiles.AddPair(N, FSha);
+          end;
         end;
       end;
     end;

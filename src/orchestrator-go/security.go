@@ -44,7 +44,9 @@ func (a *Auth) dropSessions(keep string, match func(e *sessionEntry) bool) {
 
 // startTOTP creates a pending secret kept in memory only.
 func (a *Auth) startTOTP() (string, string, []byte, error) {
-	k, err := totp.Generate(totp.GenerateOpts{Issuer: "mxLoreOrchestrator", AccountName: "admin"})
+	var name string
+	a.store.View(func(c *Config) { name = c.MxLoreDeveloperName })
+	k, err := totp.Generate(totp.GenerateOpts{Issuer: "mxLO", AccountName: otpLabel(name)})
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -153,6 +155,7 @@ func (s *Server) whoamiFor(key string) (mxLoreDeveloper, string, int) {
 		return mxLoreDeveloper{}, "mxlore_not_configured", http.StatusConflict
 	}
 	if strings.TrimSpace(key) == "" {
+		s.auth.logf("whoami: invalid_key (empty key) server=%s", hostOf(base))
 		return mxLoreDeveloper{}, "invalid_key", http.StatusBadRequest
 	}
 	d, err := mxLoreWhoami(base, key)
@@ -160,6 +163,7 @@ func (s *Server) whoamiFor(key string) (mxLoreDeveloper, string, int) {
 	case errors.Is(err, errMxLoreUnreachable):
 		return d, "mxlore_unreachable", http.StatusBadGateway
 	case err != nil:
+		s.auth.logf("whoami: invalid_key (rejected by server as unauthorized) server=%s", hostOf(base))
 		return d, "invalid_key", http.StatusBadRequest
 	}
 	return d, "", 0

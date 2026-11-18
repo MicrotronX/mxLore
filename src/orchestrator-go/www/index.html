@@ -16,6 +16,7 @@
     <p class="login-hint">Sign in with your mxLore key.</p>
     <p id="loginServer" class="login-server"></p>
     <label>mxLore key<input id="loginKey" type="password" name="mxo-access-key" autocomplete="new-password" required autofocus spellcheck="false"></label>
+    <a href="#" id="useOtherKey" class="hidden">Use a different key</a>
     <label id="setupCodeRow" class="hidden">Setup code<input id="loginSetupCode" autocomplete="off" spellcheck="false" class="mono"><span id="setupCodeHint" class="hint mono"></span></label>
     <label id="totpRow" class="hidden">Authenticator code<input id="loginTotp" inputmode="numeric" maxlength="6" spellcheck="false" autocomplete="one-time-code"></label>
     <div id="loginError" class="error" role="alert"></div>
@@ -96,7 +97,7 @@
       <button id="updateNow" class="btn small ghost">Restart now</button>
     </div>
     <footer id="statusBar" class="statusbar hidden" aria-label="Active session">
-      <span class="sb-state"><i id="sbLamp" class="lamp"></i><span id="sbState"></span></span>
+      <span class="sb-state"><i id="sbLamp" class="lamp"></i><span id="sbState"></span><button id="sbCancel" class="btn small ghost hidden" title="Stop this save or quick action. Steps not sent yet are dropped.">Cancel</button></span>
       <span id="sbPath" class="sb-path mono"></span>
       <button id="sbSid" class="sb-sid mono" title="Copy full session id"></button>
       <span id="sbUptime" class="sb-uptime"></span>

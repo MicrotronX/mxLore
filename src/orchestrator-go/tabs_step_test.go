@@ -33,9 +33,46 @@ func TestWaitStep(t *testing.T) {
 	}
 	for _, c := range cases {
 		tab := &Tab{Running: c.running, stateSeq: c.seq, claudeState: c.state, outCount: c.out, lastOut: c.last}
-		ok, blocked := tab.waitStep(10, 1, 500*time.Millisecond, past)
+		ok, blocked := tab.waitStep(0, 10, 1, 500*time.Millisecond, past)
 		if ok != c.ok || blocked != c.blocked {
 			t.Errorf("%s: got ok=%v blocked=%v, want ok=%v blocked=%v", c.name, ok, blocked, c.ok, c.blocked)
 		}
+	}
+}
+
+// Cancel returns the tab to "running" at once, ends the waits of the canceled
+// sequence without a timeout, and leaves a sequence started afterwards alone.
+func TestCancelSave(t *testing.T) {
+	m := &TabManager{}
+	tab := &Tab{ID: "a", Mode: "new", Running: true, State: "running", lastOut: time.Now()}
+	m.tabs = []*Tab{tab}
+	gen, ok := tab.beginSave()
+	if !ok || tab.State != "saving" {
+		t.Fatalf("beginSave: ok=%v state=%q", ok, tab.State)
+	}
+	if _, err := m.CancelSave("a"); err != nil || tab.State != "running" {
+		t.Fatalf("cancel: err=%v state=%q", err, tab.State)
+	}
+	if _, err := m.CancelSave("a"); err == nil {
+		t.Error("second cancel: want error, tab is not saving")
+	}
+	far := time.Now().Add(time.Hour)
+	if tab.waitQuiet(gen, 0, time.Hour, far) {
+		t.Error("waitQuiet: canceled sequence reported done")
+	}
+	if ok, blocked := tab.waitStep(gen, 0, 0, time.Hour, far); ok || blocked {
+		t.Errorf("waitStep: canceled sequence got ok=%v blocked=%v", ok, blocked)
+	}
+	gen2, ok := tab.beginSave()
+	if !ok || gen2 == gen {
+		t.Fatalf("second beginSave: ok=%v gen=%d", ok, gen2)
+	}
+	tab.endSaving(gen)
+	if tab.State != "saving" {
+		t.Errorf("endSaving of the canceled sequence changed the new one: %q", tab.State)
+	}
+	tab.endSaving(gen2)
+	if tab.State != "running" {
+		t.Errorf("endSaving: got %q, want running", tab.State)
 	}
 }

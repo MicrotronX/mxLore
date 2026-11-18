@@ -72,3 +72,6 @@ config/
 # Local session-safety-net handoff docs (CLAUDE.md rule)
 docs/handoff-*.md
 docs/session-*.md
+
+# Served orchestrator files (refreshed by src/orchestrator-go/build.sh)
+/orchestrator/

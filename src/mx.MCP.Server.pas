@@ -433,12 +433,14 @@ begin
 end;
 
 // FR#19103 - GET /api/whoami. Read-only: device id and proxy version are not
-// passed to ValidateKey, so no device binding is created; keys that already
-// carry a device binding are therefore rejected. Every
+// passed to ValidateKey, so no device binding is ever created. A key that
+// already carries a device binding is accepted only when the X-Device-Id
+// header (trimmed, max 64) equals the bound id; the comparison is done here,
+// after ValidateKey. Missing or different id = 401. Every
 // failure cause returns the same 401 body (no oracle). The key is never logged.
 procedure TMxMcpApiModule.HandleWhoAmIGet(const C: THttpServerContext);
 var
-  AuthHeader, Host, Role: string;
+  AuthHeader, Host, Role, DeviceId: string;
   AuthResult: TMxAuthResult;
   Resp: TJSONObject;
   ResponseBytes: TBytes;
@@ -472,11 +474,19 @@ begin
     AuthResult := FAuth.ValidateKey(AuthHeader, '', '', Host, False);
   end;
 
-  // Grace-window keys (expired < 24h) and device-bound keys are refused:
-  // whoami cannot enforce the device binding, and an expired key must not
-  // mint new downstream sessions.
+  // Device id sent by the caller (same trim/64 limit as the MCP path). It is
+  // only compared below, never handed to ValidateKey (that would bind).
+  DeviceId := '';
+  C.Request.Headers.GetIfExists('X-Device-Id', DeviceId);
+  DeviceId := Copy(Trim(DeviceId), 1, 64);
+
+  // Grace-window keys (expired < 24h) are refused (an expired key must not
+  // mint new downstream sessions). Device-bound keys are refused unless the
+  // supplied X-Device-Id equals the bound id.
   if not AuthResult.Valid or (AuthResult.AuthReason <> AR_OK)
-    or (AuthResult.BoundDeviceId <> '') then
+    or ((AuthResult.BoundDeviceId <> '')
+        and ((DeviceId = '')
+             or not SameText(AuthResult.BoundDeviceId, DeviceId))) then
   begin
     FWhoAmIFailLimit.TryAcquire(ClientIp);  // record the failure
     C.Response.StatusCode := 401;

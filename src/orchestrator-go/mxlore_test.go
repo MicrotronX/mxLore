@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -58,6 +60,7 @@ func newTestAuth(t *testing.T, mxURL string, bound int) (*Auth, *Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	a.proxyKey = func() string { return "" }
 	if bound == 0 {
 		a.enterSetupMode()
 	}
@@ -105,7 +108,7 @@ func TestMxLoreLoginBoundRejectsOthers(t *testing.T) {
 	if e.ExpiresAt.Sub(e.CreatedAt) > a.store.SessionTTL() {
 		t.Fatalf("mxlore session expiry exceeds cap: %v", e.ExpiresAt.Sub(e.CreatedAt))
 	}
-	if _, code := a.Login("dev9", "", ""); code != "invalid_key" {
+	if _, code := a.Login("dev9", "", ""); code != "key_wrong_account" {
 		t.Fatalf("other developer: got %q", code)
 	}
 	if _, code := a.Login("redirect", "", ""); code != "mxlore_unreachable" {
@@ -167,7 +170,7 @@ func TestSetupModeLoginNeedsSetupCode(t *testing.T) {
 	if !s.mustEnroll(*a.sessions[tokenHash(tok)]) {
 		t.Fatal("first login not flagged for 2FA enrollment")
 	}
-	if _, code := a.Login("dev9", "", setupCode); code != "invalid_key" {
+	if _, code := a.Login("dev9", "", setupCode); code != "key_wrong_account" {
 		t.Fatalf("second developer: got %q", code)
 	}
 }
@@ -217,5 +220,86 @@ func TestValidateMxLoreURL(t *testing.T) {
 		if _, err := validateMxLoreURL(bad); err == nil {
 			t.Errorf("%s accepted", bad)
 		}
+	}
+}
+
+func TestProxyKeyAutoLogin(t *testing.T) {
+	srv := fakeWhoami(t)
+	a, _ := newTestAuth(t, srv.URL, 7)
+	var logs []string
+	a.logf = func(f string, v ...any) { logs = append(logs, fmt.Sprintf(f, v...)) }
+	// No proxy key: an empty key is invalid.
+	if _, code := a.Login("", "", ""); code != "invalid_key" {
+		t.Fatalf("no proxy key: got %q", code)
+	}
+	a.proxyKey = func() string { return "dev7" }
+	if _, code := a.Login("", "", ""); code != "totp_required" {
+		t.Fatalf("proxy key, no totp: got %q", code)
+	}
+	if _, code := a.Login("", nextCode(t, a, testSecret), ""); code != "" {
+		t.Fatalf("proxy key + totp: got %q", code)
+	}
+	a.proxyKey = func() string { return "dev9" }
+	if _, code := a.Login("", nextCode(t, a, testSecret), ""); code != "key_wrong_account" {
+		t.Fatalf("foreign proxy key: got %q", code)
+	}
+	all := strings.Join(logs, " | ")
+	for _, w := range []string{"empty key", "bound=7 got=9", hostOf(srv.URL)} {
+		if !strings.Contains(all, w) {
+			t.Fatalf("log lacks %q: %s", w, all)
+		}
+	}
+	if strings.Contains(all, "dev7") || strings.Contains(all, "dev9") {
+		t.Fatalf("log leaks a key: %s", all)
+	}
+}
+
+func TestProxyKeyNotUsedWithoutTOTPOrInSetupMode(t *testing.T) {
+	srv := fakeWhoami(t)
+	a, store := newTestAuth(t, srv.URL, 7)
+	a.proxyKey = func() string { return "dev7" }
+	store.Update(func(c *Config) error { c.TOTPSecret = ""; return nil })
+	if _, code := a.Login("", "", ""); code != "invalid_key" {
+		t.Fatalf("no totp configured: got %q", code)
+	}
+	b, _ := newTestAuth(t, srv.URL, 0)
+	b.proxyKey = func() string { return "dev7" }
+	if _, code := b.Login("", "", ""); code != "invalid_key" {
+		t.Fatalf("setup mode: got %q", code)
+	}
+}
+
+func TestParseProxyKey(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "p.ini")
+	os.WriteFile(p, []byte("[Other]\nApiKey=no\n[Server]\nUrl=http://x\nApiKey = abc123 \n"), 0o600)
+	if got := parseProxyKey(p); got != "abc123" {
+		t.Fatalf("got %q", got)
+	}
+	if parseProxyKey(p+".missing") != "" {
+		t.Fatal("missing file")
+	}
+}
+
+func TestWhoamiSendsDeviceID(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("LOCALAPPDATA", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("X-Device-Id")
+		w.Write([]byte(`{"developer_id":7,"name":"A","role":"x"}`))
+	}))
+	defer srv.Close()
+	mxLoreWhoami(srv.URL, "k")
+	if got != "" {
+		t.Fatalf("header without file: %q", got)
+	}
+	p := deviceIDPath()
+	os.MkdirAll(filepath.Dir(p), 0o700)
+	os.WriteFile(p, []byte("0a1b2c3d-1111-4222-8333-444455556666\n"), 0o600)
+	mxLoreWhoami(srv.URL, "k")
+	if got != "0a1b2c3d-1111-4222-8333-444455556666" {
+		t.Fatalf("header = %q", got)
 	}
 }

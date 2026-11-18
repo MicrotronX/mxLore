@@ -57,6 +57,7 @@ type Tab struct {
 	claudeCmd   string
 	closeOnExit bool        // shell ends with claude; a clean exit closes the tab
 	inAction    bool        // set by a quick action until save & close; an /exit from it still auto-closes
+	saveGen     int64       // counts save/action starts and cancels; a waiting sequence stops when it no longer matches
 	mgr         *TabManager // set for tabs opened through Open
 	lastOut     time.Time
 	claudeState string // last OSC 7501 state reported by Claude Code ("" = never)
@@ -810,13 +811,41 @@ func (t *Tab) noteClaudeState(st string, gen int) {
 	}
 }
 
-// endSaving returns a running tab from "saving" to "running".
-func (t *Tab) endSaving() {
+// endSaving returns a running tab from "saving" to "running", unless the
+// sequence gen was canceled meanwhile (the state then belongs to someone else).
+func (t *Tab) endSaving(gen int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.State == "saving" && t.Running {
+	if t.saveGen == gen && t.State == "saving" && t.Running {
 		t.State = "running"
 	}
+}
+
+// canceled reports whether the save or quick action started as gen was canceled.
+func (t *Tab) canceled(gen int64) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.saveGen != gen
+}
+
+// CancelSave stops a running save or quick action: steps not typed yet are
+// dropped and the tab returns to "running". What was already typed keeps running
+// in Claude. Returns errors "not found" or "not saving".
+func (m *TabManager) CancelSave(id string) (*Tab, error) {
+	t := m.Get(id)
+	if t == nil {
+		return nil, errors.New("not found")
+	}
+	t.mu.Lock()
+	if t.State != "saving" || !t.Running {
+		t.mu.Unlock()
+		return t, errors.New("not saving")
+	}
+	t.saveGen++
+	t.State = "running"
+	t.mu.Unlock()
+	m.log("save: %s (%s) canceled by user, remaining steps dropped", t.Title, t.ID)
+	return t, nil
 }
 
 func (t *Tab) outputMark() (int64, time.Time, bool) {
@@ -826,12 +855,16 @@ func (t *Tab) outputMark() (int64, time.Time, bool) {
 }
 
 // waitQuiet waits until output arrived after mark and then stayed quiet for
-// idle, or the process exited. It returns false when deadline passes first.
-func (t *Tab) waitQuiet(mark int64, idle time.Duration, deadline time.Time) bool {
+// idle, or the process exited. It returns false when deadline passes first or
+// the sequence gen was canceled.
+func (t *Tab) waitQuiet(gen, mark int64, idle time.Duration, deadline time.Time) bool {
 	for {
 		n, last, running := t.outputMark()
 		if !running {
 			return true
+		}
+		if t.canceled(gen) {
+			return false
 		}
 		if n > mark && time.Since(last) >= idle {
 			return true
@@ -855,11 +888,15 @@ func (t *Tab) statusMark() (int64, string) {
 // is done when Claude reports idle (or done) after the step was typed; a blocked
 // report (question, permission) stops the action so the user answers. Without a
 // fresh report it falls back to waitQuiet's rule: output, then idle quiet time.
-func (t *Tab) waitStep(mark, smark int64, idle time.Duration, deadline time.Time) (ok, blocked bool) {
+// A canceled sequence gen returns ok=false like a timeout.
+func (t *Tab) waitStep(gen, mark, smark int64, idle time.Duration, deadline time.Time) (ok, blocked bool) {
 	for {
 		n, last, running := t.outputMark()
 		if !running {
 			return true, false
+		}
+		if t.canceled(gen) {
+			return false, false
 		}
 		seq, st := t.statusMark()
 		quiet := n > mark && time.Since(last) >= idle
@@ -907,7 +944,9 @@ func (m *TabManager) saveClose(id string, keep bool) (*Tab, <-chan struct{}, err
 	if isClaudeMode(mode) && running && state == "running" {
 		t.State = "saving"
 		t.inAction = false
+		t.saveGen++
 	}
+	gen := t.saveGen
 	t.mu.Unlock()
 	if !isClaudeMode(mode) || !running {
 		m.Close(id)
@@ -919,20 +958,25 @@ func (m *TabManager) saveClose(id string, keep bool) (*Tab, <-chan struct{}, err
 	}
 	go func() {
 		defer close(done)
-		m.runSave(t, keep)
+		m.runSave(t, keep, gen)
 	}()
 	return t, done, nil
 }
 
 // typeSave types the save prompt and waits for output followed by the idle
-// period. On timeout it sets state save_timeout and returns false.
-func (m *TabManager) typeSave(t *Tab) bool {
+// period. On timeout it sets state save_timeout and returns false; a canceled
+// sequence gen returns false and leaves the state alone.
+func (m *TabManager) typeSave(t *Tab, gen int64) bool {
 	cfg := m.store.SaveSettings()
 	deadline := time.Now().Add(cfg.Timeout)
 	m.log("save: %s (%s) sending %s", t.Title, t.ID, cfg.Prompt)
 	mark, _, _ := t.outputMark()
 	t.typeLine(cfg.Prompt)
-	if !t.waitQuiet(mark, cfg.Idle, deadline) {
+	ok := t.waitQuiet(gen, mark, cfg.Idle, deadline)
+	if t.canceled(gen) {
+		return false
+	}
+	if !ok {
 		t.setState("save_timeout")
 		m.log("save: %s (%s) timed out after %s, left running", t.Title, t.ID, cfg.Timeout)
 		return false
@@ -940,15 +984,17 @@ func (m *TabManager) typeSave(t *Tab) bool {
 	return true
 }
 
-// beginSave marks a running claude tab as saving. ok=false means not eligible.
-func (t *Tab) beginSave() bool {
+// beginSave marks a running claude tab as saving and returns the sequence gen
+// the caller passes to its waits. ok=false means not eligible.
+func (t *Tab) beginSave() (gen int64, ok bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if !isClaudeMode(t.Mode) || !t.Running || t.State != "running" {
-		return false
+		return 0, false
 	}
 	t.State = "saving"
-	return true
+	t.saveGen++
+	return t.saveGen, true
 }
 
 // SaveOnly types the save prompt into a running claude tab without closing it;
@@ -958,16 +1004,13 @@ func (m *TabManager) SaveOnly(id string) (*Tab, error) {
 	if t == nil {
 		return nil, errors.New("not found")
 	}
-	if !t.beginSave() {
+	gen, ok := t.beginSave()
+	if !ok {
 		return t, errors.New("busy")
 	}
 	go func() {
-		if m.typeSave(t) {
-			t.mu.Lock()
-			if t.State == "saving" && t.Running {
-				t.State = "running"
-			}
-			t.mu.Unlock()
+		if m.typeSave(t, gen) {
+			t.endSaving(gen)
 			m.log("save: %s (%s) saved, kept open", t.Title, t.ID)
 		}
 	}()
@@ -981,7 +1024,8 @@ func (m *TabManager) RunAction(id string, a QuickAction) (*Tab, error) {
 	if t == nil {
 		return nil, errors.New("not found")
 	}
-	if !t.beginSave() {
+	gen, ok := t.beginSave()
+	if !ok {
 		return t, errors.New("busy")
 	}
 	t.mu.Lock()
@@ -995,22 +1039,31 @@ func (m *TabManager) RunAction(id string, a QuickAction) (*Tab, error) {
 				m.log("action: %s (%s) %q aborted at step %d, tab ended", t.Title, t.ID, a.Name, i+1)
 				return
 			}
+			if t.canceled(gen) {
+				m.log("action: %s (%s) %q canceled before step %d/%d", t.Title, t.ID, a.Name, i+1, len(a.Steps))
+				return
+			}
 			m.log("action: %s (%s) %q step %d/%d: %s", t.Title, t.ID, a.Name, i+1, len(a.Steps), step)
 			mark, _, _ := t.outputMark()
 			smark, _ := t.statusMark()
 			t.typeLine(step)
-			if ok, blocked := t.waitStep(mark, smark, cfg.Idle, deadline); blocked {
+			ok, blocked := t.waitStep(gen, mark, smark, cfg.Idle, deadline)
+			if t.canceled(gen) {
+				m.log("action: %s (%s) %q canceled during step %d/%d", t.Title, t.ID, a.Name, i+1, len(a.Steps))
+				return
+			}
+			if blocked {
 				t.setState("running")
 				m.log("action: %s (%s) %q stopped at step %d, claude waits for input", t.Title, t.ID, a.Name, i+1)
 				return
 			} else if !ok {
 				// Not an error: Claude may simply still be working. Later steps are dropped.
-				t.endSaving()
+				t.endSaving(gen)
 				m.log("action: %s (%s) %q timed out at step %d, stopped", t.Title, t.ID, a.Name, i+1)
 				return
 			}
 		}
-		t.endSaving()
+		t.endSaving(gen)
 		m.log("action: %s (%s) %q done", t.Title, t.ID, a.Name)
 	}()
 	return t, nil
@@ -1032,9 +1085,9 @@ func (m *TabManager) SaveAll() (started, skipped []string) {
 	return started, skipped
 }
 
-func (m *TabManager) runSave(t *Tab, keep bool) {
+func (m *TabManager) runSave(t *Tab, keep bool, gen int64) {
 	start := time.Now()
-	if !m.typeSave(t) {
+	if !m.typeSave(t, gen) {
 		return
 	}
 	if _, _, running := t.outputMark(); running {
@@ -1044,7 +1097,7 @@ func (m *TabManager) runSave(t *Tab, keep bool) {
 		mark, _, _ := t.outputMark()
 		t.typeLine("/exit")
 		// Unless close-on-exit is set, the tab runs pwsh -NoExit around claude: once claude is gone, end the shell too.
-		t.waitQuiet(mark, 2*time.Second, exitDeadline)
+		t.waitQuiet(gen, mark, 2*time.Second, exitDeadline)
 		if _, _, running := t.outputMark(); running {
 			t.write([]byte("exit\r"))
 		}
