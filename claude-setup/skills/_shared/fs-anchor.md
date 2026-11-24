@@ -72,6 +72,9 @@ Per-item: `{label, verdict, evidence}` where:
   (default 14) → tag `stale-suspect` + prompt user y/n/skip.
   Use `days_since_content_change`, NOT `updated_at` (`updated_at` is bumped
   by any touch incl. access_count-on-read).
+  Mixed doc (some `divergence`, the rest `confirmed_pending`/`unverifiable`)
+  → no archive prompt; the `divergence` boxes become tick candidates per
+  `~/.claude/skills/_shared/backlog-hygiene.md` "Box close-out".
 
 ## doc_type applicability
 

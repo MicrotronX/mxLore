@@ -22,23 +22,30 @@ Check WFs whose title starts with "Ad-hoc:":
   - **Age filter (post-detail):** use `days_since_content_change` from the detail response — the age of the last real body revision, NOT `days_since_update` (the updated_at staleness defect: `updated_at` is bumped by any touch incl. access_count-on-read, so it falsely rejuvenates stales). `days_since_content_change < T` → skip this candidate (NOT stale yet). Server-side field via `doc_revisions.MAX(changed_at)`; older servers without it → fall back to `days_since_update` + note the weaker signal.
   - Run FS-Anchor algorithm per `~/.claude/skills/_shared/fs-anchor.md`:
     - Extract `- [ ]` lines from `## Tasks` (Plan) or `## Acceptance Criteria` (Spec) as items
+    - ⚡ A box that asks for a test, a release, a user check or a rollout step is `unverifiable` whatever the helper says — code presence never proves it (same rule as "Box close-out" Evidence). Such a doc is therefore never all-`divergence`.
     - All items return `divergence` → stale-suspect (code shipped, doc not flipped)
-    - Any item `confirmed_pending` → NOT stale (real work outstanding) → skip
+    - Any item `confirmed_pending` → NOT stale (real work outstanding) → no archive prompt. ⚡ The doc's `divergence` boxes (if any) go into a SEPARATE list `tick_candidates: [{doc_id, doc_type, box_line (verbatim first line), evidence}]` — rules: `~/.claude/skills/_shared/backlog-hygiene.md` "Box close-out", Caller 2. Same for a doc mixing `divergence` and `unverifiable`.
     - All items `unverifiable` → skip (cannot determine, no false positive). !per-item output; when N>0 emit one aggregate line: `stale-sweep: N of M candidates unverifiable, skipped`
 - Build candidate list: `[{doc_id, title, doc_type, divergence_count, evidence, days_since_update}]`
-- ⚡ Subagent/Main split: when Step 3 runs as background subagent (Execution Mode phase A), the subagent performs DETECTION ONLY and returns the candidate list — subagents cannot prompt the user. Main re-checks each candidate against the FS-anchor skip rules (any `confirmed_pending` → reject as false positive) and prompts via AskUserQuestion, bundling up to 4 candidates per call (NOT N sequential prompts). Tag is set ONLY on `skip` to avoid orphan-tag if user aborts mid-prompt:
+- ⚡ Subagent/Main split: when Step 3 runs as background subagent (Execution Mode phase A), the subagent performs DETECTION ONLY and returns the candidate list plus `tick_candidates` — subagents cannot prompt the user. Main re-checks each archive candidate against the FS-anchor skip rules (any `confirmed_pending` → reject as false positive) and prompts via AskUserQuestion, bundling up to 4 candidates per call (NOT N sequential prompts). Tag is set ONLY on `skip` to avoid orphan-tag if user aborts mid-prompt:
   - Show: `<type>#<id>: <title>` + `evidence: <path>` + `age: <D>d` + `(y=archive / n=ignore / skip=tag-for-next-session)`
   - `y` → `mx_update_doc(doc_id, status='archived', change_reason='Pre-save stale sweep: code shipped, doc not flipped')`
   - `n` → no-op (ignore for this session; no tag, no archive)
   - `skip` → `mx_add_tags(doc_id, ['stale-suspect'])` (idempotent — re-run silently if already tagged; persists for next-session review)
 - Output: `Stale-Sweep: <Y> archived, <I> ignored, <S> tagged-for-review (of <C> candidates)`
 
+**Box close-out (ticks single built boxes; Main-context, after the Step 3 subagent returned — like the FR/BR Closure-Sweep):**
+- ⚡ Skip if `!mcp_available`.
+- Candidates, deduped by (doc_id, box line): `tick_candidates` from the stale sweep above + `plan#`/`spec#` rows of a `Plan/spec re-audit` result shown in THIS session.
+- Run it exactly as `~/.claude/skills/_shared/backlog-hygiene.md` "Box close-out" defines (Confirm, Tick, After ticking). Do not restate the rules here.
+- Output: `Box close-out: <N> ticked, <K> kept open (of <C> built-not-ticked boxes)`. Silent if ∅candidates.
+
 **Archive completed Plans/Specs/Decisions:**
 - Define `ARCHIVE_SWEEP_LIMIT = 50` once at the top of Step 3 (sync this constant if you change the limit anywhere). Raised from 20 on 2026-08-28: a live run hit 19 active plan/spec/decision docs, one short of truncation. The truncation warning below does fire at `==`, so this is a threshold correction, not a silent-gap fix — deliberately no pagination.
 - `mx_search(project, doc_type='plan,spec,decision', status='active', limit=ARCHIVE_SWEEP_LIMIT)`→collect IDs→`mx_batch_detail(doc_ids=[...])`→check each doc:
 - ⚡ If result count == ARCHIVE_SWEEP_LIMIT → warn: "Archive sweep truncated at <ARCHIVE_SWEEP_LIMIT> — re-run /mxSave or paginate manually if more active items exist." This is an auto-cleanup correctness guard, not a token-savings concern.
 - **Plan:** All tasks `- [x]` (no `- [ ]`)→archive
-- **Spec:** All ACs `- [x]` AND no open questions→archive
+- **Spec:** All ACs `- [x]` AND no open questions AND no `(dropped)` AC→archive (a dropped AC needs the user's confirmation → leave open + line `spec#<id>: dropped AC - close via /mxSpec`)
 - **Decision:** Status `proposed` for >30 days without change→warning (don't auto-archive)
 - Collect→`mx_batch_update(items='[{"doc_id":X,"status":"archived","change_reason":"auto-cleanup: all tasks/ACs completed"}, ...]')`
 - ⚡ Only for clearly completed docs. Mixed checkboxes→leave open.
@@ -47,9 +54,9 @@ Check WFs whose title starts with "Ad-hoc:":
 **FR/BR Closure-Sweep (the FR/BR closure gap, content-reference-driven, Main-context):**
 FR/BR are NOT FS-anchor-capable (no checkbox / impl-target — see `~/.claude/skills/_shared/fs-anchor.md` doc_type table), so the plan/spec Stale-Sweep above cannot touch them. Without a closure trigger, fixed FR/BR stay `status=active` forever and re-surface as open backlog (re-investigation token waste). Signal instead: **the session that fixed them already knows the ID** — no svn blame, no code-scan.
 - ⚡ Skip entire block if `!mcp_available` OR `--loop` mode (interactive prompt).
-- Collect `#IDs` this session explicitly discussed as **fixed / shipped / committed / closed / done** — sources: chat decisions of THIS session + the Step-2 status.md/CLAUDE.md edits (both available before Step 3) + ids from a `Backlog re-audit` result shown in THIS session (resume background agent, rows with `file:line` only; rules: `~/.claude/skills/_shared/backlog-hygiene.md`). Do NOT infer from code; only IDs the session actually named or that list showed.
-- ∅collected IDs → skip silently (do not scan the whole backlog).
-- A `Backlog re-audit` result was shown in THIS session (rows or not) → after this block: `mx_set_env(project, key='BACKLOG_REAUDIT_AT', env_value=<today_utc>)` (param `env_value`). Only here — never at spawn time.
+- Collect `#IDs` this session explicitly discussed as **fixed / shipped / committed / closed / done** — sources: chat decisions of THIS session + the Step-2 status.md/CLAUDE.md edits (both available before Step 3) + ids from a `Backlog re-audit` result shown in THIS session (resume background agent, rows with `file:line` only, incl. `claim changed` rows; rules: `~/.claude/skills/_shared/backlog-hygiene.md`). Do NOT infer from code; only IDs the session actually named or that list showed.
+- ⚡ **Re-audit stamp (own step, runs whether or not ids were collected; skipped only by `!mcp_available` / `--loop`):** a `Backlog re-audit` result was shown in THIS session (rows or not) AND the plan/spec part is settled (its result was shown too, OR the due-check kept 0 docs so no second agent was due) → `mx_set_env(project, key='BACKLOG_REAUDIT_AT', env_value=<today_utc>)` (param `env_value`). Second agent due but not spawned or not returned → no stamp, the re-audit re-runs on the next resume. Only here — never at spawn time.
+- ∅collected IDs → skip the rest of this block silently (do not scan the whole backlog).
 - `mx_batch_detail(doc_ids=[...])` (max 10/call, iterate) → keep only `doc_type ∈ {feature_request, bugreport, todo}` AND `status='active'` (already-archived → drop silently, no re-archive).
 - Bundle up to 4 per `AskUserQuestion`: `<type>#<id>: <title>` + `evidence: <session-reference>` + options `archive` / `pending-verify` (built, only a test is open) / `keep`. NEVER auto-archive without confirm (an ID named in passing may not be truly closed).
   - `archive` → `mx_update_doc(doc_id, status='archived', change_reason='mxSave FR/BR closure-sweep: fixed/shipped this session')`
