@@ -24,7 +24,7 @@ Check WFs whose title starts with "Ad-hoc:":
     - Extract `- [ ]` lines from `## Tasks` (Plan) or `## Acceptance Criteria` (Spec) as items
     - ⚡ A box that asks for a test, a release, a user check or a rollout step is `unverifiable` whatever the helper says — code presence never proves it (same rule as "Box close-out" Evidence). Such a doc is therefore never all-`divergence`.
     - All items return `divergence` → stale-suspect (code shipped, doc not flipped)
-    - Any item `confirmed_pending` → NOT stale (real work outstanding) → no archive prompt. ⚡ The doc's `divergence` boxes (if any) go into a SEPARATE list `tick_candidates: [{doc_id, doc_type, box_line (verbatim first line), evidence}]` — rules: `~/.claude/skills/_shared/backlog-hygiene.md` "Box close-out", Caller 2. Same for a doc mixing `divergence` and `unverifiable`.
+    - Any item `confirmed_pending` → NOT stale (real work outstanding) → no archive prompt. ⚡ The doc's `divergence` boxes whose verdict has `evidence_kind = symbol` (the helper's Grep found a symbol the box itself names) go into a SEPARATE list `tick_candidates: [{doc_id, doc_type, box_line (verbatim first line), evidence (file:line)}]`; a `divergence` from path existence alone (`evidence_kind = path`) is never listed, and neither is an item whose `evidence_kind` is missing — rules: `~/.claude/skills/_shared/backlog-hygiene.md` "Box close-out", Caller 2. Same for a doc mixing `divergence` and `unverifiable`.
     - All items `unverifiable` → skip (cannot determine, no false positive). !per-item output; when N>0 emit one aggregate line: `stale-sweep: N of M candidates unverifiable, skipped`
 - Build candidate list: `[{doc_id, title, doc_type, divergence_count, evidence, days_since_update}]`
 - ⚡ Subagent/Main split: when Step 3 runs as background subagent (Execution Mode phase A), the subagent performs DETECTION ONLY and returns the candidate list plus `tick_candidates` — subagents cannot prompt the user. Main re-checks each archive candidate against the FS-anchor skip rules (any `confirmed_pending` → reject as false positive) and prompts via AskUserQuestion, bundling up to 4 candidates per call (NOT N sequential prompts). Tag is set ONLY on `skip` to avoid orphan-tag if user aborts mid-prompt:
@@ -36,7 +36,7 @@ Check WFs whose title starts with "Ad-hoc:":
 
 **Box close-out (ticks single built boxes; Main-context, after the Step 3 subagent returned — like the FR/BR Closure-Sweep):**
 - ⚡ Skip if `!mcp_available`.
-- Candidates, deduped by (doc_id, box line): `tick_candidates` from the stale sweep above + `plan#`/`spec#` rows of a `Plan/spec re-audit` result shown in THIS session.
+- Candidates: `tick_candidates` from the stale sweep above + `plan#`/`spec#` rows of a `Plan/spec re-audit` result shown in THIS session. A re-audit row carries only the start of the box line: resolve it to the full first box line from the doc body first (Caller 3 rule), THEN dedupe by (doc_id, full box line). A row that the Caller 3 rule skips or drops is no candidate.
 - Run it exactly as `~/.claude/skills/_shared/backlog-hygiene.md` "Box close-out" defines (Confirm, Tick, After ticking). Do not restate the rules here.
 - Output: `Box close-out: <N> ticked, <K> kept open (of <C> built-not-ticked boxes)`. Silent if ∅candidates.
 

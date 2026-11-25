@@ -50,6 +50,8 @@ For each item with `expected_state == 'pending'`:
 - **target files exist** (and, if a symbol was named, the symbol is present)
   → verdict `divergence: doc says pending, code says implemented`.
 - **target files absent** → verdict `confirmed_pending` (no false-positive).
+- **target files exist, a symbol was named, Grep does not find it** → verdict
+  `confirmed_pending` (the item's own code is not there).
 
 ### 4. Unverifiable case
 
@@ -59,21 +61,29 @@ promise GREEN.
 
 ## Outputs
 
-Per-item: `{label, verdict, evidence}` where:
+Per-item: `{label, verdict, evidence, evidence_kind}` where:
 - `verdict` ∈ `divergence` | `confirmed_pending` | `unverifiable`
 - `evidence` ∈ matched path / symbol location / `"no-structured-targets"`
+- `evidence_kind` ∈ `symbol` (the item names a symbol and Grep found it,
+  evidence = `file:line`) | `path` (target file exists, nothing item-specific
+  was checked) | `none`. Only a `divergence` carries `symbol` or `path`;
+  `confirmed_pending` and `unverifiable` carry `none`.
 
 ## Caller responsibilities (not in helper)
 
 - mxOrchestrate Mode 5: `divergence` → STOP + ?user (same halt semantics as the
   doc-vs-doc "Both diverged" branch — never silently overwrite).
-- mxSave Step 3: all items `divergence` AND no `confirmed_pending` AND doc
+- mxSave Step 3: an item that asks for a test, a release, a user check or a
+  rollout step counts as `unverifiable` whatever the helper returned. All
+  items `divergence` AND no `confirmed_pending` AND doc
   `days_since_content_change` older than `MXSAVE_STALE_THRESHOLD_DAYS` env
-  (default 14) → tag `stale-suspect` + prompt user y/n/skip.
+  (default 14) → prompt user y/n/skip; the tag `stale-suspect` is set only
+  on `skip`, never before the answer.
   Use `days_since_content_change`, NOT `updated_at` (`updated_at` is bumped
   by any touch incl. access_count-on-read).
   Mixed doc (some `divergence`, the rest `confirmed_pending`/`unverifiable`)
-  → no archive prompt; the `divergence` boxes become tick candidates per
+  → no archive prompt; only its `divergence` boxes with
+  `evidence_kind = symbol` become tick candidates per
   `~/.claude/skills/_shared/backlog-hygiene.md` "Box close-out".
 
 ## doc_type applicability
