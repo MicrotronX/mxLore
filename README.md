@@ -1,6 +1,6 @@
 # mxLore
 
-Self-hosted MCP server for AI-assisted software development. Stores architectural decisions, specs, plans, findings, and lessons learned — accessed via [Model Context Protocol](https://modelcontextprotocol.io/) tools from AI coding assistants. Works with claude.ai, Claude Code, Cursor, Windsurf, and any MCP client.
+Self-hosted MCP server that gives AI coding agents a persistent project memory. Stores architectural decisions, specs, plans, findings, and lessons learned — accessed via [Model Context Protocol](https://modelcontextprotocol.io/) tools from AI coding assistants. Works with claude.ai, Claude Code, Cursor, Windsurf, and any MCP client.
 
 > **New here?** Check out the **[product overview at mxlore.dev](https://www.mxlore.dev)** first — see what mxLore does, how it compares, and why your AI assistant needs a memory.
 
@@ -13,6 +13,9 @@ Self-hosted MCP server for AI-assisted software development. Stores architectura
 - **Institutional Memory** — lessons learned with recall, gate levels, graph-based knowledge links
 - **Multi-Agent** — agents exchange messages across projects via inboxes, and an assistant that is *waiting* gets woken the moment a message lands: no polling loop in the conversation, no token cost while idle, and messages no longer sit unread until someone happens to type ([details](#agent-wakeup))
 - **Admin UI** — web dashboard for team members, keys, projects, intelligence metrics
+- **Knowledge Graph** — explore documents and their links in the Admin UI, as a 2D graph or a 3D view
+- **One-click self-update** — the Admin UI shows a banner when a new GitHub release is out and installs it for you
+- **Private projects & access audit** — mark a project private so even the admin bypass does not apply; every grant, change or revoke of project access lands in an append-only audit log
 - **Team Connect** — invite links with rate-limited landing page, one-click setup for Claude Code, claude.ai, Cursor, and more
 - **Semantic Search** — hybrid vector + full-text search (MariaDB 11.6+ with VECTOR support)
 - **AI Batch** — automatic summaries, tagging, stale detection at boot time
@@ -24,10 +27,11 @@ Self-hosted MCP server for AI-assisted software development. Stores architectura
 
 | Step | What | Details |
 |------|------|---------|
-| **1** | Install MariaDB | [mariadb.org/download](https://mariadb.org/download/) (Windows MSI) |
-| **2** | Create database | `mysql -u root -p -e "CREATE DATABASE mxai_knowledge CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"` |
-| **3** | Configure | `copy mxLoreMCP.ini.example mxLoreMCP.ini` — set `Password=` to your MariaDB root password |
-| **4** | Start | `mxLoreMCP.exe` — auto-detects MariaDB, creates schema, starts on port 8080 + 8081 |
+| **1** | Download the server | One ZIP from the [GitHub Releases page](https://github.com/MicrotronX/mxLore/releases/latest) — unzip it into a folder of your choice |
+| **2** | Install MariaDB | [mariadb.org/download](https://mariadb.org/download/) (Windows MSI). Add MariaDB's `bin` folder (e.g. `C:\Program Files\MariaDB 12.3\bin`) to the **system** PATH — otherwise the server cannot load the MariaDB client library and aborts on boot ([details](docs/installation.md)) |
+| **3** | Create database | `mysql -u root -p -e "CREATE DATABASE mxai_knowledge CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"` |
+| **4** | Configure | `copy mxLoreMCP.ini.example mxLoreMCP.ini` — set `Password=` to your MariaDB root password |
+| **5** | Start | `mxLoreMCP.exe` — auto-detects MariaDB, creates schema, starts on port 8080 + 8081 |
 
 The console should show `Admin server listening on 127.0.0.1:8081`. **You're halfway there — don't stop.**
 
@@ -43,7 +47,7 @@ The console should show `Admin server listening on 127.0.0.1:8081`. **You're hal
    ```
    /mxSetup mxk_your_api_key_here
    ```
-   `mxSetup` downloads the 12 skills, installs the proxy, and writes your `.claude/settings.json`. Takes ~15 seconds.
+   `mxSetup` downloads the 13 skills, installs the proxy, and writes your `.claude/settings.json`. Takes ~15 seconds.
 5. **Verify the handshake** — ask Claude: *"ping the mxLore server"*. You should see `version: 2.4.0` come back.
 
 **That's it.** Your AI now has persistent memory across sessions.
@@ -121,11 +125,11 @@ Messages stay on the server until they are acknowledged, and `mx_agent_inbox` re
 - **Protocol:** MCP 2024-11-05 (JSON-RPC 2.0 over HTTP+SSE)
 - **Auth:** PBKDF2-HMAC-SHA256 API keys, per-project ACL
 - **Key convention:** one API key per machine — the key's name is the machine label. Documents record which developer *and* which machine created them (auth attribution).
-- **Units:** 65 Delphi units, dot-notation (`mx.*.pas`), 5 layers
+- **Units:** 70 Delphi units, dot-notation (`mx.*.pas`), 5 layers
 
 ## Skills
 
-12 Claude Code skills via [mxLore-skills](https://github.com/MicrotronX/mxLore-skills) (MIT licensed), listed in the order you typically use them:
+13 Claude Code skills via [mxLore-skills](https://github.com/MicrotronX/mxLore-skills) (MIT licensed), listed in the order you typically use them:
 
 | # | Skill | When you use it |
 |---|-------|-----------------|
@@ -141,6 +145,7 @@ Messages stay on the server until they are acknowledged, and `mx_agent_inbox` re
 | 10 | `/mxHealth` | Periodic consistency check on the knowledge DB and local docs. |
 | 11 | `/mxMigrateToDb` | One-time migration of legacy `docs/*.md` files into MCP. |
 | 12 | `/mxHelp` | Lists installed mx*-skills grouped by category, or explains one in detail. |
+| 13 | `/mxKnowledge` | Retrieves (or creates) the knowledge dossier for a reusable component, tool or third-party library from the knowledge DB. |
 
 Install all at once: run `/mxSetup` in Claude Code.
 
